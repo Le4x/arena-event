@@ -1,0 +1,34 @@
+{
+  "name": "arena-event",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Professional live quiz/blind test platform - Multi-session event management",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "db:generate": "cd apps/api && npm run db:generate",
+    "db:migrate": "cd apps/api && npm run db:migrate",
+    "db:studio": "cd apps/api && npm run db:studio",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+  "devDependencies": {
+    "prettier": "^3.1.1",
+    "turbo": "^1.11.3",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "packageManager": "npm@9.8.1"
+}
