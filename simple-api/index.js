@@ -874,6 +874,246 @@ io.on('connection', (socket) => {
 });
 
 // ============================================
+// PUBLIC ROUTES (no auth required)
+// ============================================
+
+// Public: Get sessions by status (for Studio/Screen)
+app.get('/sessions', async (req, res) => {
+  try {
+    const { status } = req.query;
+    const where = status ? { status } : { status: { not: 'COMPLETED' } };
+
+    const sessions = await prisma.session.findMany({
+      where,
+      include: {
+        event: { select: { id: true, name: true, description: true } },
+        teams: { select: { id: true, name: true, color: true, score: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(sessions);
+  } catch (error) {
+    console.error('Get public sessions error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Join session by code (for Player)
+app.post('/sessions/join', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'Session code is required' });
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { code: code.toUpperCase() },
+      include: {
+        event: { select: { id: true, name: true, description: true } },
+        teams: { select: { id: true, name: true, color: true, score: true } }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.status === 'COMPLETED') {
+      return res.status(400).json({ error: 'Session has ended' });
+    }
+
+    res.json({ session });
+  } catch (error) {
+    console.error('Join session error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Create team in session (for Player)
+app.post('/sessions/:sessionId/teams', async (req, res) => {
+  try {
+    const { name, color } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Team name is required' });
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { id: req.params.sessionId }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const team = await prisma.team.create({
+      data: {
+        name,
+        color: color || '#8B5CF6',
+        sessionId: req.params.sessionId,
+        score: 0
+      }
+    });
+
+    io.to(`session:${session.id}`).emit('team-joined', { team });
+
+    res.json(team);
+  } catch (error) {
+    console.error('Create team error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Get rounds for event (for Studio)
+app.get('/events/:eventId/rounds', async (req, res) => {
+  try {
+    const rounds = await prisma.round.findMany({
+      where: { eventId: req.params.eventId },
+      orderBy: { order: 'asc' }
+    });
+    res.json(rounds);
+  } catch (error) {
+    console.error('Get rounds error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Get questions for round (for Studio)
+app.get('/rounds/:roundId/questions', async (req, res) => {
+  try {
+    const questions = await prisma.question.findMany({
+      where: { roundId: req.params.roundId },
+      orderBy: { order: 'asc' }
+    });
+    res.json(questions);
+  } catch (error) {
+    console.error('Get questions error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Submit answer (for Player)
+app.post('/sessions/:sessionId/answers', async (req, res) => {
+  try {
+    const { teamId, questionId, answer, responseTime } = req.body;
+
+    const question = await prisma.question.findUnique({
+      where: { id: questionId }
+    });
+
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const isCorrect = answer === question.correctAnswer;
+    const timeBonus = Math.max(0, Math.round((1 - (responseTime / 1000) / question.timeLimit) * question.points * 0.5));
+    const points = isCorrect ? question.points + timeBonus : 0;
+
+    if (isCorrect) {
+      await prisma.team.update({
+        where: { id: teamId },
+        data: { score: { increment: points } }
+      });
+    }
+
+    const answerRecord = await prisma.answer.create({
+      data: {
+        teamId,
+        questionId,
+        answer,
+        isCorrect,
+        points,
+        timeToAnswer: Math.round(responseTime / 1000)
+      }
+    });
+
+    io.to(`session:${req.params.sessionId}`).emit('answer-submitted', {
+      teamId,
+      questionId,
+      answer,
+      isCorrect,
+      points
+    });
+
+    res.json({ success: true, isCorrect, points });
+  } catch (error) {
+    console.error('Submit answer error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Update team score (for Studio)
+app.put('/sessions/:sessionId/teams/:teamId/score', async (req, res) => {
+  try {
+    const { score } = req.body;
+
+    const team = await prisma.team.update({
+      where: { id: req.params.teamId },
+      data: { score }
+    });
+
+    io.to(`session:${req.params.sessionId}`).emit('score-update', {
+      teamId: req.params.teamId,
+      newScore: score
+    });
+
+    res.json({ success: true, team });
+  } catch (error) {
+    console.error('Update score error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Get session answers (for Studio)
+app.get('/sessions/:sessionId/answers', async (req, res) => {
+  try {
+    const answers = await prisma.answer.findMany({
+      where: { team: { sessionId: req.params.sessionId } },
+      include: { team: true }
+    });
+    res.json(answers);
+  } catch (error) {
+    console.error('Get answers error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Set current question (for Studio)
+app.post('/sessions/:sessionId/question', async (req, res) => {
+  try {
+    const { questionId, roundId } = req.body;
+
+    await prisma.session.update({
+      where: { id: req.params.sessionId },
+      data: { currentQuestionId: questionId, currentRoundId: roundId }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Set question error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: End session (for Studio)
+app.post('/sessions/:sessionId/end', async (req, res) => {
+  try {
+    const session = await prisma.session.update({
+      where: { id: req.params.sessionId },
+      data: { status: 'COMPLETED' }
+    });
+
+    io.to(`session:${session.id}`).emit('session-end', {});
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('End session error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
 // START SERVER
 // ============================================
 

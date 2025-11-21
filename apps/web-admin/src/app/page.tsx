@@ -116,11 +116,18 @@ export default function Home() {
     try {
       const res = await apiCall('/api/events');
       if (res.ok) {
-        const data = await res.json();
-        setEvents(data.events || []);
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setEvents(data.events || []);
+        } catch (parseError) {
+          console.error('Failed to parse events response:', text);
+          setEvents([]);
+        }
       }
     } catch (err) {
       console.error('Load events error:', err);
+      setEvents([]);
     }
   };
 
@@ -128,11 +135,18 @@ export default function Home() {
     try {
       const res = await apiCall('/api/sessions');
       if (res.ok) {
-        const data = await res.json();
-        setSessions(data.sessions || []);
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setSessions(data.sessions || []);
+        } catch (parseError) {
+          console.error('Failed to parse sessions response:', text);
+          setSessions([]);
+        }
       }
     } catch (err) {
       console.error('Load sessions error:', err);
+      setSessions([]);
     }
   };
 
@@ -140,8 +154,13 @@ export default function Home() {
     try {
       const res = await apiCall(`/api/events/${eventId}`);
       if (res.ok) {
-        const data = await res.json();
-        setSelectedEvent(data.event);
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setSelectedEvent(data.event);
+        } catch (parseError) {
+          console.error('Failed to parse event details response:', text);
+        }
       }
     } catch (err) {
       console.error('Load event details error:', err);
