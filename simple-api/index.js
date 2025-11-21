@@ -1424,6 +1424,84 @@ app.post('/sessions/:sessionId/teams', async (req, res) => {
   }
 });
 
+// Public: Get all events
+app.get('/events', async (req, res) => {
+  try {
+    const events = await prisma.event.findMany({
+      include: { rounds: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(events);
+  } catch (error) {
+    console.error('Get events error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Get single event
+app.get('/events/:id', async (req, res) => {
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      include: {
+        rounds: {
+          include: { questions: { orderBy: { order: 'asc' } } },
+          orderBy: { order: 'asc' }
+        }
+      }
+    });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    res.json(event);
+  } catch (error) {
+    console.error('Get event error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Create event (for testing)
+app.post('/events', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    // Use a default owner for public creation
+    let defaultUser = await prisma.user.findFirst();
+    if (!defaultUser) {
+      defaultUser = await prisma.user.create({
+        data: {
+          email: 'admin@arena-event.com',
+          password: await bcrypt.hash('admin123', 10),
+          role: 'ORGANIZER'
+        }
+      });
+    }
+    const event = await prisma.event.create({
+      data: { name, description, ownerId: defaultUser.id }
+    });
+    res.status(201).json(event);
+  } catch (error) {
+    console.error('Create event error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Create round for event
+app.post('/events/:eventId/rounds', async (req, res) => {
+  try {
+    const { name, description, order } = req.body;
+    const round = await prisma.round.create({
+      data: {
+        eventId: req.params.eventId,
+        name,
+        description,
+        order: order || 1
+      }
+    });
+    res.status(201).json(round);
+  } catch (error) {
+    console.error('Create round error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Public: Get rounds for event (for Studio)
 app.get('/events/:eventId/rounds', async (req, res) => {
   try {
