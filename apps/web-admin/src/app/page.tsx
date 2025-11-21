@@ -619,13 +619,29 @@ export default function Home() {
                         {round.questions?.map((question, qIndex) => (
                           <div key={question.id} className="bg-gray-700/50 rounded-lg p-4 flex items-center justify-between">
                             <div className="flex items-center space-x-4">
-                              <span className="bg-purple-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold">
-                                {qIndex + 1}
+                              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                                question.type === 'BLIND_TEST' ? 'bg-purple-600' :
+                                question.type === 'BUZZER' ? 'bg-red-600' :
+                                question.type === 'IMAGE' ? 'bg-blue-600' :
+                                question.type === 'TRUE_FALSE' ? 'bg-yellow-600' :
+                                'bg-green-600'
+                              } text-white`}>
+                                {question.type === 'BLIND_TEST' ? '🎵' :
+                                 question.type === 'BUZZER' ? '🔔' :
+                                 question.type === 'IMAGE' ? '🖼️' :
+                                 question.type === 'TRUE_FALSE' ? '⚖️' :
+                                 qIndex + 1}
                               </span>
                               <div>
-                                <p className="text-white font-medium">{question.text}</p>
+                                <p className="text-white font-medium flex items-center gap-2">
+                                  {question.text}
+                                  {question.mediaUrl && <span className="text-purple-400 text-xs bg-purple-500/20 px-2 py-0.5 rounded">📎 media</span>}
+                                </p>
                                 <p className="text-gray-400 text-sm">
-                                  {question.type} • {question.points} pts • {question.timeLimit}s
+                                  {question.type === 'BLIND_TEST' ? 'Blindtest' :
+                                   question.type === 'TRUE_FALSE' ? 'Vrai/Faux' :
+                                   question.type === 'IMAGE' ? 'Image' :
+                                   question.type === 'BUZZER' ? 'Buzzer' : 'QCM'} • {question.points} pts • {question.timeLimit}s
                                 </p>
                               </div>
                             </div>
@@ -772,6 +788,7 @@ export default function Home() {
                     <option value="TRUE_FALSE">True/False</option>
                     <option value="BUZZER">Buzzer</option>
                     <option value="BLIND_TEST">Blindtest Musical</option>
+                    <option value="IMAGE">Image</option>
                   </select>
                 </div>
                 <div>
@@ -864,6 +881,68 @@ export default function Home() {
                     className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white"
                     placeholder="The expected answer..."
                   />
+                </div>
+              )}
+              {questionForm.type === 'IMAGE' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Image File</label>
+                    <div className="flex items-center space-x-4">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setUploadingAudio(true);
+                          const reader = new FileReader();
+                          reader.onloadend = async () => {
+                            const base64 = reader.result as string;
+                            const res = await fetch(`${API_URL}/api/upload`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ filename: file.name, data: base64, type: 'images' }),
+                            });
+                            const data = await res.json();
+                            if (res.ok) setQuestionForm(prev => ({ ...prev, mediaUrl: data.url }));
+                            setUploadingAudio(false);
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                        className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer"
+                      />
+                      {uploadingAudio && <span className="text-blue-400">Uploading...</span>}
+                    </div>
+                    {questionForm.mediaUrl && (
+                      <div className="mt-2 p-3 bg-gray-700/50 rounded-lg">
+                        <p className="text-green-400 text-sm mb-2">Image uploaded!</p>
+                        <img src={questionForm.mediaUrl} alt="Preview" className="max-h-48 rounded-lg" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {['A', 'B', 'C', 'D'].map((letter, i) => (
+                      <div key={letter}>
+                        <label className="block text-sm text-gray-300 mb-2">Option {letter}</label>
+                        <input type="text" value={questionForm.options[i]}
+                          onChange={(e) => {
+                            const newOptions = [...questionForm.options];
+                            newOptions[i] = e.target.value;
+                            setQuestionForm({ ...questionForm, options: newOptions });
+                          }}
+                          className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Correct Answer</label>
+                    <select value={questionForm.correctAnswer} onChange={(e) => setQuestionForm({ ...questionForm, correctAnswer: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white">
+                      {['A', 'B', 'C', 'D'].map((letter) => (
+                        <option key={letter} value={letter}>{letter}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
             </div>

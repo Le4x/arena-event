@@ -477,6 +477,12 @@ export default function StudioHome() {
 
     setIsAudioPlaying(true);
 
+    // Auto-open buzzer when music starts
+    if (buzzerLocked) {
+      setBuzzerLocked(false);
+      socketRef.current?.emit('buzzer-open', { sessionId: selectedSession?.id });
+    }
+
     // Play locally for preview
     if (audioRef.current) {
       audioRef.current.play();
