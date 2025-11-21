@@ -81,6 +81,8 @@ export default function Home() {
   const [questionForm, setQuestionForm] = useState({
     text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30
   });
+  const [modalError, setModalError] = useState('');
+  const [modalLoading, setModalLoading] = useState(false);
 
   // Check auth on mount
   useEffect(() => {
@@ -200,28 +202,47 @@ export default function Home() {
   };
 
   const createEvent = async () => {
+    if (!eventForm.name.trim()) {
+      setModalError('Event name is required');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
     try {
       const res = await apiCall('/api/events', {
         method: 'POST',
         body: JSON.stringify(eventForm),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setShowEventModal(false);
         setEventForm({ name: '', description: '' });
         loadEvents();
+      } else {
+        setModalError(data.error || `Failed to create event (${res.status})`);
       }
     } catch (err) {
       console.error('Create event error:', err);
+      setModalError('Network error - check if API is running');
+    } finally {
+      setModalLoading(false);
     }
   };
 
   const updateEvent = async () => {
     if (!editingEvent) return;
+    if (!eventForm.name.trim()) {
+      setModalError('Event name is required');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
     try {
       const res = await apiCall(`/api/events/${editingEvent.id}`, {
         method: 'PUT',
         body: JSON.stringify(eventForm),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setShowEventModal(false);
         setEditingEvent(null);
@@ -230,9 +251,14 @@ export default function Home() {
         if (selectedEvent?.id === editingEvent.id) {
           loadEventDetails(editingEvent.id);
         }
+      } else {
+        setModalError(data.error || `Failed to update event (${res.status})`);
       }
     } catch (err) {
       console.error('Update event error:', err);
+      setModalError('Network error - check if API is running');
+    } finally {
+      setModalLoading(false);
     }
   };
 
@@ -655,6 +681,11 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md">
             <h3 className="text-2xl font-bold text-white mb-6">{editingEvent ? 'Edit Event' : 'Create Event'}</h3>
+            {modalError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+                <p className="text-red-200 text-sm">{modalError}</p>
+              </div>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm text-gray-300 mb-2">Event Name</label>
@@ -670,11 +701,11 @@ export default function Home() {
               </div>
             </div>
             <div className="flex space-x-4 mt-6">
-              <button onClick={() => { setShowEventModal(false); setEditingEvent(null); }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition">Cancel</button>
+              <button onClick={() => { setShowEventModal(false); setEditingEvent(null); setModalError(''); }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition" disabled={modalLoading}>Cancel</button>
               <button onClick={editingEvent ? updateEvent : createEvent}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl transition">
-                {editingEvent ? 'Save Changes' : 'Create Event'}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl transition disabled:opacity-50" disabled={modalLoading}>
+                {modalLoading ? 'Saving...' : (editingEvent ? 'Save Changes' : 'Create Event')}
               </button>
             </div>
           </div>

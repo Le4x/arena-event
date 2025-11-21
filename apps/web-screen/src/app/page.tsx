@@ -234,17 +234,24 @@ export default function ScreenHome() {
               <p className="text-6xl mb-4">📭</p>
               <p className="text-2xl text-purple-300">No active sessions</p>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setLoadingSessions(true);
-                  fetch(`${API_URL}/sessions?status=ACTIVE`)
-                    .then(res => res.json())
-                    .then(data => {
-                      setSessions(data);
-                      return fetch(`${API_URL}/sessions?status=WAITING`);
-                    })
-                    .then(res => res.json())
-                    .then(data => setSessions(prev => [...prev, ...data]))
-                    .finally(() => setLoadingSessions(false));
+                  try {
+                    const [res1, res2] = await Promise.all([
+                      fetch(`${API_URL}/sessions?status=ACTIVE`),
+                      fetch(`${API_URL}/sessions?status=WAITING`)
+                    ]);
+                    const data1 = res1.ok ? await res1.json() : [];
+                    const data2 = res2.ok ? await res2.json() : [];
+                    const sessions1 = Array.isArray(data1) ? data1 : [];
+                    const sessions2 = Array.isArray(data2) ? data2 : [];
+                    setSessions([...sessions1, ...sessions2]);
+                  } catch (error) {
+                    console.error('Failed to fetch sessions:', error);
+                    setSessions([]);
+                  } finally {
+                    setLoadingSessions(false);
+                  }
                 }}
                 className="mt-6 bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl text-xl"
               >
