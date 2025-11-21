@@ -1,179 +1,396 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 const API_URL = 'http://91.134.135.247:3001';
 
-interface Team {
+interface Event {
   id: string;
   name: string;
-  score: number;
-  isConnected: boolean;
-  buzzerTime?: number;
-  lastAnswer?: string;
+  description?: string;
+}
+
+interface Round {
+  id: string;
+  name: string;
+  orderIndex: number;
+  questions: Question[];
 }
 
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'TEXT';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN';
   options?: string[];
   correctAnswer?: string;
   points: number;
   timeLimit: number;
+  mediaUrl?: string;
 }
 
-type GameStatus = 'LOBBY' | 'QUESTION' | 'BUZZER_OPEN' | 'REVEAL' | 'LEADERBOARD' | 'PAUSED' | 'FINISHED';
+interface Team {
+  id: string;
+  name: string;
+  color: string;
+  score: number;
+  isConnected?: boolean;
+  lastAnswer?: string;
+  buzzerTime?: number;
+}
+
+interface Session {
+  id: string;
+  code: string;
+  status: string;
+  currentQuestionId?: string;
+  currentRoundId?: string;
+  event: Event;
+  teams: Team[];
+}
+
+interface Answer {
+  id: string;
+  teamId: string;
+  questionId: string;
+  answer: string;
+  isCorrect: boolean;
+  responseTime: number;
+  points: number;
+  team?: Team;
+}
+
+type GameStatus = 'LOBBY' | 'PLAYING' | 'BUZZER_OPEN' | 'REVEAL' | 'LEADERBOARD' | 'PAUSED' | 'FINISHED';
 
 export default function StudioHome() {
-  // Session state
-  const [sessionCode, setSessionCode] = useState('XK7M2P');
+  // Socket connection
+  const socketRef = useRef<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Session selection
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+
+  // Game state
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [gameStatus, setGameStatus] = useState<GameStatus>('LOBBY');
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [answers, setAnswers] = useState<Answer[]>([]);
+
+  // Timer
   const [timeRemaining, setTimeRemaining] = useState(30);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Teams state
-  const [teams, setTeams] = useState<Team[]>([
-    { id: '1', name: 'Les Champions', score: 850, isConnected: true, lastAnswer: 'A' },
-    { id: '2', name: 'Quiz Masters', score: 720, isConnected: true, lastAnswer: 'B' },
-    { id: '3', name: 'Brain Storm', score: 680, isConnected: true, lastAnswer: 'A' },
-    { id: '4', name: 'Les Genies', score: 540, isConnected: false },
-    { id: '5', name: 'Team Rocket', score: 490, isConnected: true, lastAnswer: 'C' },
-  ]);
-
-  // Question state
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [questions] = useState<Question[]>([
-    {
-      id: '1',
-      text: 'Quelle est la capitale de la France ?',
-      type: 'MCQ',
-      options: ['Lyon', 'Paris', 'Marseille', 'Bordeaux'],
-      correctAnswer: 'B',
-      points: 100,
-      timeLimit: 30,
-    },
-    {
-      id: '2',
-      text: 'Le soleil se leve a l\'ouest.',
-      type: 'TRUE_FALSE',
-      correctAnswer: 'FALSE',
-      points: 100,
-      timeLimit: 20,
-    },
-    {
-      id: '3',
-      text: 'Quel est le plus grand ocean du monde ?',
-      type: 'BUZZER',
-      correctAnswer: 'Pacifique',
-      points: 200,
-      timeLimit: 60,
-    },
-  ]);
-
-  // Buzzer state
+  // Buzzer
   const [buzzerWinner, setBuzzerWinner] = useState<Team | null>(null);
-  const [buzzerLocked, setBuzzerLocked] = useState(false);
-  const [buzzerQueue, setBuzzerQueue] = useState<Team[]>([]);
+  const [buzzerQueue, setBuzzerQueue] = useState<{team: Team, time: number}[]>([]);
+  const [buzzerLocked, setBuzzerLocked] = useState(true);
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [scoreAdjustment, setScoreAdjustment] = useState(0);
+  const [showEndModal, setShowEndModal] = useState(false);
+
+  // Fetch active sessions
+  useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        const res = await fetch(`${API_URL}/sessions?status=ACTIVE`);
+        if (res.ok) {
+          const data = await res.json();
+          setSessions(data);
+        }
+        // Also fetch waiting sessions
+        const res2 = await fetch(`${API_URL}/sessions?status=WAITING`);
+        if (res2.ok) {
+          const data2 = await res2.json();
+          setSessions(prev => [...prev, ...data2]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sessions:', error);
+      } finally {
+        setLoadingSessions(false);
+      }
+    };
+    fetchSessions();
+  }, []);
+
+  // Socket connection
+  useEffect(() => {
+    if (!selectedSession) return;
+
+    const socket = io(API_URL, {
+      transports: ['websocket', 'polling'],
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      socket.emit('join-session', { sessionId: selectedSession.id, role: 'studio' });
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    // Listen for team events
+    socket.on('team-joined', (data) => {
+      setTeams(prev => {
+        const exists = prev.find(t => t.id === data.team.id);
+        if (exists) {
+          return prev.map(t => t.id === data.team.id ? { ...t, isConnected: true } : t);
+        }
+        return [...prev, { ...data.team, isConnected: true }];
+      });
+    });
+
+    socket.on('team-left', (data) => {
+      setTeams(prev => prev.map(t =>
+        t.id === data.teamId ? { ...t, isConnected: false } : t
+      ));
+    });
+
+    // Listen for answers
+    socket.on('answer-submitted', (data) => {
+      setAnswers(prev => [...prev, data]);
+      setTeams(prev => prev.map(t =>
+        t.id === data.teamId ? { ...t, lastAnswer: data.answer } : t
+      ));
+    });
+
+    // Listen for buzzer
+    socket.on('buzzer-pressed', (data) => {
+      if (!buzzerLocked) {
+        setBuzzerQueue(prev => [...prev, { team: data.team, time: data.timestamp }]);
+        if (!buzzerWinner) {
+          setBuzzerWinner(data.team);
+        }
+      }
+    });
+
+    // Listen for score updates
+    socket.on('score-updated', (data) => {
+      setTeams(prev => prev.map(t =>
+        t.id === data.teamId ? { ...t, score: data.newScore } : t
+      ));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [selectedSession, buzzerLocked, buzzerWinner]);
+
+  // Load session data
+  const loadSessionData = useCallback(async (session: Session) => {
+    setSelectedSession(session);
+    setTeams(session.teams.map(t => ({ ...t, isConnected: false })));
+
+    // Fetch rounds with questions
+    try {
+      const res = await fetch(`${API_URL}/events/${session.event.id}/rounds`);
+      if (res.ok) {
+        const roundsData = await res.json();
+        // Fetch questions for each round
+        const roundsWithQuestions = await Promise.all(
+          roundsData.map(async (round: Round) => {
+            const qRes = await fetch(`${API_URL}/rounds/${round.id}/questions`);
+            const questions = qRes.ok ? await qRes.json() : [];
+            return { ...round, questions };
+          })
+        );
+        setRounds(roundsWithQuestions.sort((a, b) => a.orderIndex - b.orderIndex));
+      }
+    } catch (error) {
+      console.error('Failed to load rounds:', error);
+    }
+
+    // Fetch existing answers
+    try {
+      const res = await fetch(`${API_URL}/sessions/${session.id}/answers`);
+      if (res.ok) {
+        const answersData = await res.json();
+        setAnswers(answersData);
+      }
+    } catch (error) {
+      console.error('Failed to load answers:', error);
+    }
+  }, []);
 
   // Timer effect
   useEffect(() => {
-    let interval: NodeJS.Timeout;
     if (isTimerRunning && timeRemaining > 0) {
-      interval = setInterval(() => {
-        setTimeRemaining((prev) => {
+      timerRef.current = setInterval(() => {
+        setTimeRemaining(prev => {
           if (prev <= 1) {
             setIsTimerRunning(false);
+            handleTimerEnd();
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
     }
-    return () => clearInterval(interval);
-  }, [isTimerRunning, timeRemaining]);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isTimerRunning]);
 
-  const currentQuestion = questions[currentQuestionIndex];
+  const handleTimerEnd = () => {
+    if (socketRef.current && selectedSession) {
+      socketRef.current.emit('timer-end', { sessionId: selectedSession.id });
+    }
+  };
+
+  // Current question and round
+  const currentRound = rounds[currentRoundIndex];
+  const currentQuestion = currentRound?.questions?.[currentQuestionIndex];
+  const totalQuestions = rounds.reduce((sum, r) => sum + (r.questions?.length || 0), 0);
+  const currentQuestionNumber = rounds.slice(0, currentRoundIndex).reduce((sum, r) => sum + (r.questions?.length || 0), 0) + currentQuestionIndex + 1;
 
   // Game controls
-  const startQuestion = () => {
-    setGameStatus('QUESTION');
-    setTimeRemaining(currentQuestion?.timeLimit || 30);
+  const startQuestion = async () => {
+    if (!currentQuestion || !selectedSession) return;
+
+    setGameStatus('PLAYING');
+    setTimeRemaining(currentQuestion.timeLimit || 30);
     setIsTimerRunning(true);
     setBuzzerWinner(null);
-    setBuzzerLocked(false);
     setBuzzerQueue([]);
+    setBuzzerLocked(currentQuestion.type !== 'BUZZER');
+    setAnswers(prev => prev.filter(a => a.questionId !== currentQuestion.id));
+    setTeams(prev => prev.map(t => ({ ...t, lastAnswer: undefined })));
+
+    // Emit to socket
+    socketRef.current?.emit('question-start', {
+      sessionId: selectedSession.id,
+      question: currentQuestion,
+      timeLimit: currentQuestion.timeLimit,
+    });
+
+    // Update session state on server
+    try {
+      await fetch(`${API_URL}/sessions/${selectedSession.id}/question`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          questionId: currentQuestion.id,
+          roundId: currentRound.id,
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to update question:', error);
+    }
   };
 
   const pauseGame = () => {
     setIsTimerRunning(false);
     setGameStatus('PAUSED');
+    socketRef.current?.emit('game-paused', { sessionId: selectedSession?.id });
   };
 
   const resumeGame = () => {
     setIsTimerRunning(true);
-    setGameStatus('QUESTION');
+    setGameStatus('PLAYING');
+    socketRef.current?.emit('game-resumed', { sessionId: selectedSession?.id });
   };
 
   const endQuestion = () => {
     setIsTimerRunning(false);
     setGameStatus('REVEAL');
+    socketRef.current?.emit('question-end', {
+      sessionId: selectedSession?.id,
+      questionId: currentQuestion?.id,
+      correctAnswer: currentQuestion?.correctAnswer,
+    });
   };
 
   const showLeaderboard = () => {
     setGameStatus('LEADERBOARD');
+    socketRef.current?.emit('show-leaderboard', {
+      sessionId: selectedSession?.id,
+      teams: [...teams].sort((a, b) => b.score - a.score),
+    });
   };
 
   const nextQuestion = () => {
-    if (currentQuestionIndex < questions.length - 1) {
+    if (!currentRound) return;
+
+    if (currentQuestionIndex < currentRound.questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
-      setGameStatus('LOBBY');
-      setTimeRemaining(questions[currentQuestionIndex + 1]?.timeLimit || 30);
+    } else if (currentRoundIndex < rounds.length - 1) {
+      setCurrentRoundIndex(currentRoundIndex + 1);
+      setCurrentQuestionIndex(0);
     }
+    setGameStatus('LOBBY');
+    setTimeRemaining(30);
+    setBuzzerWinner(null);
+    setBuzzerQueue([]);
   };
 
   const prevQuestion = () => {
     if (currentQuestionIndex > 0) {
       setCurrentQuestionIndex(currentQuestionIndex - 1);
-      setGameStatus('LOBBY');
+    } else if (currentRoundIndex > 0) {
+      setCurrentRoundIndex(currentRoundIndex - 1);
+      const prevRound = rounds[currentRoundIndex - 1];
+      setCurrentQuestionIndex(prevRound.questions.length - 1);
     }
+    setGameStatus('LOBBY');
   };
 
+  // Buzzer controls
   const openBuzzer = () => {
-    setGameStatus('BUZZER_OPEN');
     setBuzzerLocked(false);
     setBuzzerWinner(null);
     setBuzzerQueue([]);
+    setGameStatus('BUZZER_OPEN');
+    socketRef.current?.emit('buzzer-open', { sessionId: selectedSession?.id });
   };
 
   const lockBuzzer = () => {
     setBuzzerLocked(true);
+    socketRef.current?.emit('buzzer-lock', { sessionId: selectedSession?.id });
   };
 
   const resetBuzzer = () => {
     setBuzzerWinner(null);
-    setBuzzerLocked(false);
     setBuzzerQueue([]);
-  };
-
-  // Simulate buzzer press (for demo)
-  const simulateBuzzer = (team: Team) => {
-    if (!buzzerLocked && !buzzerWinner) {
-      setBuzzerWinner(team);
-      setBuzzerQueue([...buzzerQueue, team]);
-    }
+    setBuzzerLocked(false);
+    socketRef.current?.emit('buzzer-reset', { sessionId: selectedSession?.id });
   };
 
   // Score management
-  const adjustScore = (team: Team, points: number) => {
-    setTeams(teams.map(t =>
-      t.id === team.id ? { ...t, score: Math.max(0, t.score + points) } : t
+  const adjustScore = async (team: Team, points: number) => {
+    const newScore = Math.max(0, team.score + points);
+    setTeams(prev => prev.map(t =>
+      t.id === team.id ? { ...t, score: newScore } : t
     ));
+
+    // Update on server
+    try {
+      await fetch(`${API_URL}/sessions/${selectedSession?.id}/teams/${team.id}/score`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: newScore }),
+      });
+    } catch (error) {
+      console.error('Failed to update score:', error);
+    }
+
+    socketRef.current?.emit('score-update', {
+      sessionId: selectedSession?.id,
+      teamId: team.id,
+      newScore,
+    });
+  };
+
+  const markCorrect = (team: Team) => {
+    adjustScore(team, currentQuestion?.points || 100);
   };
 
   const openScoreModal = (team: Team) => {
@@ -189,16 +406,142 @@ export default function StudioHome() {
     }
   };
 
-  const markCorrect = (team: Team) => {
-    adjustScore(team, currentQuestion?.points || 100);
+  // End session
+  const endSession = async () => {
+    if (!selectedSession) return;
+
+    try {
+      await fetch(`${API_URL}/sessions/${selectedSession.id}/end`, {
+        method: 'POST',
+      });
+      socketRef.current?.emit('session-end', { sessionId: selectedSession.id });
+      setGameStatus('FINISHED');
+      setShowEndModal(false);
+    } catch (error) {
+      console.error('Failed to end session:', error);
+    }
   };
 
-  const markWrong = (team: Team) => {
-    // Optionally deduct points
-  };
-
-  // Sorted teams by score
+  // Sorted teams
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+  const connectedTeams = teams.filter(t => t.isConnected);
+
+  // Answer stats for current question
+  const getAnswerStats = () => {
+    if (!currentQuestion) return {};
+    const questionAnswers = answers.filter(a => a.questionId === currentQuestion.id);
+    const stats: Record<string, number> = {};
+
+    if (currentQuestion.type === 'MCQ' && currentQuestion.options) {
+      currentQuestion.options.forEach((_, idx) => {
+        const letter = String.fromCharCode(65 + idx);
+        stats[letter] = questionAnswers.filter(a => a.answer === letter).length;
+      });
+    } else if (currentQuestion.type === 'TRUE_FALSE') {
+      stats['TRUE'] = questionAnswers.filter(a => a.answer === 'TRUE').length;
+      stats['FALSE'] = questionAnswers.filter(a => a.answer === 'FALSE').length;
+    }
+
+    return stats;
+  };
+
+  const answerStats = getAnswerStats();
+
+  // Session selection screen
+  if (!selectedSession) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white">
+        <div className="container mx-auto px-6 py-12">
+          <div className="text-center mb-12">
+            <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+              Arena Event Studio
+            </h1>
+            <p className="text-xl text-gray-400">Game Master Control Panel</p>
+          </div>
+
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-2xl font-semibold mb-6 text-center">Select a Session</h2>
+
+            {loadingSessions ? (
+              <div className="text-center py-12">
+                <div className="animate-spin w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                <p className="text-gray-400">Loading sessions...</p>
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="text-center py-12 bg-gray-800/50 rounded-2xl">
+                <p className="text-6xl mb-4">📭</p>
+                <p className="text-xl text-gray-400 mb-4">No active sessions found</p>
+                <p className="text-gray-500">Create a session in the Admin Dashboard first</p>
+                <a
+                  href="http://91.134.135.247:3000"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-6 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition"
+                >
+                  Go to Admin Dashboard
+                </a>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {sessions.map(session => (
+                  <button
+                    key={session.id}
+                    onClick={() => loadSessionData(session)}
+                    className="bg-gray-800/80 hover:bg-gray-700/80 border border-gray-700 hover:border-purple-500 rounded-2xl p-6 text-left transition group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-2xl font-bold group-hover:text-purple-400 transition">
+                          {session.event.name}
+                        </h3>
+                        <p className="text-gray-400 mt-1">{session.event.description}</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 rounded-xl">
+                          <p className="text-xs text-purple-200">Code</p>
+                          <p className="text-2xl font-mono font-bold">{session.code}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6 mt-4 text-sm">
+                      <span className={`px-3 py-1 rounded-full ${
+                        session.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                      }`}>
+                        {session.status}
+                      </span>
+                      <span className="text-gray-400">
+                        {session.teams.length} team{session.teams.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-8 text-center">
+              <button
+                onClick={() => {
+                  setLoadingSessions(true);
+                  fetch(`${API_URL}/sessions?status=ACTIVE`)
+                    .then(res => res.json())
+                    .then(data => {
+                      setSessions(data);
+                      return fetch(`${API_URL}/sessions?status=WAITING`);
+                    })
+                    .then(res => res.json())
+                    .then(data => setSessions(prev => [...prev, ...data]))
+                    .finally(() => setLoadingSessions(false));
+                }}
+                className="text-purple-400 hover:text-purple-300 transition"
+              >
+                Refresh Sessions
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -206,24 +549,38 @@ export default function StudioHome() {
       <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <span className="text-3xl">🎮</span>
+            <button
+              onClick={() => setSelectedSession(null)}
+              className="text-gray-400 hover:text-white transition"
+            >
+              ← Back
+            </button>
+            <div className="h-6 w-px bg-gray-700"></div>
             <div>
-              <h1 className="text-2xl font-bold">Arena Event Studio</h1>
-              <p className="text-gray-400 text-sm">Game Master Control Panel</p>
+              <h1 className="text-xl font-bold">{selectedSession.event.name}</h1>
+              <p className="text-gray-400 text-sm">Studio Control</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-6">
+            {/* Connection Status */}
+            <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${
+              isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+              <span className="text-sm">{isConnected ? 'Connected' : 'Disconnected'}</span>
+            </div>
+
             {/* Session Code */}
             <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl">
-              <p className="text-xs text-purple-200">Session Code</p>
-              <p className="text-2xl font-mono font-bold tracking-widest">{sessionCode}</p>
+              <p className="text-xs text-purple-200">Code</p>
+              <p className="text-2xl font-mono font-bold tracking-widest">{selectedSession.code}</p>
             </div>
 
             {/* Status */}
             <div className={`px-4 py-2 rounded-full font-semibold ${
               gameStatus === 'LOBBY' ? 'bg-yellow-500/20 text-yellow-400' :
-              gameStatus === 'QUESTION' ? 'bg-green-500/20 text-green-400' :
+              gameStatus === 'PLAYING' ? 'bg-green-500/20 text-green-400' :
               gameStatus === 'BUZZER_OPEN' ? 'bg-red-500/20 text-red-400 animate-pulse' :
               gameStatus === 'REVEAL' ? 'bg-blue-500/20 text-blue-400' :
               gameStatus === 'LEADERBOARD' ? 'bg-purple-500/20 text-purple-400' :
@@ -235,363 +592,399 @@ export default function StudioHome() {
 
             {/* Connected Teams */}
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-400">{teams.filter(t => t.isConnected).length}</p>
-              <p className="text-xs text-gray-400">Teams Online</p>
+              <p className="text-2xl font-bold text-green-400">{connectedTeams.length}</p>
+              <p className="text-xs text-gray-400">Online</p>
             </div>
+
+            {/* End Session Button */}
+            <button
+              onClick={() => setShowEndModal(true)}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition"
+            >
+              End Session
+            </button>
           </div>
         </div>
       </header>
 
       <div className="flex">
         {/* Left Sidebar - Teams */}
-        <aside className="w-80 bg-gray-800 border-r border-gray-700 h-[calc(100vh-80px)] overflow-y-auto">
+        <aside className="w-80 bg-gray-800 border-r border-gray-700 h-[calc(100vh-76px)] overflow-y-auto">
           <div className="p-4">
             <h2 className="text-lg font-semibold mb-4 flex items-center">
               <span className="mr-2">👥</span> Teams ({teams.length})
             </h2>
 
-            <div className="space-y-2">
-              {sortedTeams.map((team, index) => (
-                <div
-                  key={team.id}
-                  className={`bg-gray-700/50 rounded-lg p-3 transition cursor-pointer hover:bg-gray-700 ${
-                    buzzerWinner?.id === team.id ? 'ring-2 ring-red-500 bg-red-500/20' : ''
-                  }`}
-                  onClick={() => openScoreModal(team)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                        index === 0 ? 'bg-yellow-500 text-black' :
-                        index === 1 ? 'bg-gray-400 text-black' :
-                        index === 2 ? 'bg-orange-600 text-white' :
-                        'bg-gray-600 text-white'
-                      }`}>
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="font-medium">{team.name}</p>
-                        <p className="text-xs text-gray-400">
-                          {team.isConnected ? (
-                            <span className="text-green-400">● Online</span>
-                          ) : (
-                            <span className="text-red-400">● Offline</span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xl font-bold text-purple-400">{team.score}</p>
-                      {team.lastAnswer && gameStatus !== 'LOBBY' && (
-                        <p className="text-xs text-gray-400">Rep: {team.lastAnswer}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Quick score buttons */}
-                  <div className="flex space-x-2 mt-2">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); markCorrect(team); }}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition"
-                    >
-                      +{currentQuestion?.points || 100}
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); adjustScore(team, -50); }}
-                      className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1 px-2 rounded transition"
-                    >
-                      -50
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          {/* Timer & Question Navigation */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={prevQuestion}
-                disabled={currentQuestionIndex === 0}
-                className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white p-3 rounded-lg transition"
-              >
-                ◀
-              </button>
-              <div className="text-center">
-                <p className="text-sm text-gray-400">Question</p>
-                <p className="text-2xl font-bold">{currentQuestionIndex + 1} / {questions.length}</p>
+            {teams.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <p className="text-4xl mb-2">⏳</p>
+                <p>Waiting for teams...</p>
+                <p className="text-sm mt-2">Share code: {selectedSession.code}</p>
               </div>
-              <button
-                onClick={nextQuestion}
-                disabled={currentQuestionIndex === questions.length - 1}
-                className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white p-3 rounded-lg transition"
-              >
-                ▶
-              </button>
-            </div>
-
-            {/* Timer */}
-            <div className={`text-center px-8 py-4 rounded-2xl ${
-              timeRemaining <= 5 ? 'bg-red-500/20 animate-pulse' :
-              timeRemaining <= 10 ? 'bg-yellow-500/20' :
-              'bg-gray-800'
-            }`}>
-              <p className="text-sm text-gray-400">Time Remaining</p>
-              <p className={`text-5xl font-mono font-bold ${
-                timeRemaining <= 5 ? 'text-red-400' :
-                timeRemaining <= 10 ? 'text-yellow-400' :
-                'text-white'
-              }`}>
-                {timeRemaining}s
-              </p>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setTimeRemaining(t => Math.max(0, t - 10))}
-                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
-              >
-                -10s
-              </button>
-              <button
-                onClick={() => setTimeRemaining(t => t + 10)}
-                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
-              >
-                +10s
-              </button>
-            </div>
-          </div>
-
-          {/* Current Question Preview */}
-          <div className="bg-gray-800 rounded-xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                currentQuestion?.type === 'MCQ' ? 'bg-blue-500/20 text-blue-400' :
-                currentQuestion?.type === 'TRUE_FALSE' ? 'bg-green-500/20 text-green-400' :
-                currentQuestion?.type === 'BUZZER' ? 'bg-red-500/20 text-red-400' :
-                'bg-purple-500/20 text-purple-400'
-              }`}>
-                {currentQuestion?.type}
-              </span>
-              <span className="text-purple-400 font-bold">{currentQuestion?.points} pts</span>
-            </div>
-
-            <h2 className="text-2xl font-semibold mb-4">{currentQuestion?.text}</h2>
-
-            {currentQuestion?.type === 'MCQ' && currentQuestion.options && (
-              <div className="grid grid-cols-2 gap-3">
-                {currentQuestion.options.map((option, idx) => (
+            ) : (
+              <div className="space-y-2">
+                {sortedTeams.map((team, index) => (
                   <div
-                    key={idx}
-                    className={`p-4 rounded-lg border-2 transition ${
-                      gameStatus === 'REVEAL' && String.fromCharCode(65 + idx) === currentQuestion.correctAnswer
-                        ? 'border-green-500 bg-green-500/20'
-                        : 'border-gray-600 bg-gray-700/50'
+                    key={team.id}
+                    onClick={() => openScoreModal(team)}
+                    className={`bg-gray-700/50 rounded-lg p-3 transition cursor-pointer hover:bg-gray-700 ${
+                      buzzerWinner?.id === team.id ? 'ring-2 ring-red-500 bg-red-500/20' : ''
                     }`}
                   >
-                    <span className="inline-block w-8 h-8 rounded-full bg-gray-600 text-center leading-8 mr-3 font-bold">
-                      {String.fromCharCode(65 + idx)}
-                    </span>
-                    {option}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm text-white"
+                          style={{ backgroundColor: team.color || (index === 0 ? '#EAB308' : index === 1 ? '#9CA3AF' : index === 2 ? '#EA580C' : '#4B5563') }}
+                        >
+                          {index + 1}
+                        </div>
+                        <div>
+                          <p className="font-medium">{team.name}</p>
+                          <p className="text-xs">
+                            {team.isConnected ? (
+                              <span className="text-green-400">● Online</span>
+                            ) : (
+                              <span className="text-red-400">● Offline</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-bold text-purple-400">{team.score}</p>
+                        {team.lastAnswer && gameStatus !== 'LOBBY' && (
+                          <p className="text-xs text-gray-400">Ans: {team.lastAnswer}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex space-x-2 mt-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); markCorrect(team); }}
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition"
+                      >
+                        +{currentQuestion?.points || 100}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); adjustScore(team, -50); }}
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1 px-2 rounded transition"
+                      >
+                        -50
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-
-            {currentQuestion?.type === 'TRUE_FALSE' && (
-              <div className="flex space-x-4">
-                <div className={`flex-1 p-6 rounded-lg border-2 text-center text-xl font-bold ${
-                  gameStatus === 'REVEAL' && currentQuestion.correctAnswer === 'TRUE'
-                    ? 'border-green-500 bg-green-500/20 text-green-400'
-                    : 'border-gray-600 bg-gray-700/50'
-                }`}>
-                  VRAI
-                </div>
-                <div className={`flex-1 p-6 rounded-lg border-2 text-center text-xl font-bold ${
-                  gameStatus === 'REVEAL' && currentQuestion.correctAnswer === 'FALSE'
-                    ? 'border-green-500 bg-green-500/20 text-green-400'
-                    : 'border-gray-600 bg-gray-700/50'
-                }`}>
-                  FAUX
-                </div>
-              </div>
-            )}
-
-            {currentQuestion?.type === 'BUZZER' && (
-              <div className="text-center py-8">
-                <p className="text-gray-400 mb-4">Reponse attendue:</p>
-                <p className={`text-3xl font-bold ${gameStatus === 'REVEAL' ? 'text-green-400' : 'text-gray-500 blur-sm hover:blur-none transition-all'}`}>
-                  {currentQuestion.correctAnswer}
-                </p>
-              </div>
-            )}
           </div>
+        </aside>
 
-          {/* Main Control Buttons */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <button
-              onClick={startQuestion}
-              disabled={gameStatus === 'QUESTION'}
-              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
-            >
-              <span className="text-2xl block mb-1">▶️</span>
-              Start Question
-            </button>
-
-            {gameStatus === 'PAUSED' ? (
-              <button
-                onClick={resumeGame}
-                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+        {/* Main Content */}
+        <main className="flex-1 p-6 overflow-y-auto h-[calc(100vh-76px)]">
+          {/* No questions warning */}
+          {rounds.length === 0 || !currentRound?.questions?.length ? (
+            <div className="text-center py-20">
+              <p className="text-6xl mb-4">📋</p>
+              <h2 className="text-2xl font-bold mb-4">No Questions Found</h2>
+              <p className="text-gray-400 mb-6">Add questions to this event in the Admin Dashboard</p>
+              <a
+                href="http://91.134.135.247:3000"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition"
               >
-                <span className="text-2xl block mb-1">▶️</span>
-                Resume
-              </button>
-            ) : (
-              <button
-                onClick={pauseGame}
-                disabled={gameStatus === 'LOBBY'}
-                className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
-              >
-                <span className="text-2xl block mb-1">⏸️</span>
-                Pause
-              </button>
-            )}
-
-            <button
-              onClick={endQuestion}
-              disabled={gameStatus === 'LOBBY'}
-              className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
-            >
-              <span className="text-2xl block mb-1">⏹️</span>
-              End & Reveal
-            </button>
-
-            <button
-              onClick={showLeaderboard}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
-            >
-              <span className="text-2xl block mb-1">🏆</span>
-              Leaderboard
-            </button>
-          </div>
-
-          {/* Buzzer Controls */}
-          {currentQuestion?.type === 'BUZZER' && (
-            <div className="bg-gray-800 rounded-xl p-6 mb-6">
-              <h3 className="text-xl font-semibold mb-4 flex items-center">
-                <span className="mr-2">🔔</span> Buzzer Control
-              </h3>
-
-              <div className="flex items-center space-x-4 mb-4">
-                <button
-                  onClick={openBuzzer}
-                  disabled={gameStatus === 'BUZZER_OPEN'}
-                  className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition"
-                >
-                  Open Buzzer
-                </button>
-                <button
-                  onClick={lockBuzzer}
-                  disabled={buzzerLocked}
-                  className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition"
-                >
-                  Lock Buzzer
-                </button>
-                <button
-                  onClick={resetBuzzer}
-                  className="flex-1 bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white font-bold py-4 px-6 rounded-xl transition"
-                >
-                  Reset Buzzer
-                </button>
-              </div>
-
-              {/* Buzzer Winner Display */}
-              {buzzerWinner && (
-                <div className="bg-red-500/20 border-2 border-red-500 rounded-xl p-6 text-center animate-pulse">
-                  <p className="text-red-400 text-lg mb-2">BUZZER!</p>
-                  <p className="text-4xl font-bold text-white">{buzzerWinner.name}</p>
-                  <div className="flex justify-center space-x-4 mt-4">
+                Go to Admin Dashboard
+              </a>
+            </div>
+          ) : (
+            <>
+              {/* Round Navigation */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center space-x-2">
+                  {rounds.map((round, idx) => (
                     <button
-                      onClick={() => { markCorrect(buzzerWinner); resetBuzzer(); }}
-                      className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg"
+                      key={round.id}
+                      onClick={() => {
+                        setCurrentRoundIndex(idx);
+                        setCurrentQuestionIndex(0);
+                        setGameStatus('LOBBY');
+                      }}
+                      className={`px-4 py-2 rounded-lg transition ${
+                        idx === currentRoundIndex
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                      }`}
                     >
-                      ✓ Correct (+{currentQuestion?.points})
-                    </button>
-                    <button
-                      onClick={() => { markWrong(buzzerWinner); resetBuzzer(); }}
-                      className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg"
-                    >
-                      ✗ Wrong
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Demo Buzzer Simulation */}
-              <div className="mt-4 pt-4 border-t border-gray-700">
-                <p className="text-sm text-gray-400 mb-2">Demo: Simulate buzzer press</p>
-                <div className="flex flex-wrap gap-2">
-                  {teams.filter(t => t.isConnected).map(team => (
-                    <button
-                      key={team.id}
-                      onClick={() => simulateBuzzer(team)}
-                      disabled={buzzerLocked || buzzerWinner !== null}
-                      className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm py-1 px-3 rounded transition"
-                    >
-                      {team.name}
+                      {round.name}
                     </button>
                   ))}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Answer Statistics */}
-          {gameStatus !== 'LOBBY' && currentQuestion?.type === 'MCQ' && (
-            <div className="bg-gray-800 rounded-xl p-6">
-              <h3 className="text-xl font-semibold mb-4">Answer Distribution</h3>
-              <div className="space-y-3">
-                {currentQuestion.options?.map((option, idx) => {
-                  const letter = String.fromCharCode(65 + idx);
-                  const count = teams.filter(t => t.lastAnswer === letter).length;
-                  const percentage = teams.length > 0 ? (count / teams.length) * 100 : 0;
-                  const isCorrect = letter === currentQuestion.correctAnswer;
+              {/* Timer & Question Navigation */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={prevQuestion}
+                    disabled={currentRoundIndex === 0 && currentQuestionIndex === 0}
+                    className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white p-3 rounded-lg transition"
+                  >
+                    ◀
+                  </button>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-400">Question</p>
+                    <p className="text-2xl font-bold">{currentQuestionNumber} / {totalQuestions}</p>
+                  </div>
+                  <button
+                    onClick={nextQuestion}
+                    disabled={currentRoundIndex === rounds.length - 1 && currentQuestionIndex === currentRound.questions.length - 1}
+                    className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white p-3 rounded-lg transition"
+                  >
+                    ▶
+                  </button>
+                </div>
 
-                  return (
-                    <div key={idx} className="flex items-center space-x-4">
-                      <span className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                        isCorrect && gameStatus === 'REVEAL' ? 'bg-green-500' : 'bg-gray-600'
-                      }`}>
-                        {letter}
-                      </span>
-                      <div className="flex-1">
-                        <div className="flex justify-between text-sm mb-1">
-                          <span>{option}</span>
-                          <span>{count} ({percentage.toFixed(0)}%)</span>
+                {/* Timer */}
+                <div className={`text-center px-8 py-4 rounded-2xl ${
+                  timeRemaining <= 5 ? 'bg-red-500/20 animate-pulse' :
+                  timeRemaining <= 10 ? 'bg-yellow-500/20' :
+                  'bg-gray-800'
+                }`}>
+                  <p className="text-sm text-gray-400">Time</p>
+                  <p className={`text-5xl font-mono font-bold ${
+                    timeRemaining <= 5 ? 'text-red-400' :
+                    timeRemaining <= 10 ? 'text-yellow-400' :
+                    'text-white'
+                  }`}>
+                    {timeRemaining}s
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setTimeRemaining(t => Math.max(0, t - 10))}
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+                  >
+                    -10s
+                  </button>
+                  <button
+                    onClick={() => setTimeRemaining(t => t + 10)}
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+                  >
+                    +10s
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Question */}
+              <div className="bg-gray-800 rounded-xl p-6 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    currentQuestion?.type === 'MCQ' ? 'bg-blue-500/20 text-blue-400' :
+                    currentQuestion?.type === 'TRUE_FALSE' ? 'bg-green-500/20 text-green-400' :
+                    currentQuestion?.type === 'BUZZER' ? 'bg-red-500/20 text-red-400' :
+                    'bg-purple-500/20 text-purple-400'
+                  }`}>
+                    {currentQuestion?.type}
+                  </span>
+                  <span className="text-purple-400 font-bold">{currentQuestion?.points} pts</span>
+                </div>
+
+                <h2 className="text-2xl font-semibold mb-4">{currentQuestion?.text}</h2>
+
+                {currentQuestion?.mediaUrl && (
+                  <div className="mb-4">
+                    <img src={currentQuestion.mediaUrl} alt="Question media" className="max-w-full h-auto rounded-lg" />
+                  </div>
+                )}
+
+                {currentQuestion?.type === 'MCQ' && currentQuestion.options && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {currentQuestion.options.map((option, idx) => {
+                      const letter = String.fromCharCode(65 + idx);
+                      const isCorrect = letter === currentQuestion.correctAnswer;
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-lg border-2 transition ${
+                            gameStatus === 'REVEAL' && isCorrect
+                              ? 'border-green-500 bg-green-500/20'
+                              : 'border-gray-600 bg-gray-700/50'
+                          }`}
+                        >
+                          <span className="inline-block w-8 h-8 rounded-full bg-gray-600 text-center leading-8 mr-3 font-bold">
+                            {letter}
+                          </span>
+                          {option}
+                          {gameStatus !== 'LOBBY' && (
+                            <span className="float-right text-gray-400">
+                              {answerStats[letter] || 0}
+                            </span>
+                          )}
                         </div>
-                        <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-500 ${
-                              isCorrect && gameStatus === 'REVEAL' ? 'bg-green-500' : 'bg-purple-500'
-                            }`}
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {currentQuestion?.type === 'TRUE_FALSE' && (
+                  <div className="flex space-x-4">
+                    <div className={`flex-1 p-6 rounded-lg border-2 text-center text-xl font-bold ${
+                      gameStatus === 'REVEAL' && currentQuestion.correctAnswer === 'TRUE'
+                        ? 'border-green-500 bg-green-500/20 text-green-400'
+                        : 'border-gray-600 bg-gray-700/50'
+                    }`}>
+                      VRAI
+                      {gameStatus !== 'LOBBY' && (
+                        <span className="block text-sm text-gray-400 mt-2">
+                          {answerStats['TRUE'] || 0} responses
+                        </span>
+                      )}
+                    </div>
+                    <div className={`flex-1 p-6 rounded-lg border-2 text-center text-xl font-bold ${
+                      gameStatus === 'REVEAL' && currentQuestion.correctAnswer === 'FALSE'
+                        ? 'border-green-500 bg-green-500/20 text-green-400'
+                        : 'border-gray-600 bg-gray-700/50'
+                    }`}>
+                      FAUX
+                      {gameStatus !== 'LOBBY' && (
+                        <span className="block text-sm text-gray-400 mt-2">
+                          {answerStats['FALSE'] || 0} responses
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {(currentQuestion?.type === 'BUZZER' || currentQuestion?.type === 'OPEN') && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400 mb-4">Expected answer:</p>
+                    <p className={`text-3xl font-bold ${
+                      gameStatus === 'REVEAL' ? 'text-green-400' : 'text-gray-500 blur-sm hover:blur-none transition-all cursor-pointer'
+                    }`}>
+                      {currentQuestion.correctAnswer}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Main Controls */}
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <button
+                  onClick={startQuestion}
+                  disabled={gameStatus === 'PLAYING' || gameStatus === 'BUZZER_OPEN'}
+                  className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                >
+                  <span className="text-2xl block mb-1">▶️</span>
+                  Start
+                </button>
+
+                {gameStatus === 'PAUSED' ? (
+                  <button
+                    onClick={resumeGame}
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                  >
+                    <span className="text-2xl block mb-1">▶️</span>
+                    Resume
+                  </button>
+                ) : (
+                  <button
+                    onClick={pauseGame}
+                    disabled={gameStatus === 'LOBBY' || gameStatus === 'REVEAL' || gameStatus === 'LEADERBOARD'}
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                  >
+                    <span className="text-2xl block mb-1">⏸️</span>
+                    Pause
+                  </button>
+                )}
+
+                <button
+                  onClick={endQuestion}
+                  disabled={gameStatus === 'LOBBY' || gameStatus === 'REVEAL' || gameStatus === 'LEADERBOARD'}
+                  className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                >
+                  <span className="text-2xl block mb-1">⏹️</span>
+                  Reveal
+                </button>
+
+                <button
+                  onClick={showLeaderboard}
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                >
+                  <span className="text-2xl block mb-1">🏆</span>
+                  Leaderboard
+                </button>
+              </div>
+
+              {/* Buzzer Controls */}
+              {(currentQuestion?.type === 'BUZZER' || currentQuestion?.type === 'OPEN') && (
+                <div className="bg-gray-800 rounded-xl p-6 mb-6">
+                  <h3 className="text-xl font-semibold mb-4">🔔 Buzzer Control</h3>
+
+                  <div className="flex items-center space-x-4 mb-4">
+                    <button
+                      onClick={openBuzzer}
+                      disabled={!buzzerLocked}
+                      className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition"
+                    >
+                      Open Buzzer
+                    </button>
+                    <button
+                      onClick={lockBuzzer}
+                      disabled={buzzerLocked}
+                      className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition"
+                    >
+                      Lock Buzzer
+                    </button>
+                    <button
+                      onClick={resetBuzzer}
+                      className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-4 rounded-xl transition"
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  {buzzerWinner && (
+                    <div className="bg-red-500/20 border-2 border-red-500 rounded-xl p-6 text-center animate-pulse">
+                      <p className="text-red-400 text-lg mb-2">🔔 BUZZER!</p>
+                      <p className="text-4xl font-bold text-white">{buzzerWinner.name}</p>
+                      <div className="flex justify-center space-x-4 mt-4">
+                        <button
+                          onClick={() => { markCorrect(buzzerWinner); resetBuzzer(); }}
+                          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg"
+                        >
+                          ✓ Correct (+{currentQuestion?.points})
+                        </button>
+                        <button
+                          onClick={resetBuzzer}
+                          className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg"
+                        >
+                          ✗ Wrong
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                  )}
+
+                  {buzzerQueue.length > 1 && (
+                    <div className="mt-4">
+                      <p className="text-sm text-gray-400 mb-2">Buzzer Queue:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {buzzerQueue.map((item, idx) => (
+                          <span key={idx} className="bg-gray-700 px-3 py-1 rounded text-sm">
+                            {idx + 1}. {item.team.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </main>
 
-        {/* Right Sidebar - Quick Stats */}
-        <aside className="w-64 bg-gray-800 border-l border-gray-700 p-4">
+        {/* Right Sidebar */}
+        <aside className="w-64 bg-gray-800 border-l border-gray-700 p-4 h-[calc(100vh-76px)] overflow-y-auto">
           <h3 className="text-lg font-semibold mb-4">Quick Links</h3>
 
           <div className="space-y-3">
@@ -601,7 +994,7 @@ export default function StudioHome() {
               rel="noopener noreferrer"
               className="block bg-blue-600 hover:bg-blue-700 text-white text-center py-3 px-4 rounded-lg transition"
             >
-              📺 Open Screen Display
+              📺 Screen Display
             </a>
             <a
               href="http://91.134.135.247:3003"
@@ -622,17 +1015,15 @@ export default function StudioHome() {
           </div>
 
           <div className="mt-6 pt-6 border-t border-gray-700">
-            <h3 className="text-lg font-semibold mb-4">Top 3</h3>
+            <h3 className="text-lg font-semibold mb-4">🏆 Top 3</h3>
             <div className="space-y-2">
               {sortedTeams.slice(0, 3).map((team, index) => (
                 <div key={team.id} className="flex items-center justify-between bg-gray-700/50 p-3 rounded-lg">
                   <div className="flex items-center space-x-2">
-                    <span className={`text-xl ${
-                      index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'
-                    }`}>
+                    <span className="text-xl">
                       {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
                     </span>
-                    <span className="font-medium truncate max-w-[100px]">{team.name}</span>
+                    <span className="font-medium truncate max-w-[80px]">{team.name}</span>
                   </div>
                   <span className="font-bold text-purple-400">{team.score}</span>
                 </div>
@@ -644,31 +1035,31 @@ export default function StudioHome() {
             <h3 className="text-lg font-semibold mb-4">Session Info</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-400">Total Teams</span>
+                <span className="text-gray-400">Teams</span>
                 <span className="font-medium">{teams.length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Online</span>
-                <span className="font-medium text-green-400">{teams.filter(t => t.isConnected).length}</span>
+                <span className="font-medium text-green-400">{connectedTeams.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Rounds</span>
+                <span className="font-medium">{rounds.length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Questions</span>
-                <span className="font-medium">{questions.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Current</span>
-                <span className="font-medium">{currentQuestionIndex + 1}</span>
+                <span className="font-medium">{totalQuestions}</span>
               </div>
             </div>
           </div>
         </aside>
       </div>
 
-      {/* Score Adjustment Modal */}
+      {/* Score Modal */}
       {showScoreModal && selectedTeam && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-xl font-bold text-white mb-4">Adjust Score</h3>
+            <h3 className="text-xl font-bold mb-4">Adjust Score</h3>
             <p className="text-gray-400 mb-4">{selectedTeam.name}</p>
 
             <div className="text-center mb-6">
@@ -711,23 +1102,48 @@ export default function StudioHome() {
 
             <div className="text-center mb-6">
               <p className="text-sm text-gray-400">New Score</p>
-              <p className="text-3xl font-bold text-white">
-                {Math.max(0, selectedTeam.score + scoreAdjustment)}
-              </p>
+              <p className="text-3xl font-bold">{Math.max(0, selectedTeam.score + scoreAdjustment)}</p>
             </div>
 
             <div className="flex space-x-4">
               <button
                 onClick={() => setShowScoreModal(false)}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl"
               >
                 Cancel
               </button>
               <button
                 onClick={applyScoreAdjustment}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl transition"
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl"
               >
                 Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* End Session Modal */}
+      {showEndModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-xl font-bold mb-4">End Session?</h3>
+            <p className="text-gray-400 mb-6">
+              This will end the current game session. All teams will be disconnected and final scores will be saved.
+            </p>
+
+            <div className="flex space-x-4">
+              <button
+                onClick={() => setShowEndModal(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={endSession}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl"
+              >
+                End Session
               </button>
             </div>
           </div>
