@@ -5,7 +5,44 @@ import { io, Socket } from 'socket.io-client';
 
 const API_URL = 'http://91.134.135.247:3001';
 
-type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST';
+type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'FINAL' | 'FINAL_LEADERBOARD';
+
+type JokerType = 'DOUBLE' | 'STEAL' | 'SHIELD';
+
+interface Finalist {
+  id: string;
+  teamId: string;
+  teamName: string;
+  initialScore: number;
+  finalScore: number;
+  position?: number;
+  isEliminated: boolean;
+  jokers: { type: JokerType; isUsed: boolean }[];
+}
+
+interface FinalMode {
+  id: string;
+  isActive: boolean;
+  finalistCount: number;
+  currentQuestion: number;
+  totalQuestions: number;
+  finalists: Finalist[];
+}
+
+interface ActiveJoker {
+  teamId: string;
+  teamName: string;
+  jokerType: JokerType;
+  targetTeamId?: string;
+  targetTeamName?: string;
+}
+
+interface PodiumEntry {
+  position: number;
+  teamId: string;
+  teamName: string;
+  totalScore: number;
+}
 
 interface Team {
   id: string;
@@ -74,6 +111,11 @@ export default function ScreenHome() {
   const [revealedSong, setRevealedSong] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Final mode state
+  const [finalMode, setFinalMode] = useState<FinalMode | null>(null);
+  const [activeJokers, setActiveJokers] = useState<ActiveJoker[]>([]);
+  const [podium, setPodium] = useState<PodiumEntry[]>([]);
 
   // Fetch sessions
   useEffect(() => {
@@ -317,6 +359,49 @@ export default function ScreenHome() {
           audioRef.current.pause();
         }
       }
+    });
+
+    // ========== FINAL MODE EVENTS ==========
+
+    socket.on('final_started', (data) => {
+      setFinalMode(data.finalMode);
+      setDisplayMode('FINAL');
+    });
+
+    socket.on('final_state', (data) => {
+      if (data.finalMode) {
+        setFinalMode(data.finalMode);
+      }
+    });
+
+    socket.on('joker_activated', (data) => {
+      setActiveJokers(prev => [...prev, {
+        teamId: data.teamId,
+        teamName: data.teamName,
+        jokerType: data.jokerType,
+        targetTeamId: data.targetTeamId,
+        targetTeamName: data.targetTeamName,
+      }]);
+    });
+
+    socket.on('final_leaderboard', (data) => {
+      if (data.leaderboard) {
+        setFinalMode(prev => prev ? {
+          ...prev,
+          finalists: data.leaderboard,
+        } : null);
+        setDisplayMode('FINAL_LEADERBOARD');
+      }
+    });
+
+    socket.on('final_ended', (data) => {
+      setPodium(data.podium);
+      setDisplayMode('PODIUM');
+    });
+
+    socket.on('podium_revealed', (data) => {
+      setPodium(data.podium);
+      setDisplayMode('PODIUM');
     });
   };
 
@@ -822,68 +907,237 @@ export default function ScreenHome() {
     );
   }
 
-  // PODIUM
-  if (displayMode === 'PODIUM') {
-    const top3 = sortedTeams.slice(0, 3);
-
+  // FINAL MODE - Entry Screen
+  if (displayMode === 'FINAL' && finalMode) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-yellow-600 via-orange-600 to-red-600 flex flex-col items-center justify-center p-8">
-        <div className="text-center mb-16">
-          <h1 className="text-7xl font-black text-white mb-4">🏆 RESULTATS FINAUX 🏆</h1>
+      <main className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* Animated background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-r from-yellow-500/20 via-orange-500/20 to-red-500/20 rounded-full blur-3xl animate-pulse" />
         </div>
 
-        <div className="flex items-end justify-center gap-8">
-          {/* 2nd Place */}
-          {top3[1] && (
-            <div className="text-center">
-              <div className="text-6xl mb-4">🥈</div>
-              <div className="bg-gray-400 rounded-t-2xl w-52 h-44 flex flex-col items-center justify-center">
-                <div
-                  className="w-8 h-8 rounded-full mb-2"
-                  style={{ backgroundColor: top3[1].color }}
-                ></div>
-                <p className="text-2xl font-bold text-gray-800">{top3[1].name}</p>
-                <p className="text-3xl font-black text-gray-700">{top3[1].score}</p>
+        {/* Content */}
+        <div className="relative z-10 text-center">
+          <div className="text-[10rem] mb-4 animate-bounce">🏆</div>
+          <h1 className="text-8xl font-black bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 bg-clip-text text-transparent mb-4">
+            FINALE
+          </h1>
+          <p className="text-3xl text-purple-300 mb-12">Les {finalMode.finalistCount} meilleurs s'affrontent !</p>
+
+          {/* Finalists Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-5xl mx-auto mb-12">
+            {finalMode.finalists.map((finalist, idx) => (
+              <div
+                key={finalist.id}
+                className="bg-white/10 backdrop-blur border border-yellow-500/30 rounded-2xl p-6 transform hover:scale-105 transition"
+                style={{ animationDelay: `${idx * 0.1}s` }}
+              >
+                <div className={`text-4xl mb-2 ${idx === 0 ? 'animate-pulse' : ''}`}>
+                  {idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '⭐'}
+                </div>
+                <p className="text-xl font-bold text-white truncate">{finalist.teamName}</p>
+                <p className="text-purple-400 font-bold">{finalist.initialScore} pts</p>
+                <div className="flex justify-center gap-1 mt-2">
+                  {finalist.jokers.filter(j => !j.isUsed).map((joker, jIdx) => (
+                    <span key={jIdx} className="text-sm" title={joker.type}>
+                      {joker.type === 'DOUBLE' ? '2️' : joker.type === 'STEAL' ? '🏴‍☠️' : '🛡️'}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="bg-gray-500 w-52 h-8 rounded-b-lg"></div>
+            ))}
+          </div>
+
+          {/* Active Jokers */}
+          {activeJokers.length > 0 && (
+            <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-2xl p-6 max-w-2xl mx-auto">
+              <h3 className="text-yellow-400 font-bold text-xl mb-3">Jokers Actifs</h3>
+              {activeJokers.map((joker, idx) => (
+                <div key={idx} className="flex items-center justify-between py-2 border-b border-yellow-500/20 last:border-0">
+                  <span className="text-white font-bold">{joker.teamName}</span>
+                  <span className="px-3 py-1 bg-yellow-500/30 rounded-full text-yellow-300 font-bold">
+                    {joker.jokerType === 'DOUBLE' ? '2️ x2' : joker.jokerType === 'STEAL' ? `🏴‍☠️ → ${joker.targetTeamName}` : '🛡️ Shield'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  // FINAL LEADERBOARD
+  if (displayMode === 'FINAL_LEADERBOARD' && finalMode) {
+    const sortedFinalists = [...finalMode.finalists].sort((a, b) =>
+      (b.initialScore + b.finalScore) - (a.initialScore + a.finalScore)
+    );
+
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black p-8">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="text-7xl mb-4">🏆</div>
+            <h1 className="text-6xl font-black bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 bg-clip-text text-transparent">
+              CLASSEMENT FINALE
+            </h1>
+          </div>
+
+          <div className="space-y-4">
+            {sortedFinalists.map((finalist, index) => {
+              const totalScore = finalist.initialScore + finalist.finalScore;
+              const availableJokers = finalist.jokers.filter(j => !j.isUsed);
+              const usedJokers = finalist.jokers.filter(j => j.isUsed);
+
+              return (
+                <div
+                  key={finalist.id}
+                  className={`rounded-2xl p-6 flex items-center transition-all ${
+                    index < 3
+                      ? 'bg-gradient-to-r from-yellow-500/30 via-orange-500/30 to-red-500/30 border border-yellow-500/50'
+                      : 'bg-white/10'
+                  } ${finalist.isEliminated ? 'opacity-50' : ''}`}
+                >
+                  <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-3xl mr-6 ${
+                    index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-yellow-900' :
+                    index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-gray-800' :
+                    index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-orange-900' :
+                    'bg-gray-600 text-white'
+                  }`}>
+                    {index === 0 ? '👑' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                  </div>
+
+                  <div className="flex-1">
+                    <p className="text-3xl font-bold text-white">{finalist.teamName}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-sm text-gray-400">Base: {finalist.initialScore}</span>
+                      {finalist.finalScore !== 0 && (
+                        <span className={`text-sm font-bold ${finalist.finalScore > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {finalist.finalScore > 0 ? '+' : ''}{finalist.finalScore}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Jokers */}
+                  <div className="flex items-center gap-4 mr-6">
+                    <div className="flex gap-1">
+                      {availableJokers.map((j, jIdx) => (
+                        <span key={jIdx} className="text-2xl">
+                          {j.type === 'DOUBLE' ? '2️' : j.type === 'STEAL' ? '🏴‍☠️' : '🛡️'}
+                        </span>
+                      ))}
+                    </div>
+                    {usedJokers.length > 0 && (
+                      <div className="flex gap-1 opacity-40">
+                        {usedJokers.map((j, jIdx) => (
+                          <span key={jIdx} className="text-2xl line-through">
+                            {j.type === 'DOUBLE' ? '2️' : j.type === 'STEAL' ? '🏴‍☠️' : '🛡️'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-5xl font-black text-yellow-400">{totalScore}</p>
+                    <p className="text-yellow-600">points</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // PODIUM
+  if (displayMode === 'PODIUM') {
+    // Use podium data from final mode if available, otherwise use sorted teams
+    const podiumData = podium.length > 0
+      ? podium
+      : sortedTeams.slice(0, 3).map((t, i) => ({
+          position: i + 1,
+          teamId: t.id,
+          teamName: t.name,
+          totalScore: t.score
+        }));
+
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-yellow-600 via-orange-600 to-red-600 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* Confetti effect */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {[...Array(50)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-3 h-3 animate-bounce"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 2}s`,
+                animationDuration: `${1 + Math.random() * 2}s`,
+                backgroundColor: ['#FFD700', '#C0C0C0', '#CD7F32', '#FF69B4', '#00CED1'][Math.floor(Math.random() * 5)],
+                borderRadius: Math.random() > 0.5 ? '50%' : '0',
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="relative z-10 text-center mb-16">
+          <h1 className="text-8xl font-black text-white mb-4 animate-pulse">🏆 PODIUM 🏆</h1>
+          <p className="text-3xl text-white/80">Felicitations aux gagnants !</p>
+        </div>
+
+        <div className="relative z-10 flex items-end justify-center gap-8">
+          {/* 2nd Place */}
+          {podiumData[1] && (
+            <div className="text-center transform hover:scale-105 transition animate-fade-in" style={{ animationDelay: '0.5s' }}>
+              <div className="text-7xl mb-4">🥈</div>
+              <div className="bg-gradient-to-b from-gray-300 to-gray-500 rounded-t-3xl w-56 h-48 flex flex-col items-center justify-center shadow-2xl">
+                <p className="text-3xl font-bold text-gray-800">{podiumData[1].teamName}</p>
+                <p className="text-4xl font-black text-gray-700 mt-2">{podiumData[1].totalScore}</p>
+                <p className="text-gray-600">points</p>
+              </div>
+              <div className="bg-gray-600 w-56 h-10 rounded-b-lg flex items-center justify-center">
+                <span className="text-2xl font-black text-white">2</span>
+              </div>
             </div>
           )}
 
           {/* 1st Place */}
-          {top3[0] && (
-            <div className="text-center">
-              <div className="text-8xl mb-4 animate-bounce">🥇</div>
-              <div className="bg-yellow-400 rounded-t-2xl w-60 h-60 flex flex-col items-center justify-center">
-                <div
-                  className="w-10 h-10 rounded-full mb-2"
-                  style={{ backgroundColor: top3[0].color }}
-                ></div>
-                <p className="text-3xl font-bold text-yellow-900">{top3[0].name}</p>
-                <p className="text-5xl font-black text-yellow-800">{top3[0].score}</p>
+          {podiumData[0] && (
+            <div className="text-center transform hover:scale-105 transition" style={{ animationDelay: '0s' }}>
+              <div className="text-9xl mb-4 animate-bounce">👑</div>
+              <div className="bg-gradient-to-b from-yellow-300 to-yellow-500 rounded-t-3xl w-64 h-64 flex flex-col items-center justify-center shadow-2xl ring-4 ring-yellow-300">
+                <p className="text-4xl font-bold text-yellow-900">{podiumData[0].teamName}</p>
+                <p className="text-6xl font-black text-yellow-800 mt-2">{podiumData[0].totalScore}</p>
+                <p className="text-yellow-700">points</p>
               </div>
-              <div className="bg-yellow-600 w-60 h-8 rounded-b-lg"></div>
+              <div className="bg-yellow-600 w-64 h-10 rounded-b-lg flex items-center justify-center">
+                <span className="text-2xl font-black text-white">1</span>
+              </div>
             </div>
           )}
 
           {/* 3rd Place */}
-          {top3[2] && (
-            <div className="text-center">
-              <div className="text-5xl mb-4">🥉</div>
-              <div className="bg-orange-400 rounded-t-2xl w-48 h-36 flex flex-col items-center justify-center">
-                <div
-                  className="w-6 h-6 rounded-full mb-2"
-                  style={{ backgroundColor: top3[2].color }}
-                ></div>
-                <p className="text-xl font-bold text-orange-900">{top3[2].name}</p>
-                <p className="text-2xl font-black text-orange-800">{top3[2].score}</p>
+          {podiumData[2] && (
+            <div className="text-center transform hover:scale-105 transition animate-fade-in" style={{ animationDelay: '1s' }}>
+              <div className="text-6xl mb-4">🥉</div>
+              <div className="bg-gradient-to-b from-orange-300 to-orange-500 rounded-t-3xl w-52 h-40 flex flex-col items-center justify-center shadow-2xl">
+                <p className="text-2xl font-bold text-orange-900">{podiumData[2].teamName}</p>
+                <p className="text-3xl font-black text-orange-800 mt-2">{podiumData[2].totalScore}</p>
+                <p className="text-orange-700">points</p>
               </div>
-              <div className="bg-orange-600 w-48 h-8 rounded-b-lg"></div>
+              <div className="bg-orange-600 w-52 h-10 rounded-b-lg flex items-center justify-center">
+                <span className="text-2xl font-black text-white">3</span>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="mt-16 text-center">
-          <p className="text-3xl text-white/80">Merci d'avoir joue!</p>
+        <div className="relative z-10 mt-16 text-center">
+          <p className="text-3xl text-white/80">Merci d'avoir joue !</p>
           <p className="text-xl text-white/60 mt-2">Powered by Arena Event</p>
         </div>
 
@@ -893,8 +1147,10 @@ export default function ScreenHome() {
             setSelectedSession(null);
             setDisplayMode('SELECT');
             setTeams([]);
+            setFinalMode(null);
+            setPodium([]);
           }}
-          className="mt-12 bg-white text-orange-600 font-bold py-4 px-8 rounded-2xl text-xl"
+          className="relative z-10 mt-12 bg-white text-orange-600 font-bold py-4 px-8 rounded-2xl text-xl hover:bg-orange-100 transition"
         >
           Nouvelle Session
         </button>

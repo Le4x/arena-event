@@ -11,8 +11,10 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { GameService } from '../game/game.service';
+import { FinalModeService } from '../game/final-mode.service';
 import { TeamsService } from '../teams/teams.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { JokerType } from '@prisma/client';
 
 interface JoinSessionPayload {
   sessionId: string;
@@ -31,6 +33,20 @@ interface BuzzerPayload {
   teamId: string;
 }
 
+interface StartFinalPayload {
+  sessionId: string;
+  finalistCount: 2 | 4 | 6 | 8;
+  totalQuestions?: number;
+}
+
+interface ActivateJokerPayload {
+  sessionId: string;
+  teamId: string;
+  jokerType: JokerType;
+  questionId: string;
+  targetTeamId?: string;
+}
+
 @WebSocketGateway({
   cors: {
     origin: '*',
@@ -46,6 +62,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private roomsService: RoomsService,
     private gameService: GameService,
+    private finalModeService: FinalModeService,
     private teamsService: TeamsService,
     private sessionsService: SessionsService,
   ) {}
@@ -291,6 +308,201 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error) {
       this.logger.error('Error resetting buzzer:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  // ============================================
+  // FINAL MODE HANDLERS
+  // ============================================
+
+  /**
+   * GameMaster: Start final mode
+   */
+  @SubscribeMessage('start_final')
+  async handleStartFinal(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: StartFinalPayload,
+  ) {
+    try {
+      const finalMode = await this.finalModeService.startFinalMode(
+        payload.sessionId,
+        payload.finalistCount,
+        payload.totalQuestions || 5,
+      );
+
+      this.server.to(`session:${payload.sessionId}`).emit('final_started', {
+        finalMode,
+        message: `Final mode started with ${payload.finalistCount} finalists!`,
+      });
+
+      this.logger.log(
+        `Final mode started in session ${payload.sessionId} with ${payload.finalistCount} finalists`,
+      );
+    } catch (error) {
+      this.logger.error('Error starting final mode:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: Get final mode state
+   */
+  @SubscribeMessage('get_final_state')
+  async handleGetFinalState(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string },
+  ) {
+    try {
+      const finalMode = await this.finalModeService.getFinalMode(payload.sessionId);
+      client.emit('final_state', { finalMode });
+    } catch (error) {
+      this.logger.error('Error getting final state:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * Player: Activate a joker
+   */
+  @SubscribeMessage('activate_joker')
+  async handleActivateJoker(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: ActivateJokerPayload,
+  ) {
+    try {
+      const result = await this.finalModeService.activateJoker({
+        sessionId: payload.sessionId,
+        teamId: payload.teamId,
+        jokerType: payload.jokerType,
+        questionId: payload.questionId,
+        targetTeamId: payload.targetTeamId,
+      });
+
+      const team = await this.teamsService.findOne(payload.teamId);
+      let targetTeam = null;
+      if (payload.targetTeamId) {
+        targetTeam = await this.teamsService.findOne(payload.targetTeamId);
+      }
+
+      // Broadcast joker activation
+      this.server.to(`session:${payload.sessionId}`).emit('joker_activated', {
+        teamId: payload.teamId,
+        teamName: team.name,
+        jokerType: payload.jokerType,
+        questionId: payload.questionId,
+        targetTeamId: payload.targetTeamId,
+        targetTeamName: targetTeam?.name,
+      });
+
+      this.logger.log(
+        `Team ${team.name} activated ${payload.jokerType} joker${
+          targetTeam ? ` targeting ${targetTeam.name}` : ''
+        }`,
+      );
+    } catch (error) {
+      this.logger.error('Error activating joker:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: Get active jokers for current question
+   */
+  @SubscribeMessage('get_active_jokers')
+  async handleGetActiveJokers(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string; questionId: string },
+  ) {
+    try {
+      const activeJokers = await this.finalModeService.getActiveJokers(
+        payload.sessionId,
+        payload.questionId,
+      );
+      client.emit('active_jokers', { activeJokers });
+    } catch (error) {
+      this.logger.error('Error getting active jokers:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: Get final leaderboard
+   */
+  @SubscribeMessage('get_final_leaderboard')
+  async handleGetFinalLeaderboard(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string },
+  ) {
+    try {
+      const leaderboard = await this.finalModeService.getFinalLeaderboard(
+        payload.sessionId,
+      );
+
+      this.server.to(`session:${payload.sessionId}`).emit('final_leaderboard', {
+        leaderboard,
+      });
+    } catch (error) {
+      this.logger.error('Error getting final leaderboard:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: End final mode and show podium
+   */
+  @SubscribeMessage('end_final')
+  async handleEndFinal(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string },
+  ) {
+    try {
+      const podium = await this.finalModeService.endFinalMode(payload.sessionId);
+
+      this.server.to(`session:${payload.sessionId}`).emit('final_ended', {
+        podium,
+        message: 'Final mode completed!',
+      });
+
+      // Also emit podium reveal for dramatic effect
+      setTimeout(() => {
+        this.server.to(`session:${payload.sessionId}`).emit('podium_revealed', {
+          podium,
+        });
+      }, 1000);
+
+      this.logger.log(`Final mode ended in session ${payload.sessionId}`);
+    } catch (error) {
+      this.logger.error('Error ending final mode:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: Next question in final
+   */
+  @SubscribeMessage('next_final_question')
+  async handleNextFinalQuestion(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string },
+  ) {
+    try {
+      const result = await this.finalModeService.nextFinalQuestion(
+        payload.sessionId,
+      );
+
+      if (result.completed) {
+        // Auto-end final if all questions done
+        client.emit('final_questions_completed', {
+          message: 'All final questions completed!',
+        });
+      } else {
+        this.server.to(`session:${payload.sessionId}`).emit('final_question_advanced', {
+          currentQuestion: result.currentQuestion,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error advancing final question:', error);
       client.emit('error', { message: error.message });
     }
   }

@@ -5,7 +5,31 @@ import { io, Socket } from 'socket.io-client';
 
 const API_URL = 'http://91.134.135.247:3001';
 
-type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
+type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED' | 'FINAL';
+
+type JokerType = 'DOUBLE' | 'STEAL' | 'SHIELD';
+
+interface TeamJoker {
+  id: string;
+  type: JokerType;
+  isUsed: boolean;
+}
+
+interface Finalist {
+  id: string;
+  teamId: string;
+  teamName: string;
+  initialScore: number;
+  finalScore: number;
+  jokers: TeamJoker[];
+}
+
+interface FinalMode {
+  id: string;
+  isActive: boolean;
+  finalistCount: number;
+  finalists: Finalist[];
+}
 
 interface Question {
   id: string;
@@ -74,6 +98,15 @@ export default function PlayerHome() {
 
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState<Team[]>([]);
+
+  // Final mode state
+  const [finalMode, setFinalMode] = useState<FinalMode | null>(null);
+  const [myJokers, setMyJokers] = useState<TeamJoker[]>([]);
+  const [isFinalist, setIsFinalist] = useState(false);
+  const [showJokerModal, setShowJokerModal] = useState(false);
+  const [selectedJoker, setSelectedJoker] = useState<JokerType | null>(null);
+  const [stealTargets, setStealTargets] = useState<Finalist[]>([]);
+  const [selectedStealTarget, setSelectedStealTarget] = useState<string | null>(null);
 
   // Timer ref
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -335,6 +368,54 @@ export default function PlayerHome() {
       setRevealedSong(data.songTitle);
       setBuzzerOpen(false);
     });
+
+    // ========== FINAL MODE EVENTS ==========
+
+    socket.on('final_started', (data) => {
+      setFinalMode(data.finalMode);
+      // Check if this team is a finalist
+      const myFinalist = data.finalMode.finalists.find((f: Finalist) => f.teamId === teamId);
+      if (myFinalist) {
+        setIsFinalist(true);
+        setMyJokers(myFinalist.jokers);
+        setStealTargets(data.finalMode.finalists.filter((f: Finalist) => f.teamId !== teamId));
+      } else {
+        setIsFinalist(false);
+        setMyJokers([]);
+      }
+      setGameState('FINAL');
+    });
+
+    socket.on('final_state', (data) => {
+      if (data.finalMode) {
+        setFinalMode(data.finalMode);
+        const myFinalist = data.finalMode.finalists.find((f: Finalist) => f.teamId === teamId);
+        if (myFinalist) {
+          setIsFinalist(true);
+          setMyJokers(myFinalist.jokers);
+          setStealTargets(data.finalMode.finalists.filter((f: Finalist) => f.teamId !== teamId));
+        }
+      }
+    });
+
+    socket.on('joker_activated', (data) => {
+      // Update jokers if it was our team
+      if (data.teamId === teamId) {
+        setMyJokers(prev => prev.map(j =>
+          j.type === data.jokerType ? { ...j, isUsed: true } : j
+        ));
+      }
+    });
+
+    socket.on('final_ended', () => {
+      setGameState('FINISHED');
+      setFinalMode(null);
+      setIsFinalist(false);
+    });
+
+    socket.on('podium_revealed', () => {
+      setGameState('FINISHED');
+    });
   };
 
   // Timer is now server-side - no client-side interval needed
@@ -425,6 +506,35 @@ export default function PlayerHome() {
 
   // Team colors
   const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444'];
+
+  // Activate joker
+  const activateJoker = (jokerType: JokerType, targetTeamId?: string) => {
+    if (!session || !team || !currentQuestion) return;
+
+    socketRef.current?.emit('activate_joker', {
+      sessionId: session.id,
+      teamId: team.id,
+      jokerType,
+      questionId: currentQuestion.id,
+      targetTeamId,
+    });
+
+    setShowJokerModal(false);
+    setSelectedJoker(null);
+    setSelectedStealTarget(null);
+  };
+
+  // Get joker icon
+  const getJokerIcon = (type: JokerType) => {
+    switch (type) {
+      case 'DOUBLE': return '2x';
+      case 'STEAL': return '🏴‍☠️';
+      case 'SHIELD': return '🛡️';
+    }
+  };
+
+  // Get available jokers
+  const availableJokers = myJokers.filter(j => !j.isUsed);
 
   // JOIN SCREEN
   if (gameState === 'JOIN') {
@@ -991,6 +1101,165 @@ export default function PlayerHome() {
     );
   }
 
+  // FINAL MODE SCREEN
+  if (gameState === 'FINAL') {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        {/* Animated background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-gradient-to-r from-yellow-500/20 via-orange-500/20 to-red-500/20 rounded-full blur-3xl animate-pulse" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-md">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="text-6xl mb-4 animate-bounce">🏆</div>
+            <h1 className="text-4xl font-black bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 bg-clip-text text-transparent">
+              FINALE
+            </h1>
+            {isFinalist ? (
+              <p className="text-green-400 font-bold mt-2">Tu es qualifie !</p>
+            ) : (
+              <p className="text-gray-400 mt-2">Spectateur</p>
+            )}
+          </div>
+
+          {/* Team info */}
+          <div className="bg-white/10 backdrop-blur rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <div
+                  className="w-8 h-8 rounded-full mr-3"
+                  style={{ backgroundColor: team?.color || teamColor }}
+                ></div>
+                <span className="text-white font-bold text-xl">{team?.name}</span>
+              </div>
+              <span className="text-purple-400 font-bold text-xl">{team?.score} pts</span>
+            </div>
+          </div>
+
+          {/* Jokers - Only for finalists */}
+          {isFinalist && (
+            <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-2xl p-6 mb-6">
+              <h3 className="text-yellow-400 font-bold text-lg mb-4 text-center">Mes Jokers</h3>
+              <div className="grid grid-cols-3 gap-3">
+                {myJokers.map((joker) => (
+                  <button
+                    key={joker.id}
+                    disabled={joker.isUsed || !currentQuestion}
+                    onClick={() => {
+                      if (joker.type === 'STEAL') {
+                        setSelectedJoker('STEAL');
+                        setShowJokerModal(true);
+                      } else {
+                        activateJoker(joker.type);
+                      }
+                    }}
+                    className={`p-4 rounded-xl text-center transition-all ${
+                      joker.isUsed
+                        ? 'bg-gray-700/50 opacity-50 cursor-not-allowed'
+                        : 'bg-yellow-500/30 hover:bg-yellow-500/50 active:scale-95'
+                    }`}
+                  >
+                    <div className="text-3xl mb-1">{getJokerIcon(joker.type)}</div>
+                    <p className={`text-sm font-bold ${joker.isUsed ? 'text-gray-500 line-through' : 'text-yellow-300'}`}>
+                      {joker.type === 'DOUBLE' ? 'x2' : joker.type === 'STEAL' ? 'Steal' : 'Shield'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+              {availableJokers.length === 0 && (
+                <p className="text-center text-gray-500 mt-3 text-sm">Tous les jokers utilises</p>
+              )}
+            </div>
+          )}
+
+          {/* Finalists list */}
+          {finalMode && (
+            <div className="bg-white/5 rounded-2xl p-4">
+              <h3 className="text-gray-400 text-sm mb-3 text-center">Finalistes</h3>
+              <div className="space-y-2">
+                {finalMode.finalists.map((finalist, idx) => (
+                  <div
+                    key={finalist.id}
+                    className={`flex items-center justify-between p-3 rounded-xl ${
+                      finalist.teamId === team?.id
+                        ? 'bg-purple-500/30 border border-purple-500'
+                        : 'bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mr-2 ${
+                        idx === 0 ? 'bg-yellow-500 text-black' :
+                        idx === 1 ? 'bg-gray-400 text-black' :
+                        idx === 2 ? 'bg-amber-600 text-white' :
+                        'bg-gray-600 text-white'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <span className="text-white font-medium text-sm truncate max-w-[120px]">
+                        {finalist.teamName}
+                      </span>
+                    </div>
+                    <span className="text-purple-400 font-bold text-sm">
+                      {finalist.initialScore + finalist.finalScore}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Steal Target Modal */}
+        {showJokerModal && selectedJoker === 'STEAL' && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-sm">
+              <h3 className="text-xl font-bold text-center text-red-400 mb-4">🏴‍☠️ Choisir la cible</h3>
+              <p className="text-gray-400 text-sm text-center mb-4">
+                Vole des points si l'equipe se trompe
+              </p>
+              <div className="space-y-2 mb-6">
+                {stealTargets.map((target) => (
+                  <button
+                    key={target.id}
+                    onClick={() => setSelectedStealTarget(target.teamId)}
+                    className={`w-full p-4 rounded-xl text-left transition ${
+                      selectedStealTarget === target.teamId
+                        ? 'bg-red-500/30 border-2 border-red-500'
+                        : 'bg-gray-700/50 hover:bg-gray-700'
+                    }`}
+                  >
+                    <span className="text-white font-bold">{target.teamName}</span>
+                    <span className="text-gray-400 float-right">{target.initialScore} pts</span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowJokerModal(false);
+                    setSelectedStealTarget(null);
+                  }}
+                  className="flex-1 bg-gray-700 text-white py-3 rounded-xl"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => selectedStealTarget && activateJoker('STEAL', selectedStealTarget)}
+                  disabled={!selectedStealTarget}
+                  className="flex-1 bg-red-500 disabled:bg-gray-600 text-white py-3 rounded-xl font-bold"
+                >
+                  Voler !
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    );
+  }
+
   // FINISHED SCREEN
   if (gameState === 'FINISHED') {
     const rank = getRank();
@@ -1025,6 +1294,9 @@ export default function PlayerHome() {
               setSession(null);
               setTeam(null);
               setLeaderboard([]);
+              setFinalMode(null);
+              setIsFinalist(false);
+              setMyJokers([]);
             }}
             className="mt-8 bg-white text-orange-600 font-bold py-4 px-8 rounded-2xl shadow-lg"
           >

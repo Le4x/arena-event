@@ -101,7 +101,69 @@ model GameState {
   phase             GamePhase @default(LOBBY)
   updatedAt         DateTime  @updatedAt
 
+  // Final Mode
+  finalMode         FinalMode?
+
   @@map("game_states")
+}
+
+// ============================================
+// Final Mode & Jokers
+// ============================================
+
+model FinalMode {
+  id              String    @id @default(uuid())
+  gameStateId     String    @unique
+  gameState       GameState @relation(fields: [gameStateId], references: [id], onDelete: Cascade)
+  isActive        Boolean   @default(false)
+  finalistCount   Int       @default(4)  // 2, 4, 6, or 8 finalists
+  currentQuestion Int       @default(0)  // Current question index in final
+  totalQuestions  Int       @default(5)  // Number of questions in final
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  finalists       Finalist[]
+
+  @@map("final_modes")
+}
+
+model Finalist {
+  id            String    @id @default(uuid())
+  finalModeId   String
+  finalMode     FinalMode @relation(fields: [finalModeId], references: [id], onDelete: Cascade)
+  teamId        String
+  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  initialScore  Int       // Score at start of final
+  finalScore    Int       @default(0) // Score during final
+  position      Int?      // Final position (1st, 2nd, etc.)
+  isEliminated  Boolean   @default(false)
+  eliminatedAt  DateTime?
+  createdAt     DateTime  @default(now())
+
+  jokers        TeamJoker[]
+
+  @@unique([finalModeId, teamId])
+  @@index([finalModeId])
+  @@index([teamId])
+  @@map("finalists")
+}
+
+model TeamJoker {
+  id          String    @id @default(uuid())
+  finalistId  String
+  finalist    Finalist  @relation(fields: [finalistId], references: [id], onDelete: Cascade)
+  type        JokerType
+  isUsed      Boolean   @default(false)
+  usedAt      DateTime?
+  questionId  String?   // Question where joker was used
+  targetTeamId String?  // For STEAL joker: target team
+  pointsEffect Int?     // Points gained/lost from joker
+
+  @@unique([finalistId, type])
+  @@index([finalistId])
+  @@map("team_jokers")
 }
 
 enum GamePhase {
@@ -112,6 +174,16 @@ enum GamePhase {
   QUESTION_REVEAL
   LEADERBOARD
   FINAL
+  FINAL_QUESTION_ACTIVE
+  FINAL_QUESTION_REVEAL
+  FINAL_LEADERBOARD
+  PODIUM
+}
+
+enum JokerType {
+  DOUBLE          // x2 points
+  STEAL           // Steal points from wrong answers
+  SHIELD          // Protect against steal
 }
 
 // ============================================
@@ -188,6 +260,7 @@ model Team {
   devices       PlayerDevice[]
   answers       Answer[]
   buzzerPresses BuzzerPress[]
+  finalists     Finalist[]
 
   @@unique([sessionId, name])
   @@index([sessionId])

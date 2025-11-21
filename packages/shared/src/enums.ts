@@ -28,6 +28,19 @@ export enum GamePhase {
   QUESTION_REVEAL = 'QUESTION_REVEAL',
   LEADERBOARD = 'LEADERBOARD',
   FINAL = 'FINAL',
+  FINAL_QUESTION_ACTIVE = 'FINAL_QUESTION_ACTIVE',
+  FINAL_QUESTION_REVEAL = 'FINAL_QUESTION_REVEAL',
+  FINAL_LEADERBOARD = 'FINAL_LEADERBOARD',
+  PODIUM = 'PODIUM',
+}
+
+/**
+ * Joker types for final mode
+ */
+export enum JokerType {
+  DOUBLE = 'DOUBLE',     // x2 points for this question
+  STEAL = 'STEAL',       // Steal points from a team that answers wrong
+  SHIELD = 'SHIELD',     // Protect against steal attacks
 }
 
 /**
@@ -75,6 +88,18 @@ export enum GameEventType {
   // Score events
   SCORE_UPDATED = 'SCORE_UPDATED',
   LEADERBOARD_SHOWN = 'LEADERBOARD_SHOWN',
+
+  // Final mode events
+  FINAL_STARTED = 'FINAL_STARTED',
+  FINAL_ENDED = 'FINAL_ENDED',
+  FINALIST_SELECTED = 'FINALIST_SELECTED',
+  JOKER_ACTIVATED = 'JOKER_ACTIVATED',
+  JOKER_RESOLVED = 'JOKER_RESOLVED',
+  STEAL_ATTEMPTED = 'STEAL_ATTEMPTED',
+  SHIELD_ACTIVATED = 'SHIELD_ACTIVATED',
+  FINAL_QUESTION_STARTED = 'FINAL_QUESTION_STARTED',
+  FINAL_QUESTION_ENDED = 'FINAL_QUESTION_ENDED',
+  PODIUM_REVEALED = 'PODIUM_REVEALED',
 
   // Connection events
   CONNECTED = 'CONNECTED',

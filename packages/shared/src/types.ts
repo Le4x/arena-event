@@ -4,6 +4,7 @@ import {
   GamePhase,
   QuestionType,
   GameEventType,
+  JokerType,
 } from './enums';
 
 /**
@@ -161,4 +162,110 @@ export interface ConnectionMetadata {
   deviceId?: string;
   teamId?: string;
   role?: 'player' | 'gamemaster' | 'screen';
+}
+
+// ============================================
+// Final Mode Types
+// ============================================
+
+/**
+ * Final mode configuration and state
+ */
+export interface FinalMode {
+  id: string;
+  gameStateId: string;
+  isActive: boolean;
+  finalistCount: number;  // 2, 4, 6, or 8
+  currentQuestion: number;
+  totalQuestions: number;
+  startedAt?: Date;
+  endedAt?: Date;
+  finalists: Finalist[];
+}
+
+/**
+ * Finalist entity - team in final mode
+ */
+export interface Finalist {
+  id: string;
+  finalModeId: string;
+  teamId: string;
+  teamName?: string;
+  initialScore: number;
+  finalScore: number;
+  position?: number;
+  isEliminated: boolean;
+  eliminatedAt?: Date;
+  jokers: TeamJoker[];
+}
+
+/**
+ * Team joker for final mode
+ */
+export interface TeamJoker {
+  id: string;
+  finalistId: string;
+  type: JokerType;
+  isUsed: boolean;
+  usedAt?: Date;
+  questionId?: string;
+  targetTeamId?: string;
+  pointsEffect?: number;
+}
+
+/**
+ * Active joker during a question
+ */
+export interface ActiveJoker {
+  teamId: string;
+  teamName: string;
+  jokerType: JokerType;
+  targetTeamId?: string;
+  targetTeamName?: string;
+}
+
+/**
+ * Final mode leaderboard entry
+ */
+export interface FinalLeaderboardEntry {
+  teamId: string;
+  teamName: string;
+  initialScore: number;
+  finalScore: number;
+  totalScore: number;
+  rank: number;
+  isEliminated: boolean;
+  availableJokers: JokerType[];
+  usedJokers: JokerType[];
+}
+
+/**
+ * Podium entry for final results
+ */
+export interface PodiumEntry {
+  position: 1 | 2 | 3;
+  teamId: string;
+  teamName: string;
+  totalScore: number;
+  jokerBonus: number;
+}
+
+/**
+ * Final mode start payload
+ */
+export interface StartFinalPayload {
+  sessionId: string;
+  finalistCount: 2 | 4 | 6 | 8;
+  totalQuestions?: number;
+}
+
+/**
+ * Joker activation payload
+ */
+export interface ActivateJokerPayload {
+  sessionId: string;
+  teamId: string;
+  jokerType: JokerType;
+  targetTeamId?: string;  // Required for STEAL joker
+  questionId: string;
 }
