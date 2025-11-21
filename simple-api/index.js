@@ -32,6 +32,9 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
+// Serve static media files (audio, images)
+app.use('/media', express.static(mediaDir));
+
 const JWT_SECRET = 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = '7d';
 
