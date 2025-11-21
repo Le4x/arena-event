@@ -21,12 +21,17 @@ interface Round {
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'IMAGE';
   options?: string[];
   correctAnswer?: string;
   points: number;
   timeLimit: number;
   mediaUrl?: string;
+  // Cue points for audio playback (in seconds)
+  questionCueStart?: number;
+  questionCueEnd?: number;
+  revealCueStart?: number;
+  revealCueEnd?: number;
   // Blindtest specific
   artist?: string;
   songTitle?: string;
@@ -99,6 +104,7 @@ export default function StudioHome() {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioRevealed, setAudioRevealed] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
@@ -475,6 +481,12 @@ export default function StudioHome() {
   const playBlindtest = () => {
     if (!currentQuestion?.mediaUrl) return;
 
+    // Clear any existing cue end timer
+    if (cueEndTimerRef.current) {
+      clearTimeout(cueEndTimerRef.current);
+      cueEndTimerRef.current = null;
+    }
+
     setIsAudioPlaying(true);
 
     // Auto-open buzzer when music starts
@@ -483,15 +495,30 @@ export default function StudioHome() {
       socketRef.current?.emit('buzzer-open', { sessionId: selectedSession?.id });
     }
 
-    // Play locally for preview
+    // Play locally for preview with cue point
     if (audioRef.current) {
+      const startTime = currentQuestion.questionCueStart || 0;
+      audioRef.current.currentTime = startTime;
       audioRef.current.play();
+
+      // Set up cue end timer if there's an end point
+      if (currentQuestion.questionCueEnd && currentQuestion.questionCueEnd > startTime) {
+        const duration = (currentQuestion.questionCueEnd - startTime) * 1000;
+        cueEndTimerRef.current = setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
+          setIsAudioPlaying(false);
+        }, duration);
+      }
     }
 
-    // Emit to Screen/Player
+    // Emit to Screen/Player with cue points
     socketRef.current?.emit('blindtest-play', {
       sessionId: selectedSession?.id,
-      audioUrl: currentQuestion.mediaUrl
+      audioUrl: currentQuestion.mediaUrl,
+      questionCueStart: currentQuestion.questionCueStart || 0,
+      questionCueEnd: currentQuestion.questionCueEnd || null
     });
   };
 
@@ -510,6 +537,12 @@ export default function StudioHome() {
   const stopBlindtest = () => {
     setIsAudioPlaying(false);
 
+    // Clear cue end timer
+    if (cueEndTimerRef.current) {
+      clearTimeout(cueEndTimerRef.current);
+      cueEndTimerRef.current = null;
+    }
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -522,17 +555,48 @@ export default function StudioHome() {
 
   const revealBlindtest = () => {
     setAudioRevealed(true);
-    stopBlindtest();
+
+    // Clear cue end timer
+    if (cueEndTimerRef.current) {
+      clearTimeout(cueEndTimerRef.current);
+      cueEndTimerRef.current = null;
+    }
 
     // Parse artist and songTitle from correctAnswer or question fields
     const artist = currentQuestion?.artist || currentQuestion?.correctAnswer?.split(' - ')[0] || 'Unknown Artist';
     const songTitle = currentQuestion?.songTitle || currentQuestion?.correctAnswer?.split(' - ')[1] || currentQuestion?.correctAnswer || 'Unknown Song';
 
+    // Play reveal cue if set
+    if (audioRef.current && currentQuestion?.revealCueStart !== undefined) {
+      audioRef.current.currentTime = currentQuestion.revealCueStart;
+      audioRef.current.play();
+      setIsAudioPlaying(true);
+
+      // Set up cue end timer for reveal
+      if (currentQuestion.revealCueEnd && currentQuestion.revealCueEnd > currentQuestion.revealCueStart) {
+        const duration = (currentQuestion.revealCueEnd - currentQuestion.revealCueStart) * 1000;
+        cueEndTimerRef.current = setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
+          setIsAudioPlaying(false);
+        }, duration);
+      }
+    } else {
+      // No reveal cue, just stop
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsAudioPlaying(false);
+    }
+
     socketRef.current?.emit('blindtest-reveal', {
       sessionId: selectedSession?.id,
       artist,
       songTitle,
-      audioUrl: currentQuestion?.mediaUrl
+      audioUrl: currentQuestion?.mediaUrl,
+      revealCueStart: currentQuestion?.revealCueStart || 0,
+      revealCueEnd: currentQuestion?.revealCueEnd || null
     });
   };
 

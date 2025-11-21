@@ -39,6 +39,10 @@ interface Question {
   timeLimit: number;
   order: number;
   mediaUrl?: string;
+  questionCueStart?: number;
+  questionCueEnd?: number;
+  revealCueStart?: number;
+  revealCueEnd?: number;
 }
 
 interface Session {
@@ -80,8 +84,11 @@ export default function Home() {
   // Form state
   const [eventForm, setEventForm] = useState({ name: '', description: '' });
   const [questionForm, setQuestionForm] = useState({
-    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: ''
+    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '',
+    questionCueStart: null as number | null, questionCueEnd: null as number | null,
+    revealCueStart: null as number | null, revealCueEnd: null as number | null
   });
+  const [audioDuration, setAudioDuration] = useState(0);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [modalError, setModalError] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
@@ -302,11 +309,16 @@ export default function Home() {
           ...questionForm,
           correctAnswer: questionForm.correctAnswer,
           mediaUrl: questionForm.mediaUrl || null,
+          questionCueStart: questionForm.questionCueStart,
+          questionCueEnd: questionForm.questionCueEnd,
+          revealCueStart: questionForm.revealCueStart,
+          revealCueEnd: questionForm.revealCueEnd,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '' });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+        setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
     } catch (err) {
@@ -322,12 +334,17 @@ export default function Home() {
         body: JSON.stringify({
           ...questionForm,
           mediaUrl: questionForm.mediaUrl || null,
+          questionCueStart: questionForm.questionCueStart,
+          questionCueEnd: questionForm.questionCueEnd,
+          revealCueStart: questionForm.revealCueStart,
+          revealCueEnd: questionForm.revealCueEnd,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
         setEditingQuestion(null);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '' });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+        setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
     } catch (err) {
@@ -371,7 +388,8 @@ export default function Home() {
   const openAddQuestion = (roundId: string) => {
     setSelectedRoundId(roundId);
     setEditingQuestion(null);
-    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '' });
+    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+    setAudioDuration(0);
     setShowQuestionModal(true);
   };
 
@@ -385,7 +403,12 @@ export default function Home() {
       points: question.points,
       timeLimit: question.timeLimit,
       mediaUrl: question.mediaUrl || '',
+      questionCueStart: question.questionCueStart ?? null,
+      questionCueEnd: question.questionCueEnd ?? null,
+      revealCueStart: question.revealCueStart ?? null,
+      revealCueEnd: question.revealCueEnd ?? null,
     });
+    setAudioDuration(0);
     setShowQuestionModal(true);
   };
 
@@ -802,6 +825,94 @@ export default function Home() {
                     className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
                 </div>
               </div>
+
+              {/* Optional background music for non-blindtest questions */}
+              {questionForm.type !== 'BLIND_TEST' && questionForm.type !== 'IMAGE' && (
+                <div className="p-4 bg-gray-700/30 rounded-xl border border-gray-600">
+                  <label className="block text-sm text-gray-300 mb-2">Background Music (optional)</label>
+                  <div className="flex items-center space-x-4">
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleAudioUpload}
+                      className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-xl text-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white file:cursor-pointer file:text-xs"
+                    />
+                    {uploadingAudio && <span className="text-purple-400 text-sm">Uploading...</span>}
+                  </div>
+                  {questionForm.mediaUrl && (
+                    <div className="mt-3 p-3 bg-gray-700/50 rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-green-400 text-sm">Audio uploaded!</p>
+                        <button
+                          type="button"
+                          onClick={() => setQuestionForm({ ...questionForm, mediaUrl: '', questionCueStart: null, questionCueEnd: null })}
+                          className="text-red-400 hover:text-red-300 text-xs"
+                        >Remove</button>
+                      </div>
+                      <audio
+                        id="bgMusicAudio"
+                        controls
+                        src={questionForm.mediaUrl}
+                        className="w-full"
+                        onLoadedMetadata={(e) => setAudioDuration((e.target as HTMLAudioElement).duration)}
+                      />
+                      {audioDuration > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-gray-600">
+                          <p className="text-purple-300 text-xs font-semibold">Question Cue Point (when to play during question)</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Start (sec)</label>
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max={audioDuration}
+                                  value={questionForm.questionCueStart ?? ''}
+                                  onChange={(e) => setQuestionForm({ ...questionForm, questionCueStart: e.target.value ? parseFloat(e.target.value) : null })}
+                                  className="flex-1 px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-xs"
+                                  placeholder="0"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const audio = document.getElementById('bgMusicAudio') as HTMLAudioElement;
+                                    if (audio) setQuestionForm({ ...questionForm, questionCueStart: Math.round(audio.currentTime * 10) / 10 });
+                                  }}
+                                  className="px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs"
+                                >Now</button>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">End (sec)</label>
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max={audioDuration}
+                                  value={questionForm.questionCueEnd ?? ''}
+                                  onChange={(e) => setQuestionForm({ ...questionForm, questionCueEnd: e.target.value ? parseFloat(e.target.value) : null })}
+                                  className="flex-1 px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-xs"
+                                  placeholder={audioDuration.toFixed(1)}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const audio = document.getElementById('bgMusicAudio') as HTMLAudioElement;
+                                    if (audio) setQuestionForm({ ...questionForm, questionCueEnd: Math.round(audio.currentTime * 10) / 10 });
+                                  }}
+                                  className="px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs"
+                                >Now</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {questionForm.type === 'MCQ' && (
                 <>
                   <div className="grid grid-cols-2 gap-4">
@@ -853,9 +964,121 @@ export default function Home() {
                       {uploadingAudio && <span className="text-purple-400">Uploading...</span>}
                     </div>
                     {questionForm.mediaUrl && (
-                      <div className="mt-2 p-3 bg-gray-700/50 rounded-lg">
-                        <p className="text-green-400 text-sm mb-2">Audio uploaded!</p>
-                        <audio controls src={questionForm.mediaUrl} className="w-full" />
+                      <div className="mt-2 p-3 bg-gray-700/50 rounded-lg space-y-3">
+                        <p className="text-green-400 text-sm">Audio uploaded!</p>
+                        <audio
+                          id="cuePointAudio"
+                          controls
+                          src={questionForm.mediaUrl}
+                          className="w-full"
+                          onLoadedMetadata={(e) => setAudioDuration((e.target as HTMLAudioElement).duration)}
+                        />
+                        {audioDuration > 0 && (
+                          <div className="space-y-3 pt-2 border-t border-gray-600">
+                            <p className="text-purple-300 text-sm font-semibold">Cue Points (seconds)</p>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Question Start</label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={audioDuration}
+                                    value={questionForm.questionCueStart ?? ''}
+                                    onChange={(e) => setQuestionForm({ ...questionForm, questionCueStart: e.target.value ? parseFloat(e.target.value) : null })}
+                                    className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm"
+                                    placeholder="0"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const audio = document.getElementById('cuePointAudio') as HTMLAudioElement;
+                                      if (audio) setQuestionForm({ ...questionForm, questionCueStart: Math.round(audio.currentTime * 10) / 10 });
+                                    }}
+                                    className="px-2 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs"
+                                    title="Set to current time"
+                                  >Now</button>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Question End</label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={audioDuration}
+                                    value={questionForm.questionCueEnd ?? ''}
+                                    onChange={(e) => setQuestionForm({ ...questionForm, questionCueEnd: e.target.value ? parseFloat(e.target.value) : null })}
+                                    className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm"
+                                    placeholder={audioDuration.toFixed(1)}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const audio = document.getElementById('cuePointAudio') as HTMLAudioElement;
+                                      if (audio) setQuestionForm({ ...questionForm, questionCueEnd: Math.round(audio.currentTime * 10) / 10 });
+                                    }}
+                                    className="px-2 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs"
+                                    title="Set to current time"
+                                  >Now</button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Reveal Start (refrain)</label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={audioDuration}
+                                    value={questionForm.revealCueStart ?? ''}
+                                    onChange={(e) => setQuestionForm({ ...questionForm, revealCueStart: e.target.value ? parseFloat(e.target.value) : null })}
+                                    className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm"
+                                    placeholder="0"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const audio = document.getElementById('cuePointAudio') as HTMLAudioElement;
+                                      if (audio) setQuestionForm({ ...questionForm, revealCueStart: Math.round(audio.currentTime * 10) / 10 });
+                                    }}
+                                    className="px-2 py-2 bg-pink-600 hover:bg-pink-700 rounded-lg text-xs"
+                                    title="Set to current time"
+                                  >Now</button>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Reveal End</label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max={audioDuration}
+                                    value={questionForm.revealCueEnd ?? ''}
+                                    onChange={(e) => setQuestionForm({ ...questionForm, revealCueEnd: e.target.value ? parseFloat(e.target.value) : null })}
+                                    className="flex-1 px-3 py-2 bg-gray-600 border border-gray-500 rounded-lg text-white text-sm"
+                                    placeholder={audioDuration.toFixed(1)}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const audio = document.getElementById('cuePointAudio') as HTMLAudioElement;
+                                      if (audio) setQuestionForm({ ...questionForm, revealCueEnd: Math.round(audio.currentTime * 10) / 10 });
+                                    }}
+                                    className="px-2 py-2 bg-pink-600 hover:bg-pink-700 rounded-lg text-xs"
+                                    title="Set to current time"
+                                  >Now</button>
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-gray-500 text-xs">Duration: {audioDuration.toFixed(1)}s - Use audio player to seek, then click "Now" to set cue points</p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

@@ -19,7 +19,7 @@ interface Team {
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'IMAGE';
   options?: string[];
   correctAnswer?: string;
   points: number;
@@ -27,6 +27,11 @@ interface Question {
   mediaUrl?: string;
   artist?: string;
   songTitle?: string;
+  // Cue points for audio playback (in seconds)
+  questionCueStart?: number;
+  questionCueEnd?: number;
+  revealCueStart?: number;
+  revealCueEnd?: number;
 }
 
 interface Session {
@@ -68,6 +73,7 @@ export default function ScreenHome() {
   const [revealedArtist, setRevealedArtist] = useState('');
   const [revealedSong, setRevealedSong] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch sessions
   useEffect(() => {
@@ -207,19 +213,44 @@ export default function ScreenHome() {
 
     // Blindtest events
     socket.on('blindtest-play', (data) => {
+      // Clear any existing cue end timer
+      if (cueEndTimerRef.current) {
+        clearTimeout(cueEndTimerRef.current);
+        cueEndTimerRef.current = null;
+      }
+
       setIsAudioPlaying(true);
       setBlindtestRevealed(false);
       if (currentQuestion?.type === 'BLIND_TEST') {
         setDisplayMode('BLINDTEST');
       }
-      // Play audio
+      // Play audio with cue point
       if (audioRef.current && data.audioUrl) {
         audioRef.current.src = data.audioUrl;
+        const startTime = data.questionCueStart || data.startTime || 0;
+        audioRef.current.currentTime = startTime;
         audioRef.current.play().catch(console.error);
+
+        // Set up cue end timer if there's an end point
+        const endTime = data.questionCueEnd || data.endTime;
+        if (endTime && endTime > startTime) {
+          const duration = (endTime - startTime) * 1000;
+          cueEndTimerRef.current = setTimeout(() => {
+            if (audioRef.current) {
+              audioRef.current.pause();
+            }
+            setIsAudioPlaying(false);
+          }, duration);
+        }
       }
     });
 
     socket.on('blindtest-pause', () => {
+      // Clear cue end timer
+      if (cueEndTimerRef.current) {
+        clearTimeout(cueEndTimerRef.current);
+        cueEndTimerRef.current = null;
+      }
       setIsAudioPlaying(false);
       if (audioRef.current) {
         audioRef.current.pause();
@@ -227,6 +258,11 @@ export default function ScreenHome() {
     });
 
     socket.on('blindtest-stop', () => {
+      // Clear cue end timer
+      if (cueEndTimerRef.current) {
+        clearTimeout(cueEndTimerRef.current);
+        cueEndTimerRef.current = null;
+      }
       setIsAudioPlaying(false);
       if (audioRef.current) {
         audioRef.current.pause();
@@ -235,12 +271,40 @@ export default function ScreenHome() {
     });
 
     socket.on('blindtest-reveal', (data) => {
+      // Clear cue end timer
+      if (cueEndTimerRef.current) {
+        clearTimeout(cueEndTimerRef.current);
+        cueEndTimerRef.current = null;
+      }
+
       setBlindtestRevealed(true);
-      setIsAudioPlaying(false);
       setRevealedArtist(data.artist);
       setRevealedSong(data.songTitle);
-      if (audioRef.current) {
-        audioRef.current.pause();
+
+      // Play reveal cue if set
+      if (audioRef.current && data.audioUrl) {
+        const startTime = data.revealCueStart || data.startTime || 0;
+        audioRef.current.src = data.audioUrl;
+        audioRef.current.currentTime = startTime;
+        audioRef.current.play().catch(console.error);
+        setIsAudioPlaying(true);
+
+        // Set up cue end timer for reveal
+        const endTime = data.revealCueEnd || data.endTime;
+        if (endTime && endTime > startTime) {
+          const duration = (endTime - startTime) * 1000;
+          cueEndTimerRef.current = setTimeout(() => {
+            if (audioRef.current) {
+              audioRef.current.pause();
+            }
+            setIsAudioPlaying(false);
+          }, duration);
+        }
+      } else {
+        setIsAudioPlaying(false);
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
       }
     });
   };

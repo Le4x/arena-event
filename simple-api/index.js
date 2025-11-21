@@ -305,7 +305,11 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
           points: q.points,
           timeLimit: q.timeLimit,
           order: q.order,
-          mediaUrl: q.mediaUrl
+          mediaUrl: q.mediaUrl,
+          questionCueStart: q.questionCueStart,
+          questionCueEnd: q.questionCueEnd,
+          revealCueStart: q.revealCueStart,
+          revealCueEnd: q.revealCueEnd
         }))
       }))
     };
@@ -439,6 +443,10 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
       timeLimit: q.timeLimit,
       order: q.order,
       mediaUrl: q.mediaUrl,
+      questionCueStart: q.questionCueStart,
+      questionCueEnd: q.questionCueEnd,
+      revealCueStart: q.revealCueStart,
+      revealCueEnd: q.revealCueEnd,
       roundId: q.roundId,
       round: q.round
     }));
@@ -452,7 +460,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
 
 app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl } = req.body;
+    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
 
     // Get max order for this round
     const maxOrder = await prisma.question.aggregate({
@@ -469,6 +477,10 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         points: points || 100,
         timeLimit: timeLimit || 30,
         mediaUrl: mediaUrl || null,
+        questionCueStart: questionCueStart || null,
+        questionCueEnd: questionCueEnd || null,
+        revealCueStart: revealCueStart || null,
+        revealCueEnd: revealCueEnd || null,
         order: (maxOrder._max.order ?? -1) + 1,
         roundId: req.params.roundId
       }
@@ -486,7 +498,11 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         points: question.points,
         timeLimit: question.timeLimit,
         order: question.order,
-        mediaUrl: question.mediaUrl
+        mediaUrl: question.mediaUrl,
+        questionCueStart: question.questionCueStart,
+        questionCueEnd: question.questionCueEnd,
+        revealCueStart: question.revealCueStart,
+        revealCueEnd: question.revealCueEnd
       }
     });
   } catch (error) {
@@ -497,7 +513,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
 
 app.put('/api/questions/:id', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order } = req.body;
+    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
 
     const question = await prisma.question.update({
       where: { id: req.params.id },
@@ -509,7 +525,11 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         points,
         timeLimit,
         mediaUrl,
-        order
+        order,
+        questionCueStart,
+        questionCueEnd,
+        revealCueStart,
+        revealCueEnd
       }
     });
 
@@ -524,7 +544,11 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         points: question.points,
         timeLimit: question.timeLimit,
         order: question.order,
-        mediaUrl: question.mediaUrl
+        mediaUrl: question.mediaUrl,
+        questionCueStart: question.questionCueStart,
+        questionCueEnd: question.questionCueEnd,
+        revealCueStart: question.revealCueStart,
+        revealCueEnd: question.revealCueEnd
       }
     });
   } catch (error) {
@@ -647,7 +671,11 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
             points: q.points,
             timeLimit: q.timeLimit,
             order: q.order,
-            mediaUrl: q.mediaUrl
+            mediaUrl: q.mediaUrl,
+            questionCueStart: q.questionCueStart,
+            questionCueEnd: q.questionCueEnd,
+            revealCueStart: q.revealCueStart,
+            revealCueEnd: q.revealCueEnd
           }))
         }))
       }
@@ -915,7 +943,11 @@ app.post('/api/sessions/:sessionId/question/start', authenticateToken, async (re
         options: question.choices || [],
         timeLimit: question.timeLimit,
         points: question.points,
-        mediaUrl: question.mediaUrl
+        mediaUrl: question.mediaUrl,
+        questionCueStart: question.questionCueStart,
+        questionCueEnd: question.questionCueEnd,
+        revealCueStart: question.revealCueStart,
+        revealCueEnd: question.revealCueEnd
       },
       timeLimit: question.timeLimit
     });
@@ -1196,7 +1228,10 @@ io.on('connection', (socket) => {
     console.log(`Blindtest play in session ${sessionId}`);
     io.to(`session:${sessionId}`).emit('blindtest-play', {
       audioUrl: data.audioUrl,
-      startTime: data.startTime || 0
+      startTime: data.startTime || data.questionCueStart || 0,
+      endTime: data.endTime || data.questionCueEnd || null,
+      questionCueStart: data.questionCueStart,
+      questionCueEnd: data.questionCueEnd
     });
   });
 
@@ -1216,7 +1251,11 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('blindtest-reveal', {
       artist: data.artist,
       songTitle: data.songTitle,
-      audioUrl: data.audioUrl
+      audioUrl: data.audioUrl,
+      startTime: data.startTime || data.revealCueStart || 0,
+      endTime: data.endTime || data.revealCueEnd || null,
+      revealCueStart: data.revealCueStart,
+      revealCueEnd: data.revealCueEnd
     });
   });
 
@@ -1381,7 +1420,11 @@ app.get('/sessions/:sessionId', async (req, res) => {
             points: q.points,
             timeLimit: q.timeLimit,
             order: q.order,
-            mediaUrl: q.mediaUrl
+            mediaUrl: q.mediaUrl,
+            questionCueStart: q.questionCueStart,
+            questionCueEnd: q.questionCueEnd,
+            revealCueStart: q.revealCueStart,
+            revealCueEnd: q.revealCueEnd
           }))
         }))
       }
@@ -1572,7 +1615,11 @@ app.get('/events/:eventId/rounds', async (req, res) => {
         points: q.points,
         timeLimit: q.timeLimit,
         order: q.order,
-        mediaUrl: q.mediaUrl
+        mediaUrl: q.mediaUrl,
+        questionCueStart: q.questionCueStart,
+        questionCueEnd: q.questionCueEnd,
+        revealCueStart: q.revealCueStart,
+        revealCueEnd: q.revealCueEnd
       }))
     }));
 
@@ -1601,7 +1648,11 @@ app.get('/rounds/:roundId/questions', async (req, res) => {
       points: q.points,
       timeLimit: q.timeLimit,
       order: q.order,
-      mediaUrl: q.mediaUrl
+      mediaUrl: q.mediaUrl,
+      questionCueStart: q.questionCueStart,
+      questionCueEnd: q.questionCueEnd,
+      revealCueStart: q.revealCueStart,
+      revealCueEnd: q.revealCueEnd
     }));
 
     res.json(transformed);

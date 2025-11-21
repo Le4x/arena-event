@@ -142,6 +142,11 @@ model Question {
   type          QuestionType
   content       String
   mediaUrl      String?
+  // Cue points for audio playback (in seconds)
+  questionCueStart Float?    // Start time for question phase audio
+  questionCueEnd   Float?    // End time for question phase audio
+  revealCueStart   Float?    // Start time for reveal phase (BLIND_TEST)
+  revealCueEnd     Float?    // End time for reveal phase (BLIND_TEST)
   timeLimit     Int          @default(30)
   points        Int          @default(100)
   order         Int
