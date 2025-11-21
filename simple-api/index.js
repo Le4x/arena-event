@@ -1078,6 +1078,40 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('buzzer-reset', {});
   });
 
+  // Buzzer winner announcement - from Studio
+  socket.on('buzzer-winner', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Buzzer winner in session ${sessionId}: ${data.teamName}`);
+    io.to(`session:${sessionId}`).emit('buzzer-winner', {
+      team: data.team,
+      teamId: data.teamId,
+      teamName: data.teamName
+    });
+  });
+
+  // Buzzer validation - correct answer (from Studio)
+  socket.on('buzzer-correct', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${data.points}`);
+    io.to(`session:${sessionId}`).emit('buzzer-correct', {
+      team: data.team,
+      teamId: data.teamId,
+      teamName: data.teamName,
+      points: data.points
+    });
+  });
+
+  // Buzzer validation - wrong answer (from Studio)
+  socket.on('buzzer-wrong', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Buzzer wrong in session ${sessionId}: team=${data.teamName}`);
+    io.to(`session:${sessionId}`).emit('buzzer-wrong', {
+      team: data.team,
+      teamId: data.teamId,
+      teamName: data.teamName
+    });
+  });
+
   // Buzzer press - from Player
   const handleBuzzerPress = async (data) => {
     const sessionId = data.sessionId || socket.sessionId;

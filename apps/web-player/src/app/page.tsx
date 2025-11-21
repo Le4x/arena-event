@@ -62,6 +62,7 @@ export default function PlayerHome() {
   const [buzzerPressed, setBuzzerPressed] = useState(false);
   const [buzzerOpen, setBuzzerOpen] = useState(false);
   const [buzzerWinner, setBuzzerWinner] = useState<string | null>(null);
+  const [buzzerWrongFeedback, setBuzzerWrongFeedback] = useState(false);
 
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState<Team[]>([]);
@@ -221,6 +222,38 @@ export default function PlayerHome() {
 
     socket.on('buzzer-winner', (data) => {
       setBuzzerWinner(data.teamName);
+      // If this team won the buzzer, lock it
+      if (data.teamId === teamId) {
+        setBuzzerOpen(false);
+      }
+    });
+
+    // Buzzer validation events
+    socket.on('buzzer-correct', (data) => {
+      if (data.teamId === teamId) {
+        setIsCorrect(true);
+        setPointsEarned(data.points || 0);
+        setTeam(prev => prev ? { ...prev, score: prev.score + (data.points || 0) } : prev);
+        setGameState('RESULT');
+      }
+      setBuzzerWinner(null);
+      setBuzzerPressed(false);
+    });
+
+    socket.on('buzzer-wrong', (data) => {
+      if (data.teamId === teamId) {
+        setIsCorrect(false);
+        setPointsEarned(0);
+        // Show wrong feedback briefly then allow another try
+        setBuzzerWrongFeedback(true);
+        setTimeout(() => setBuzzerWrongFeedback(false), 2000);
+        setBuzzerPressed(false);
+        setBuzzerOpen(true);
+      } else {
+        // Other teams can try again
+        setBuzzerOpen(true);
+      }
+      setBuzzerWinner(null);
     });
 
     socket.on('answer-result', (data) => {
@@ -667,11 +700,21 @@ export default function PlayerHome() {
           {/* Buzzer */}
           {currentQuestion.type === 'BUZZER' && (
             <div className="flex-1 flex flex-col items-center justify-center">
+              {/* Wrong answer feedback */}
+              {buzzerWrongFeedback && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
+                  <p className="text-red-400 text-xl font-bold">❌ Wrong! Try again!</p>
+                </div>
+              )}
+
               {buzzerWinner ? (
                 <div className="text-center">
                   <p className="text-2xl text-white mb-4">
                     {buzzerWinner === team?.name ? '🎉 You got the buzzer!' : `${buzzerWinner} got the buzzer!`}
                   </p>
+                  {buzzerWinner === team?.name && (
+                    <p className="text-gray-400">Waiting for validation...</p>
+                  )}
                 </div>
               ) : (
                 <button

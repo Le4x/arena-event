@@ -89,6 +89,8 @@ export default function StudioHome() {
   const [buzzerWinner, setBuzzerWinner] = useState<Team | null>(null);
   const [buzzerQueue, setBuzzerQueue] = useState<{team: Team, time: number}[]>([]);
   const [buzzerLocked, setBuzzerLocked] = useState(true);
+  const [buzzerPressTime, setBuzzerPressTime] = useState<number>(0);
+  const questionStartTimeRef = useRef<number>(0);
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
@@ -166,9 +168,19 @@ export default function StudioHome() {
     // Listen for buzzer
     socket.on('buzzer-pressed', (data) => {
       if (!buzzerLocked) {
-        setBuzzerQueue(prev => [...prev, { team: data.team, time: data.timestamp }]);
+        const pressTime = data.timestamp || Date.now();
+        setBuzzerQueue(prev => [...prev, { team: data.team, time: pressTime }]);
         if (!buzzerWinner) {
           setBuzzerWinner(data.team);
+          setBuzzerPressTime(pressTime);
+          // Lock buzzer for other players and announce winner
+          socket.emit('buzzer-lock', { sessionId: selectedSession.id });
+          socket.emit('buzzer-winner', {
+            sessionId: selectedSession.id,
+            team: data.team,
+            teamId: data.team.id,
+            teamName: data.team.name
+          });
         }
       }
     });
@@ -261,9 +273,11 @@ export default function StudioHome() {
     setIsTimerRunning(true);
     setBuzzerWinner(null);
     setBuzzerQueue([]);
+    setBuzzerPressTime(0);
     setBuzzerLocked(currentQuestion.type !== 'BUZZER');
     setAnswers(prev => prev.filter(a => a.questionId !== currentQuestion.id));
     setTeams(prev => prev.map(t => ({ ...t, lastAnswer: undefined })));
+    questionStartTimeRef.current = Date.now();
 
     // Emit to socket
     socketRef.current?.emit('question-start', {
@@ -391,6 +405,53 @@ export default function StudioHome() {
 
   const markCorrect = (team: Team) => {
     adjustScore(team, currentQuestion?.points || 100);
+  };
+
+  // Calculate buzzer speed bonus and mark correct
+  const markBuzzerCorrect = (team: Team) => {
+    const basePoints = currentQuestion?.points || 100;
+    const timeLimit = currentQuestion?.timeLimit || 30;
+
+    // Calculate speed bonus based on how fast they buzzed
+    let speedBonus = 0;
+    if (buzzerPressTime > 0 && questionStartTimeRef.current > 0) {
+      const responseTimeMs = buzzerPressTime - questionStartTimeRef.current;
+      const responseTimeSec = responseTimeMs / 1000;
+      const timeRemainingRatio = Math.max(0, (timeLimit - responseTimeSec) / timeLimit);
+      speedBonus = Math.round(basePoints * 0.5 * timeRemainingRatio); // Up to 50% bonus
+    }
+
+    const totalPoints = basePoints + speedBonus;
+
+    // Adjust score
+    adjustScore(team, totalPoints);
+
+    // Emit buzzer-correct event to notify players
+    socketRef.current?.emit('buzzer-correct', {
+      sessionId: selectedSession?.id,
+      team,
+      teamId: team.id,
+      teamName: team.name,
+      points: totalPoints,
+      speedBonus
+    });
+
+    // Reset buzzer state
+    resetBuzzer();
+  };
+
+  // Mark buzzer answer as wrong
+  const markBuzzerWrong = (team: Team) => {
+    // Emit buzzer-wrong event to notify players
+    socketRef.current?.emit('buzzer-wrong', {
+      sessionId: selectedSession?.id,
+      team,
+      teamId: team.id,
+      teamName: team.name
+    });
+
+    // Reset buzzer to allow others to try
+    resetBuzzer();
   };
 
   const openScoreModal = (team: Team) => {
@@ -950,13 +1011,13 @@ export default function StudioHome() {
                       <p className="text-4xl font-bold text-white">{buzzerWinner.name}</p>
                       <div className="flex justify-center space-x-4 mt-4">
                         <button
-                          onClick={() => { markCorrect(buzzerWinner); resetBuzzer(); }}
+                          onClick={() => markBuzzerCorrect(buzzerWinner)}
                           className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg"
                         >
-                          ✓ Correct (+{currentQuestion?.points})
+                          ✓ Correct (+{currentQuestion?.points}+bonus)
                         </button>
                         <button
-                          onClick={resetBuzzer}
+                          onClick={() => markBuzzerWrong(buzzerWinner)}
                           className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg"
                         >
                           ✗ Wrong
