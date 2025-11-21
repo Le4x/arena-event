@@ -1127,6 +1127,37 @@ io.on('connection', (socket) => {
   socket.on('buzzer-press', handleBuzzerPress);
   socket.on('buzzer:press', handleBuzzerPress);
 
+  // ========== BLINDTEST EVENTS ==========
+
+  socket.on('blindtest-play', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Blindtest play in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('blindtest-play', {
+      audioUrl: data.audioUrl,
+      startTime: data.startTime || 0
+    });
+  });
+
+  socket.on('blindtest-pause', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('blindtest-pause', {});
+  });
+
+  socket.on('blindtest-stop', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('blindtest-stop', {});
+  });
+
+  socket.on('blindtest-reveal', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Blindtest reveal in session ${sessionId}: ${data.artist} - ${data.songTitle}`);
+    io.to(`session:${sessionId}`).emit('blindtest-reveal', {
+      artist: data.artist,
+      songTitle: data.songTitle,
+      audioUrl: data.audioUrl
+    });
+  });
+
   // ========== ANSWER EVENTS ==========
 
   const handleAnswerSubmit = async (data) => {

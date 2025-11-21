@@ -5,7 +5,7 @@ import { io, Socket } from 'socket.io-client';
 
 const API_URL = 'http://91.134.135.247:3001';
 
-type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED';
+type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST';
 
 interface Team {
   id: string;

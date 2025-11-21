@@ -21,12 +21,15 @@ interface Round {
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST';
   options?: string[];
   correctAnswer?: string;
   points: number;
   timeLimit: number;
   mediaUrl?: string;
+  // Blindtest specific
+  artist?: string;
+  songTitle?: string;
 }
 
 interface Team {
@@ -91,6 +94,11 @@ export default function StudioHome() {
   const [buzzerLocked, setBuzzerLocked] = useState(true);
   const [buzzerPressTime, setBuzzerPressTime] = useState<number>(0);
   const questionStartTimeRef = useRef<number>(0);
+
+  // Blindtest audio
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [audioRevealed, setAudioRevealed] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
@@ -274,10 +282,18 @@ export default function StudioHome() {
     setBuzzerWinner(null);
     setBuzzerQueue([]);
     setBuzzerPressTime(0);
-    setBuzzerLocked(currentQuestion.type !== 'BUZZER');
+    setBuzzerLocked(currentQuestion.type !== 'BUZZER' && currentQuestion.type !== 'BLIND_TEST');
     setAnswers(prev => prev.filter(a => a.questionId !== currentQuestion.id));
     setTeams(prev => prev.map(t => ({ ...t, lastAnswer: undefined })));
     questionStartTimeRef.current = Date.now();
+
+    // Reset blindtest state
+    setIsAudioPlaying(false);
+    setAudioRevealed(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
 
     // Emit to socket
     socketRef.current?.emit('question-start', {
@@ -452,6 +468,66 @@ export default function StudioHome() {
 
     // Reset buzzer to allow others to try
     resetBuzzer();
+  };
+
+  // ========== BLINDTEST CONTROLS ==========
+
+  const playBlindtest = () => {
+    if (!currentQuestion?.mediaUrl) return;
+
+    setIsAudioPlaying(true);
+
+    // Play locally for preview
+    if (audioRef.current) {
+      audioRef.current.play();
+    }
+
+    // Emit to Screen/Player
+    socketRef.current?.emit('blindtest-play', {
+      sessionId: selectedSession?.id,
+      audioUrl: currentQuestion.mediaUrl
+    });
+  };
+
+  const pauseBlindtest = () => {
+    setIsAudioPlaying(false);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    socketRef.current?.emit('blindtest-pause', {
+      sessionId: selectedSession?.id
+    });
+  };
+
+  const stopBlindtest = () => {
+    setIsAudioPlaying(false);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
+    socketRef.current?.emit('blindtest-stop', {
+      sessionId: selectedSession?.id
+    });
+  };
+
+  const revealBlindtest = () => {
+    setAudioRevealed(true);
+    stopBlindtest();
+
+    // Parse artist and songTitle from correctAnswer or question fields
+    const artist = currentQuestion?.artist || currentQuestion?.correctAnswer?.split(' - ')[0] || 'Unknown Artist';
+    const songTitle = currentQuestion?.songTitle || currentQuestion?.correctAnswer?.split(' - ')[1] || currentQuestion?.correctAnswer || 'Unknown Song';
+
+    socketRef.current?.emit('blindtest-reveal', {
+      sessionId: selectedSession?.id,
+      artist,
+      songTitle,
+      audioUrl: currentQuestion?.mediaUrl
+    });
   };
 
   const openScoreModal = (team: Team) => {
@@ -1038,6 +1114,113 @@ export default function StudioHome() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Blindtest Controls */}
+              {currentQuestion?.type === 'BLIND_TEST' && (
+                <div className="bg-gray-800 rounded-xl p-6 mb-6">
+                  <h3 className="text-xl font-semibold mb-4">🎵 Blindtest Control</h3>
+
+                  {/* Hidden audio element for preview */}
+                  {currentQuestion.mediaUrl && (
+                    <audio
+                      ref={audioRef}
+                      src={currentQuestion.mediaUrl}
+                      onEnded={() => setIsAudioPlaying(false)}
+                    />
+                  )}
+
+                  {/* Audio controls */}
+                  <div className="flex items-center space-x-4 mb-4">
+                    {!isAudioPlaying ? (
+                      <button
+                        onClick={playBlindtest}
+                        disabled={!currentQuestion.mediaUrl}
+                        className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition"
+                      >
+                        ▶️ Play Music
+                      </button>
+                    ) : (
+                      <button
+                        onClick={pauseBlindtest}
+                        className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-4 rounded-xl transition"
+                      >
+                        ⏸️ Pause
+                      </button>
+                    )}
+                    <button
+                      onClick={stopBlindtest}
+                      className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-4 rounded-xl transition"
+                    >
+                      ⏹️ Stop
+                    </button>
+                    <button
+                      onClick={revealBlindtest}
+                      disabled={audioRevealed}
+                      className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition"
+                    >
+                      🎤 Reveal
+                    </button>
+                  </div>
+
+                  {/* Status */}
+                  <div className={`text-center py-3 rounded-xl ${isAudioPlaying ? 'bg-green-500/20 animate-pulse' : 'bg-gray-700/50'}`}>
+                    <p className="text-2xl">
+                      {isAudioPlaying ? '🎵 Playing...' : audioRevealed ? '✅ Revealed' : '⏸️ Ready'}
+                    </p>
+                  </div>
+
+                  {/* Answer (hidden until revealed) */}
+                  <div className="mt-4 text-center">
+                    <p className="text-gray-400 mb-2">Answer:</p>
+                    <p className={`text-2xl font-bold transition-all ${
+                      audioRevealed ? 'text-green-400' : 'text-gray-500 blur-sm hover:blur-none cursor-pointer'
+                    }`}>
+                      {currentQuestion.correctAnswer || `${currentQuestion.artist} - ${currentQuestion.songTitle}`}
+                    </p>
+                  </div>
+
+                  {/* Buzzer for blindtest */}
+                  <div className="mt-6 pt-4 border-t border-gray-700">
+                    <h4 className="text-lg font-medium mb-3">🔔 Buzzer</h4>
+                    <div className="flex items-center space-x-4">
+                      <button
+                        onClick={openBuzzer}
+                        disabled={!buzzerLocked}
+                        className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition"
+                      >
+                        Open Buzzer
+                      </button>
+                      <button
+                        onClick={resetBuzzer}
+                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 rounded-xl transition"
+                      >
+                        Reset
+                      </button>
+                    </div>
+
+                    {buzzerWinner && (
+                      <div className="mt-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
+                        <p className="text-red-400 mb-1">🔔 BUZZ!</p>
+                        <p className="text-2xl font-bold text-white">{buzzerWinner.name}</p>
+                        <div className="flex justify-center space-x-4 mt-3">
+                          <button
+                            onClick={() => markBuzzerCorrect(buzzerWinner)}
+                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg"
+                          >
+                            ✓ Correct
+                          </button>
+                          <button
+                            onClick={() => markBuzzerWrong(buzzerWinner)}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg"
+                          >
+                            ✗ Wrong
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </>
