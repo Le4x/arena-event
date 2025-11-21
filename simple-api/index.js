@@ -172,7 +172,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 app.get('/api/events', authenticateToken, async (req, res) => {
   try {
     const events = await prisma.event.findMany({
-      where: { organizerId: req.user.userId },
+      where: { ownerId: req.user.userId },
       include: {
         _count: { select: { sessions: true, rounds: true } }
       },
@@ -197,8 +197,7 @@ app.post('/api/events', authenticateToken, async (req, res) => {
       data: {
         name,
         description: description || '',
-        organizerId: req.user.userId,
-        status: 'DRAFT'
+        ownerId: req.user.userId
       }
     });
 
@@ -358,7 +357,7 @@ app.delete('/api/questions/:id', authenticateToken, async (req, res) => {
 app.get('/api/sessions', authenticateToken, async (req, res) => {
   try {
     const sessions = await prisma.session.findMany({
-      where: { event: { organizerId: req.user.userId } },
+      where: { event: { ownerId: req.user.userId } },
       include: {
         event: true,
         _count: { select: { teams: true } }
