@@ -5,6 +5,18 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Create media directory if it doesn't exist
+const mediaDir = join(__dirname, 'media');
+if (!existsSync(mediaDir)) {
+  mkdirSync(mediaDir, { recursive: true });
+}
 
 const app = express();
 const httpServer = createServer(app);
