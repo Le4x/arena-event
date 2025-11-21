@@ -70,7 +70,7 @@ app.get('/health', (req, res) => {
     status: 'OK',
     message: 'Arena Event API is running!',
     timestamp: new Date().toISOString(),
-    version: '2.0.0'
+    version: '2.1.0'
   });
 });
 
@@ -214,7 +214,11 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
       where: { id: req.params.id },
       include: {
         rounds: {
-          include: { questions: true },
+          include: {
+            questions: {
+              orderBy: { order: 'asc' }
+            }
+          },
           orderBy: { order: 'asc' }
         },
         sessions: true
@@ -225,7 +229,26 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    res.json({ event });
+    // Transform questions to match frontend expectations
+    const transformedEvent = {
+      ...event,
+      rounds: event.rounds.map(round => ({
+        ...round,
+        questions: round.questions.map(q => ({
+          id: q.id,
+          text: q.content,
+          type: q.type,
+          options: q.choices || [],
+          correctAnswer: q.correctAnswer || '',
+          points: q.points,
+          timeLimit: q.timeLimit,
+          order: q.order,
+          mediaUrl: q.mediaUrl
+        }))
+      }))
+    };
+
+    res.json({ event: transformedEvent });
   } catch (error) {
     console.error('Get event error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -234,11 +257,11 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 
 app.put('/api/events/:id', authenticateToken, async (req, res) => {
   try {
-    const { name, description, status } = req.body;
+    const { name, description } = req.body;
 
     const event = await prisma.event.update({
       where: { id: req.params.id },
-      data: { name, description, status }
+      data: { name, description }
     });
 
     res.json({ success: true, event });
@@ -262,14 +285,38 @@ app.delete('/api/events/:id', authenticateToken, async (req, res) => {
 // ROUNDS ROUTES
 // ============================================
 
+app.get('/api/events/:eventId/rounds', authenticateToken, async (req, res) => {
+  try {
+    const rounds = await prisma.round.findMany({
+      where: { eventId: req.params.eventId },
+      include: {
+        questions: {
+          orderBy: { order: 'asc' }
+        }
+      },
+      orderBy: { order: 'asc' }
+    });
+    res.json({ rounds });
+  } catch (error) {
+    console.error('Get rounds error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/api/events/:eventId/rounds', authenticateToken, async (req, res) => {
   try {
-    const { name, order } = req.body;
+    const { name } = req.body;
+
+    // Get max order
+    const maxOrder = await prisma.round.aggregate({
+      where: { eventId: req.params.eventId },
+      _max: { order: true }
+    });
 
     const round = await prisma.round.create({
       data: {
         name: name || 'New Round',
-        order: order || 0,
+        order: (maxOrder._max.order ?? -1) + 1,
         eventId: req.params.eventId
       }
     });
@@ -277,6 +324,32 @@ app.post('/api/events/:eventId/rounds', authenticateToken, async (req, res) => {
     res.json({ success: true, round });
   } catch (error) {
     console.error('Create round error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/rounds/:id', authenticateToken, async (req, res) => {
+  try {
+    const { name, order } = req.body;
+
+    const round = await prisma.round.update({
+      where: { id: req.params.id },
+      data: { name, order }
+    });
+
+    res.json({ success: true, round });
+  } catch (error) {
+    console.error('Update round error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/rounds/:id', authenticateToken, async (req, res) => {
+  try {
+    await prisma.round.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete round error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -292,7 +365,23 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
       include: { round: true },
       orderBy: [{ round: { order: 'asc' } }, { order: 'asc' }]
     });
-    res.json({ questions });
+
+    // Transform to match frontend
+    const transformed = questions.map(q => ({
+      id: q.id,
+      text: q.content,
+      type: q.type,
+      options: q.choices || [],
+      correctAnswer: q.correctAnswer || '',
+      points: q.points,
+      timeLimit: q.timeLimit,
+      order: q.order,
+      mediaUrl: q.mediaUrl,
+      roundId: q.roundId,
+      round: q.round
+    }));
+
+    res.json({ questions: transformed });
   } catch (error) {
     console.error('Get questions error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -301,23 +390,43 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
 
 app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order } = req.body;
+    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl } = req.body;
+
+    // Get max order for this round
+    const maxOrder = await prisma.question.aggregate({
+      where: { roundId: req.params.roundId },
+      _max: { order: true }
+    });
 
     const question = await prisma.question.create({
       data: {
-        text,
+        content: text || '',
         type: type || 'MCQ',
-        options: options || [],
+        choices: options || [],
         correctAnswer: correctAnswer || '',
         points: points || 100,
         timeLimit: timeLimit || 30,
         mediaUrl: mediaUrl || null,
-        order: order || 0,
+        order: (maxOrder._max.order ?? -1) + 1,
         roundId: req.params.roundId
       }
     });
 
-    res.json({ success: true, question });
+    // Return transformed question
+    res.json({
+      success: true,
+      question: {
+        id: question.id,
+        text: question.content,
+        type: question.type,
+        options: question.choices || [],
+        correctAnswer: question.correctAnswer,
+        points: question.points,
+        timeLimit: question.timeLimit,
+        order: question.order,
+        mediaUrl: question.mediaUrl
+      }
+    });
   } catch (error) {
     console.error('Create question error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -330,10 +439,32 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
 
     const question = await prisma.question.update({
       where: { id: req.params.id },
-      data: { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order }
+      data: {
+        content: text,
+        type,
+        choices: options,
+        correctAnswer,
+        points,
+        timeLimit,
+        mediaUrl,
+        order
+      }
     });
 
-    res.json({ success: true, question });
+    res.json({
+      success: true,
+      question: {
+        id: question.id,
+        text: question.content,
+        type: question.type,
+        options: question.choices || [],
+        correctAnswer: question.correctAnswer,
+        points: question.points,
+        timeLimit: question.timeLimit,
+        order: question.order,
+        mediaUrl: question.mediaUrl
+      }
+    });
   } catch (error) {
     console.error('Update question error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -364,7 +495,14 @@ app.get('/api/sessions', authenticateToken, async (req, res) => {
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json({ sessions });
+
+    // Transform status for frontend
+    const transformed = sessions.map(s => ({
+      ...s,
+      status: s.status === 'ACTIVE' ? 'IN_PROGRESS' : s.status === 'FINISHED' ? 'COMPLETED' : s.status
+    }));
+
+    res.json({ sessions: transformed });
   } catch (error) {
     console.error('Get sessions error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -391,8 +529,7 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
       data: {
         code,
         eventId,
-        status: 'LOBBY',
-        currentQuestionIndex: 0
+        status: 'LOBBY'
       },
       include: { event: true }
     });
@@ -412,7 +549,11 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
         event: {
           include: {
             rounds: {
-              include: { questions: true },
+              include: {
+                questions: {
+                  orderBy: { order: 'asc' }
+                }
+              },
               orderBy: { order: 'asc' }
             }
           }
@@ -427,7 +568,30 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    res.json({ session });
+    // Transform questions
+    const transformedSession = {
+      ...session,
+      status: session.status === 'ACTIVE' ? 'IN_PROGRESS' : session.status === 'FINISHED' ? 'COMPLETED' : session.status,
+      event: {
+        ...session.event,
+        rounds: session.event.rounds.map(round => ({
+          ...round,
+          questions: round.questions.map(q => ({
+            id: q.id,
+            text: q.content,
+            type: q.type,
+            options: q.choices || [],
+            correctAnswer: q.correctAnswer,
+            points: q.points,
+            timeLimit: q.timeLimit,
+            order: q.order,
+            mediaUrl: q.mediaUrl
+          }))
+        }))
+      }
+    };
+
+    res.json({ session: transformedSession });
   } catch (error) {
     console.error('Get session error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -448,7 +612,7 @@ app.get('/api/sessions/code/:code', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    if (session.status === 'COMPLETED') {
+    if (session.status === 'FINISHED') {
       return res.status(400).json({ error: 'Session has ended' });
     }
 
@@ -461,14 +625,18 @@ app.get('/api/sessions/code/:code', async (req, res) => {
 
 app.put('/api/sessions/:id', authenticateToken, async (req, res) => {
   try {
-    const { status, currentQuestionIndex } = req.body;
+    const { status, currentQuestionId, currentRoundId } = req.body;
+
+    // Map frontend status to DB status
+    let dbStatus = status;
+    if (status === 'IN_PROGRESS') dbStatus = 'ACTIVE';
+    if (status === 'COMPLETED') dbStatus = 'FINISHED';
 
     const session = await prisma.session.update({
       where: { id: req.params.id },
-      data: { status, currentQuestionIndex }
+      data: { status: dbStatus, currentQuestionId, currentRoundId }
     });
 
-    // Emit to all clients in session
     io.to(`session:${session.id}`).emit('session:updated', { session });
 
     res.json({ success: true, session });
@@ -510,7 +678,6 @@ app.post('/api/sessions/:sessionId/teams', async (req, res) => {
       }
     });
 
-    // Emit team joined event
     io.to(`session:${session.id}`).emit('team:joined', { team });
 
     res.json({ success: true, team });
@@ -550,7 +717,6 @@ app.put('/api/teams/:id/score', authenticateToken, async (req, res) => {
       });
     }
 
-    // Emit score update
     io.to(`session:${team.sessionId}`).emit('score:updated', { team });
 
     res.json({ success: true, team });
@@ -579,7 +745,6 @@ app.post('/api/sessions/:sessionId/answers', async (req, res) => {
     const isCorrect = answer === question.correctAnswer;
     const points = calculateScore(isCorrect, timeRemaining || 0, question.timeLimit, question.points);
 
-    // Update team score if correct
     if (isCorrect) {
       await prisma.team.update({
         where: { id: teamId },
@@ -587,19 +752,16 @@ app.post('/api/sessions/:sessionId/answers', async (req, res) => {
       });
     }
 
-    // Create answer record
     const answerRecord = await prisma.answer.create({
       data: {
         teamId,
         questionId,
-        answer,
+        content: answer,
         isCorrect,
-        points,
-        timeToAnswer: question.timeLimit - (timeRemaining || 0)
+        points
       }
     });
 
-    // Emit answer submitted
     io.to(`session:${req.params.sessionId}`).emit('answer:submitted', {
       teamId,
       questionId,
@@ -652,7 +814,7 @@ app.post('/api/sessions/:sessionId/start', authenticateToken, async (req, res) =
   try {
     const session = await prisma.session.update({
       where: { id: req.params.sessionId },
-      data: { status: 'IN_PROGRESS', currentQuestionIndex: 0 }
+      data: { status: 'ACTIVE', startedAt: new Date() }
     });
 
     io.to(`session:${session.id}`).emit('game:started', { session });
@@ -672,12 +834,22 @@ app.post('/api/sessions/:sessionId/question/start', authenticateToken, async (re
       where: { id: questionId }
     });
 
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    // Update session current question
+    await prisma.session.update({
+      where: { id: req.params.sessionId },
+      data: { currentQuestionId: questionId }
+    });
+
     io.to(`session:${req.params.sessionId}`).emit('question:started', {
       question: {
         id: question.id,
-        text: question.text,
+        text: question.content,
         type: question.type,
-        options: question.options,
+        options: question.choices || [],
         timeLimit: question.timeLimit,
         points: question.points,
         mediaUrl: question.mediaUrl
@@ -699,7 +871,10 @@ app.post('/api/sessions/:sessionId/question/end', authenticateToken, async (req,
       where: { id: questionId }
     });
 
-    // Get answers for this question
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
     const answers = await prisma.answer.findMany({
       where: { questionId },
       include: { team: true }
@@ -711,7 +886,7 @@ app.post('/api/sessions/:sessionId/question/end', authenticateToken, async (req,
       answers: answers.map(a => ({
         teamId: a.teamId,
         teamName: a.team.name,
-        answer: a.answer,
+        answer: a.content,
         isCorrect: a.isCorrect,
         points: a.points
       }))
@@ -779,7 +954,7 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
   try {
     const session = await prisma.session.update({
       where: { id: req.params.sessionId },
-      data: { status: 'COMPLETED' }
+      data: { status: 'FINISHED', endedAt: new Date() }
     });
 
     const teams = await prisma.team.findMany({
@@ -802,7 +977,6 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  // Join session room
   socket.on('session:join', ({ sessionId, teamId }) => {
     socket.join(`session:${sessionId}`);
     console.log(`Socket ${socket.id} joined session ${sessionId}`);
@@ -812,13 +986,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Leave session room
   socket.on('session:leave', ({ sessionId }) => {
     socket.leave(`session:${sessionId}`);
     console.log(`Socket ${socket.id} left session ${sessionId}`);
   });
 
-  // Buzzer press from player
   socket.on('buzzer:press', async ({ sessionId, teamId, teamName }) => {
     io.to(`session:${sessionId}`).emit('buzzer:pressed', {
       teamId,
@@ -827,7 +999,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Answer from player
   socket.on('answer:submit', async ({ sessionId, teamId, questionId, answer, timeRemaining }) => {
     try {
       const question = await prisma.question.findUnique({ where: { id: questionId } });
@@ -847,10 +1018,9 @@ io.on('connection', (socket) => {
         data: {
           teamId,
           questionId,
-          answer,
+          content: answer,
           isCorrect,
-          points,
-          timeToAnswer: question.timeLimit - (timeRemaining || 0)
+          points
         }
       });
 
@@ -873,26 +1043,101 @@ io.on('connection', (socket) => {
 });
 
 // ============================================
-// PUBLIC ROUTES (no auth required)
+// PUBLIC ROUTES (no auth required for frontend apps)
 // ============================================
 
 // Public: Get sessions by status (for Studio/Screen)
 app.get('/sessions', async (req, res) => {
   try {
     const { status } = req.query;
-    const where = status ? { status } : { status: { not: 'COMPLETED' } };
+
+    // Map frontend status to DB status
+    let dbStatus = status;
+    if (status === 'ACTIVE') dbStatus = 'ACTIVE';
+    if (status === 'WAITING') dbStatus = 'LOBBY';
+
+    const where = dbStatus ? { status: dbStatus } : { status: { not: 'FINISHED' } };
 
     const sessions = await prisma.session.findMany({
       where,
       include: {
         event: { select: { id: true, name: true, description: true } },
-        teams: { select: { id: true, name: true, color: true, score: true } }
+        teams: { select: { id: true, name: true, score: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(sessions);
+
+    // Transform for frontend - add color to teams
+    const transformed = sessions.map(s => ({
+      ...s,
+      status: s.status === 'LOBBY' ? 'WAITING' : s.status,
+      teams: s.teams.map((t, i) => ({
+        ...t,
+        color: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i % 6]
+      }))
+    }));
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get public sessions error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Get session by ID (for Studio/Screen/Player)
+app.get('/sessions/:sessionId', async (req, res) => {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: req.params.sessionId },
+      include: {
+        event: {
+          include: {
+            rounds: {
+              include: {
+                questions: { orderBy: { order: 'asc' } }
+              },
+              orderBy: { order: 'asc' }
+            }
+          }
+        },
+        teams: { orderBy: { score: 'desc' } }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Transform
+    const transformed = {
+      ...session,
+      status: session.status === 'LOBBY' ? 'WAITING' : session.status,
+      teams: session.teams.map((t, i) => ({
+        ...t,
+        color: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i % 6]
+      })),
+      event: {
+        ...session.event,
+        rounds: session.event.rounds.map(r => ({
+          ...r,
+          questions: r.questions.map(q => ({
+            id: q.id,
+            text: q.content,
+            type: q.type,
+            options: q.choices || [],
+            correctAnswer: q.correctAnswer,
+            points: q.points,
+            timeLimit: q.timeLimit,
+            order: q.order,
+            mediaUrl: q.mediaUrl
+          }))
+        }))
+      }
+    };
+
+    res.json(transformed);
+  } catch (error) {
+    console.error('Get session error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -910,7 +1155,7 @@ app.post('/sessions/join', async (req, res) => {
       where: { code: code.toUpperCase() },
       include: {
         event: { select: { id: true, name: true, description: true } },
-        teams: { select: { id: true, name: true, color: true, score: true } }
+        teams: { select: { id: true, name: true, score: true } }
       }
     });
 
@@ -918,7 +1163,7 @@ app.post('/sessions/join', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    if (session.status === 'COMPLETED') {
+    if (session.status === 'FINISHED') {
       return res.status(400).json({ error: 'Session has ended' });
     }
 
@@ -932,7 +1177,7 @@ app.post('/sessions/join', async (req, res) => {
 // Public: Create team in session (for Player)
 app.post('/sessions/:sessionId/teams', async (req, res) => {
   try {
-    const { name, color } = req.body;
+    const { name } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Team name is required' });
@@ -946,18 +1191,28 @@ app.post('/sessions/:sessionId/teams', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Count existing teams to assign color
+    const teamCount = await prisma.team.count({
+      where: { sessionId: req.params.sessionId }
+    });
+
     const team = await prisma.team.create({
       data: {
         name,
-        color: color || '#8B5CF6',
         sessionId: req.params.sessionId,
         score: 0
       }
     });
 
-    io.to(`session:${session.id}`).emit('team-joined', { team });
+    const colors = ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+    const teamWithColor = {
+      ...team,
+      color: colors[teamCount % colors.length]
+    };
 
-    res.json(team);
+    io.to(`session:${session.id}`).emit('team-joined', { team: teamWithColor });
+
+    res.json(teamWithColor);
   } catch (error) {
     console.error('Create team error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -969,9 +1224,29 @@ app.get('/events/:eventId/rounds', async (req, res) => {
   try {
     const rounds = await prisma.round.findMany({
       where: { eventId: req.params.eventId },
+      include: {
+        questions: { orderBy: { order: 'asc' } }
+      },
       orderBy: { order: 'asc' }
     });
-    res.json(rounds);
+
+    // Transform questions
+    const transformed = rounds.map(r => ({
+      ...r,
+      questions: r.questions.map(q => ({
+        id: q.id,
+        text: q.content,
+        type: q.type,
+        options: q.choices || [],
+        correctAnswer: q.correctAnswer,
+        points: q.points,
+        timeLimit: q.timeLimit,
+        order: q.order,
+        mediaUrl: q.mediaUrl
+      }))
+    }));
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get rounds error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -985,7 +1260,21 @@ app.get('/rounds/:roundId/questions', async (req, res) => {
       where: { roundId: req.params.roundId },
       orderBy: { order: 'asc' }
     });
-    res.json(questions);
+
+    // Transform
+    const transformed = questions.map(q => ({
+      id: q.id,
+      text: q.content,
+      type: q.type,
+      options: q.choices || [],
+      correctAnswer: q.correctAnswer,
+      points: q.points,
+      timeLimit: q.timeLimit,
+      order: q.order,
+      mediaUrl: q.mediaUrl
+    }));
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get questions error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -1020,10 +1309,9 @@ app.post('/sessions/:sessionId/answers', async (req, res) => {
       data: {
         teamId,
         questionId,
-        answer,
+        content: answer,
         isCorrect,
-        points,
-        timeToAnswer: Math.round(responseTime / 1000)
+        points
       }
     });
 
@@ -1095,12 +1383,29 @@ app.post('/sessions/:sessionId/question', async (req, res) => {
   }
 });
 
+// Public: Start session (for Studio)
+app.post('/sessions/:sessionId/start', async (req, res) => {
+  try {
+    const session = await prisma.session.update({
+      where: { id: req.params.sessionId },
+      data: { status: 'ACTIVE', startedAt: new Date() }
+    });
+
+    io.to(`session:${session.id}`).emit('game-start', {});
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Start session error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Public: End session (for Studio)
 app.post('/sessions/:sessionId/end', async (req, res) => {
   try {
     const session = await prisma.session.update({
       where: { id: req.params.sessionId },
-      data: { status: 'COMPLETED' }
+      data: { status: 'FINISHED', endedAt: new Date() }
     });
 
     io.to(`session:${session.id}`).emit('session-end', {});
@@ -1108,6 +1413,18 @@ app.post('/sessions/:sessionId/end', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('End session error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Emit Socket.IO events (for Studio control)
+app.post('/sessions/:sessionId/emit', async (req, res) => {
+  try {
+    const { event, data } = req.body;
+    io.to(`session:${req.params.sessionId}`).emit(event, data);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Emit error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1123,10 +1440,18 @@ httpServer.listen(PORT, HOST, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
-║   🎮 ARENA EVENT API v2.0.0                          ║
+║   🎮 ARENA EVENT API v2.1.0                          ║
 ║                                                       ║
 ║   Server running on http://${HOST}:${PORT}              ║
 ║   WebSocket enabled                                   ║
+║                                                       ║
+║   Routes available:                                   ║
+║   - Auth: /api/auth/*                                ║
+║   - Events: /api/events/*                            ║
+║   - Rounds: /api/events/:id/rounds, /api/rounds/*    ║
+║   - Questions: /api/rounds/:id/questions             ║
+║   - Sessions: /api/sessions/*, /sessions/*           ║
+║   - Teams: /api/sessions/:id/teams                   ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
   `);
