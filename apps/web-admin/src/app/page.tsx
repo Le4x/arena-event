@@ -38,6 +38,7 @@ interface Question {
   points: number;
   timeLimit: number;
   order: number;
+  mediaUrl?: string;
 }
 
 interface Session {
@@ -79,8 +80,9 @@ export default function Home() {
   // Form state
   const [eventForm, setEventForm] = useState({ name: '', description: '' });
   const [questionForm, setQuestionForm] = useState({
-    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30
+    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: ''
   });
+  const [uploadingAudio, setUploadingAudio] = useState(false);
   const [modalError, setModalError] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
 
@@ -299,11 +301,12 @@ export default function Home() {
         body: JSON.stringify({
           ...questionForm,
           correctAnswer: questionForm.correctAnswer,
+          mediaUrl: questionForm.mediaUrl || null,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30 });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '' });
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
     } catch (err) {
@@ -316,12 +319,15 @@ export default function Home() {
     try {
       const res = await apiCall(`/api/questions/${editingQuestion.id}`, {
         method: 'PUT',
-        body: JSON.stringify(questionForm),
+        body: JSON.stringify({
+          ...questionForm,
+          mediaUrl: questionForm.mediaUrl || null,
+        }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
         setEditingQuestion(null);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30 });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '' });
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
     } catch (err) {
@@ -365,7 +371,7 @@ export default function Home() {
   const openAddQuestion = (roundId: string) => {
     setSelectedRoundId(roundId);
     setEditingQuestion(null);
-    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30 });
+    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '' });
     setShowQuestionModal(true);
   };
 
@@ -378,8 +384,42 @@ export default function Home() {
       correctAnswer: question.correctAnswer,
       points: question.points,
       timeLimit: question.timeLimit,
+      mediaUrl: question.mediaUrl || '',
     });
     setShowQuestionModal(true);
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingAudio(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        const res = await fetch(`${API_URL}/api/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: file.name,
+            data: base64,
+            type: 'audio'
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setQuestionForm(prev => ({ ...prev, mediaUrl: data.url }));
+        } else {
+          alert('Upload failed: ' + (data.error || 'Unknown error'));
+        }
+        setUploadingAudio(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Upload error:', err);
+      setUploadingAudio(false);
+    }
   };
 
   // LOGIN PAGE
@@ -731,6 +771,7 @@ export default function Home() {
                     <option value="MCQ">Multiple Choice</option>
                     <option value="TRUE_FALSE">True/False</option>
                     <option value="BUZZER">Buzzer</option>
+                    <option value="BLIND_TEST">Blindtest Musical</option>
                   </select>
                 </div>
                 <div>
@@ -779,6 +820,50 @@ export default function Home() {
                     <option value="TRUE">True</option>
                     <option value="FALSE">False</option>
                   </select>
+                </div>
+              )}
+              {questionForm.type === 'BLIND_TEST' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Audio File</label>
+                    <div className="flex items-center space-x-4">
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={handleAudioUpload}
+                        className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white file:cursor-pointer"
+                      />
+                      {uploadingAudio && <span className="text-purple-400">Uploading...</span>}
+                    </div>
+                    {questionForm.mediaUrl && (
+                      <div className="mt-2 p-3 bg-gray-700/50 rounded-lg">
+                        <p className="text-green-400 text-sm mb-2">Audio uploaded!</p>
+                        <audio controls src={questionForm.mediaUrl} className="w-full" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Correct Answer (Artist - Song Title)</label>
+                    <input
+                      type="text"
+                      value={questionForm.correctAnswer}
+                      onChange={(e) => setQuestionForm({ ...questionForm, correctAnswer: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white"
+                      placeholder="A-ha - Take On Me"
+                    />
+                  </div>
+                </div>
+              )}
+              {questionForm.type === 'BUZZER' && (
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">Correct Answer</label>
+                  <input
+                    type="text"
+                    value={questionForm.correctAnswer}
+                    onChange={(e) => setQuestionForm({ ...questionForm, correctAnswer: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white"
+                    placeholder="The expected answer..."
+                  />
                 </div>
               )}
             </div>

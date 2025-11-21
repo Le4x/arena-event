@@ -5,8 +5,8 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,10 +30,57 @@ const io = new Server(httpServer, {
 const prisma = new PrismaClient();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve static media files (audio, images)
 app.use('/media', express.static(mediaDir));
+
+// Create audio subdirectory
+const audioDir = join(mediaDir, 'audio');
+if (!existsSync(audioDir)) {
+  mkdirSync(audioDir, { recursive: true });
+}
+
+// ============================================
+// FILE UPLOAD ENDPOINT
+// ============================================
+
+app.post('/api/upload', async (req, res) => {
+  try {
+    const { filename, data, type } = req.body;
+
+    if (!filename || !data) {
+      return res.status(400).json({ error: 'Filename and data are required' });
+    }
+
+    // Extract base64 data
+    const base64Data = data.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Generate unique filename
+    const ext = extname(filename) || '.mp3';
+    const uniqueFilename = `${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`;
+
+    // Determine subdirectory based on type
+    const subdir = type === 'audio' ? 'audio' : 'images';
+    const targetDir = join(mediaDir, subdir);
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true });
+    }
+
+    const filepath = join(targetDir, uniqueFilename);
+    writeFileSync(filepath, buffer);
+
+    const mediaUrl = `http://91.134.135.247:3001/media/${subdir}/${uniqueFilename}`;
+
+    console.log(`File uploaded: ${mediaUrl}`);
+    res.json({ url: mediaUrl, filename: uniqueFilename });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
 
 const JWT_SECRET = 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = '7d';
