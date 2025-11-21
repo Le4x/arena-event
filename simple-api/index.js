@@ -637,7 +637,7 @@ app.put('/api/sessions/:id', authenticateToken, async (req, res) => {
       data: { status: dbStatus, currentQuestionId, currentRoundId }
     });
 
-    io.to(`session:${session.id}`).emit('session:updated', { session });
+    io.to(`session:${session.id}`).emit('session-updated', { session });
 
     res.json({ success: true, session });
   } catch (error) {
@@ -678,7 +678,7 @@ app.post('/api/sessions/:sessionId/teams', async (req, res) => {
       }
     });
 
-    io.to(`session:${session.id}`).emit('team:joined', { team });
+    io.to(`session:${session.id}`).emit('team-joined', { team });
 
     res.json({ success: true, team });
   } catch (error) {
@@ -717,7 +717,7 @@ app.put('/api/teams/:id/score', authenticateToken, async (req, res) => {
       });
     }
 
-    io.to(`session:${team.sessionId}`).emit('score:updated', { team });
+    io.to(`session:${team.sessionId}`).emit('score-update', { teamId: team.id, newScore: team.score });
 
     res.json({ success: true, team });
   } catch (error) {
@@ -762,9 +762,10 @@ app.post('/api/sessions/:sessionId/answers', async (req, res) => {
       }
     });
 
-    io.to(`session:${req.params.sessionId}`).emit('answer:submitted', {
+    io.to(`session:${req.params.sessionId}`).emit('answer-submitted', {
       teamId,
       questionId,
+      answer,
       isCorrect,
       points
     });
@@ -817,7 +818,7 @@ app.post('/api/sessions/:sessionId/start', authenticateToken, async (req, res) =
       data: { status: 'ACTIVE', startedAt: new Date() }
     });
 
-    io.to(`session:${session.id}`).emit('game:started', { session });
+    io.to(`session:${session.id}`).emit('game-start', { session });
 
     res.json({ success: true, session });
   } catch (error) {
@@ -844,7 +845,7 @@ app.post('/api/sessions/:sessionId/question/start', authenticateToken, async (re
       data: { currentQuestionId: questionId }
     });
 
-    io.to(`session:${req.params.sessionId}`).emit('question:started', {
+    io.to(`session:${req.params.sessionId}`).emit('question-start', {
       question: {
         id: question.id,
         text: question.content,
@@ -853,7 +854,8 @@ app.post('/api/sessions/:sessionId/question/start', authenticateToken, async (re
         timeLimit: question.timeLimit,
         points: question.points,
         mediaUrl: question.mediaUrl
-      }
+      },
+      timeLimit: question.timeLimit
     });
 
     res.json({ success: true });
@@ -880,7 +882,7 @@ app.post('/api/sessions/:sessionId/question/end', authenticateToken, async (req,
       include: { team: true }
     });
 
-    io.to(`session:${req.params.sessionId}`).emit('question:ended', {
+    io.to(`session:${req.params.sessionId}`).emit('question-end', {
       questionId,
       correctAnswer: question.correctAnswer,
       answers: answers.map(a => ({
@@ -901,7 +903,7 @@ app.post('/api/sessions/:sessionId/question/end', authenticateToken, async (req,
 
 app.post('/api/sessions/:sessionId/buzzer/open', authenticateToken, async (req, res) => {
   try {
-    io.to(`session:${req.params.sessionId}`).emit('buzzer:opened', {
+    io.to(`session:${req.params.sessionId}`).emit('buzzer-open', {
       timestamp: Date.now()
     });
     res.json({ success: true });
@@ -914,9 +916,10 @@ app.post('/api/sessions/:sessionId/buzzer/press', async (req, res) => {
   try {
     const { teamId, teamName } = req.body;
 
-    io.to(`session:${req.params.sessionId}`).emit('buzzer:pressed', {
+    io.to(`session:${req.params.sessionId}`).emit('buzzer-pressed', {
       teamId,
       teamName,
+      team: { id: teamId, name: teamName },
       timestamp: Date.now()
     });
 
@@ -928,7 +931,7 @@ app.post('/api/sessions/:sessionId/buzzer/press', async (req, res) => {
 
 app.post('/api/sessions/:sessionId/buzzer/reset', authenticateToken, async (req, res) => {
   try {
-    io.to(`session:${req.params.sessionId}`).emit('buzzer:reset', {});
+    io.to(`session:${req.params.sessionId}`).emit('buzzer-reset', {});
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
@@ -942,7 +945,7 @@ app.post('/api/sessions/:sessionId/leaderboard/show', authenticateToken, async (
       orderBy: { score: 'desc' }
     });
 
-    io.to(`session:${req.params.sessionId}`).emit('leaderboard:show', { teams });
+    io.to(`session:${req.params.sessionId}`).emit('show-leaderboard', { teams });
 
     res.json({ success: true });
   } catch (error) {
@@ -962,7 +965,7 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
       orderBy: { score: 'desc' }
     });
 
-    io.to(`session:${session.id}`).emit('game:ended', { teams });
+    io.to(`session:${session.id}`).emit('session-end', { teams });
 
     res.json({ success: true, session });
   } catch (error) {
@@ -977,35 +980,135 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('session:join', ({ sessionId, teamId }) => {
+  // ========== SESSION EVENTS ==========
+  // Support both hyphen and colon notation
+  const joinSession = ({ sessionId, teamId, role }) => {
     socket.join(`session:${sessionId}`);
-    console.log(`Socket ${socket.id} joined session ${sessionId}`);
+    socket.sessionId = sessionId;
+    socket.role = role;
+    console.log(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
 
     if (teamId) {
       socket.teamId = teamId;
     }
-  });
+  };
+  socket.on('join-session', joinSession);
+  socket.on('session:join', joinSession);
 
-  socket.on('session:leave', ({ sessionId }) => {
+  const leaveSession = ({ sessionId }) => {
     socket.leave(`session:${sessionId}`);
     console.log(`Socket ${socket.id} left session ${sessionId}`);
-  });
+  };
+  socket.on('leave-session', leaveSession);
+  socket.on('session:leave', leaveSession);
 
-  socket.on('buzzer:press', async ({ sessionId, teamId, teamName }) => {
-    io.to(`session:${sessionId}`).emit('buzzer:pressed', {
-      teamId,
-      teamName,
-      timestamp: Date.now()
+  // ========== STUDIO CONTROL EVENTS (relayed to all clients) ==========
+
+  // Question start - from Studio to Screen/Player
+  socket.on('question-start', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Question started in session ${sessionId}:`, data.question?.id);
+    io.to(`session:${sessionId}`).emit('question-start', {
+      question: data.question,
+      timeLimit: data.timeLimit || data.question?.timeLimit || 30
     });
   });
 
-  socket.on('answer:submit', async ({ sessionId, teamId, questionId, answer, timeRemaining }) => {
+  // Question end - from Studio to Screen/Player
+  socket.on('question-end', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Question ended in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('question-end', {
+      questionId: data.questionId,
+      correctAnswer: data.correctAnswer
+    });
+  });
+
+  // Timer events
+  socket.on('timer-update', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('timer-update', { timeRemaining: data.timeRemaining });
+  });
+
+  socket.on('timer-end', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('timer-end', {});
+  });
+
+  // Show leaderboard
+  socket.on('show-leaderboard', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Showing leaderboard in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('show-leaderboard', { teams: data.teams });
+  });
+
+  // Game paused/resumed
+  socket.on('game-paused', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('game-paused', {});
+  });
+
+  socket.on('game-resumed', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('game-resumed', {});
+  });
+
+  // Session end
+  socket.on('session-end', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Session ${sessionId} ended`);
+    io.to(`session:${sessionId}`).emit('session-end', {});
+  });
+
+  // ========== BUZZER EVENTS ==========
+
+  socket.on('buzzer-open', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Buzzer opened in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('buzzer-open', {});
+  });
+
+  socket.on('buzzer-lock', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('buzzer-lock', {});
+  });
+
+  socket.on('buzzer-reset', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('buzzer-reset', {});
+  });
+
+  // Buzzer press - from Player
+  const handleBuzzerPress = async (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const team = data.team || { id: data.teamId, name: data.teamName };
+    console.log(`Buzzer pressed by ${team.name} in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('buzzer-pressed', {
+      team,
+      teamId: team.id,
+      teamName: team.name,
+      timestamp: data.timestamp || Date.now()
+    });
+  };
+  socket.on('buzzer-press', handleBuzzerPress);
+  socket.on('buzzer:press', handleBuzzerPress);
+
+  // ========== ANSWER EVENTS ==========
+
+  const handleAnswerSubmit = async (data) => {
+    const { teamId, questionId, answer, responseTime, timeRemaining } = data;
+    const sessionId = data.sessionId || socket.sessionId;
+
     try {
       const question = await prisma.question.findUnique({ where: { id: questionId } });
-      if (!question) return;
+      if (!question) {
+        console.error('Question not found:', questionId);
+        return;
+      }
 
       const isCorrect = answer === question.correctAnswer;
-      const points = calculateScore(isCorrect, timeRemaining || 0, question.timeLimit, question.points);
+      const timeVal = responseTime ? (question.timeLimit * 1000 - responseTime) / 1000 : (timeRemaining || 0);
+      const points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
 
       if (isCorrect) {
         await prisma.team.update({
@@ -1024,21 +1127,43 @@ io.on('connection', (socket) => {
         }
       });
 
-      io.to(`session:${sessionId}`).emit('answer:submitted', {
+      // Emit to all in session (for Screen)
+      io.to(`session:${sessionId}`).emit('answer-submitted', {
         teamId,
         questionId,
+        answer,
         isCorrect,
         points
       });
 
-      socket.emit('answer:result', { isCorrect, points });
+      // Emit result back to the submitting player
+      socket.emit('answer-result', { teamId, isCorrect, points });
+
+      console.log(`Answer submitted: team=${teamId}, correct=${isCorrect}, points=${points}`);
     } catch (error) {
       console.error('Socket answer error:', error);
     }
+  };
+  socket.on('submit-answer', handleAnswerSubmit);
+  socket.on('answer:submit', handleAnswerSubmit);
+
+  // ========== SCORE EVENTS ==========
+
+  socket.on('score-update', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    io.to(`session:${sessionId}`).emit('score-update', {
+      teamId: data.teamId,
+      newScore: data.newScore
+    });
   });
+
+  // ========== DISCONNECT ==========
 
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
+    if (socket.sessionId && socket.teamId) {
+      io.to(`session:${socket.sessionId}`).emit('team-left', { teamId: socket.teamId });
+    }
   });
 });
 
