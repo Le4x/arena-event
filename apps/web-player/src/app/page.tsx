@@ -157,10 +157,15 @@ export default function PlayerHome() {
     connectSocket(session.id, existingTeam.id);
   };
 
-  // Socket connection
+  // Socket connection (optimized for low latency)
   const connectSocket = (sessionId: string, teamId: string) => {
     const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 2000,
+      reconnectionAttempts: 10,
+      timeout: 5000,
     });
     socketRef.current = socket;
 
@@ -201,12 +206,19 @@ export default function PlayerHome() {
       setGameState('RESULT');
     });
 
+    // Server-side timer sync (authoritative)
+    socket.on('timer-sync', (data) => {
+      setTimeRemaining(data.remaining);
+    });
+
+    // Legacy timer-update support
     socket.on('timer-update', (data) => {
-      setTimeRemaining(data.timeRemaining);
+      setTimeRemaining(data.timeRemaining || data.remaining);
     });
 
     socket.on('timer-end', () => {
       stopTimer();
+      setTimeRemaining(0);
       if (!hasAnswered) {
         setGameState('WAITING');
       }
@@ -325,21 +337,11 @@ export default function PlayerHome() {
     });
   };
 
+  // Timer is now server-side - no client-side interval needed
+  // The server emits 'timer-sync' events every 100ms for smooth synchronized updates
   const startTimer = (seconds: number) => {
-    stopTimer();
+    // Only set initial time, server will sync the rest
     setTimeRemaining(seconds);
-    timerRef.current = setInterval(() => {
-      setTimeRemaining(prev => {
-        if (prev <= 1) {
-          stopTimer();
-          if (!hasAnswered) {
-            setGameState('WAITING');
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
   };
 
   const stopTimer = () => {
@@ -349,7 +351,7 @@ export default function PlayerHome() {
     }
   };
 
-  // Submit answer
+  // Submit answer (Socket only for lower latency - no duplicate REST call)
   const handleAnswer = async (answer: string) => {
     if (hasAnswered || !currentQuestion || !session || !team) return;
 
@@ -359,7 +361,7 @@ export default function PlayerHome() {
 
     const responseTime = Date.now() - questionStartTime.current;
 
-    // Send via socket
+    // Send via socket only (server handles persistence)
     socketRef.current?.emit('submit-answer', {
       sessionId: session.id,
       teamId: team.id,
@@ -367,22 +369,6 @@ export default function PlayerHome() {
       answer,
       responseTime,
     });
-
-    // Also save via API
-    try {
-      await fetch(`${API_URL}/sessions/${session.id}/answers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamId: team.id,
-          questionId: currentQuestion.id,
-          answer,
-          responseTime,
-        }),
-      });
-    } catch (error) {
-      console.error('Failed to submit answer:', error);
-    }
   };
 
   // Submit text answer
@@ -392,15 +378,33 @@ export default function PlayerHome() {
     }
   };
 
-  // Press buzzer
+  // Press buzzer (with server acknowledgment for reliability)
   const handleBuzzer = () => {
     if (buzzerPressed || !buzzerOpen || !session || !team) return;
 
     setBuzzerPressed(true);
+
+    // Emit with acknowledgment callback
     socketRef.current?.emit('buzzer-press', {
       sessionId: session.id,
       teamId: team.id,
+      teamName: team.name,
+      team: team,
       timestamp: Date.now(),
+    }, (response: { success: boolean; winner: boolean; actualWinner?: { name: string } }) => {
+      // Handle acknowledgment from server
+      if (response) {
+        if (response.success && response.winner) {
+          // We won the buzzer!
+          console.log('Buzzer press confirmed - we won!');
+        } else if (!response.success && response.actualWinner) {
+          // Someone else was faster
+          console.log(`Buzzer press rejected - ${response.actualWinner.name} was faster`);
+          setBuzzerPressed(false);
+          // Keep buzzer locked since someone else won
+          setBuzzerOpen(false);
+        }
+      }
     });
   };
 

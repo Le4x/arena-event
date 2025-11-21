@@ -142,6 +142,11 @@ export default function StudioHome() {
 
     const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 2000,
+      reconnectionAttempts: 10,
+      timeout: 5000,
     });
     socketRef.current = socket;
 
@@ -206,6 +211,17 @@ export default function StudioHome() {
       ));
     });
 
+    // Listen for server-side timer sync (authoritative)
+    socket.on('timer-sync', (data) => {
+      setTimeRemaining(data.remaining);
+    });
+
+    // Listen for timer end from server
+    socket.on('timer-end', () => {
+      setTimeRemaining(0);
+      setIsTimerRunning(false);
+    });
+
     return () => {
       socket.disconnect();
     };
@@ -247,30 +263,14 @@ export default function StudioHome() {
     }
   }, []);
 
-  // Timer effect
+  // Timer is now server-side - no client-side interval needed
+  // The server emits 'timer-sync' events every 100ms for smooth updates
+  // Timer cleanup ref kept for legacy code compatibility
   useEffect(() => {
-    if (isTimerRunning && timeRemaining > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            setIsTimerRunning(false);
-            handleTimerEnd();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isTimerRunning]);
-
-  const handleTimerEnd = () => {
-    if (socketRef.current && selectedSession) {
-      socketRef.current.emit('timer-end', { sessionId: selectedSession.id });
-    }
-  };
+  }, []);
 
   // Current question and round
   const currentRound = rounds[currentRoundIndex];

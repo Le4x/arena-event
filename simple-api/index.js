@@ -24,8 +24,97 @@ const io = new Server(httpServer, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE']
-  }
+  },
+  // Optimized for low latency
+  transports: ['websocket', 'polling'],
+  pingInterval: 5000,      // 5 seconds - faster connection health check
+  pingTimeout: 3000,       // 3 seconds - quick disconnect detection
+  upgradeTimeout: 5000,    // 5 seconds - faster websocket upgrade
+  maxHttpBufferSize: 1e6,  // 1MB max payload
+  connectTimeout: 10000,   // 10 seconds connection timeout
+  allowUpgrades: true,
+  perMessageDeflate: false // Disable compression for lower latency
 });
+
+// ============================================
+// SERVER-SIDE TIMER MANAGER (for sync across all clients)
+// ============================================
+const activeTimers = new Map(); // sessionId -> { interval, startTime, duration, remaining }
+
+const startServerTimer = (sessionId, duration) => {
+  // Clear existing timer
+  stopServerTimer(sessionId);
+
+  const startTime = Date.now();
+  const timerData = {
+    startTime,
+    duration: duration * 1000, // Convert to ms
+    remaining: duration
+  };
+
+  // Emit sync every 100ms for smooth countdown
+  const interval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const remaining = Math.max(0, Math.ceil((timerData.duration - elapsed) / 1000));
+    timerData.remaining = remaining;
+
+    // Emit timer sync to all clients
+    io.to(`session:${sessionId}`).emit('timer-sync', {
+      remaining,
+      serverTime: Date.now()
+    });
+
+    if (remaining <= 0) {
+      stopServerTimer(sessionId);
+      io.to(`session:${sessionId}`).emit('timer-end', { serverTime: Date.now() });
+    }
+  }, 100); // 100ms for smooth updates
+
+  timerData.interval = interval;
+  activeTimers.set(sessionId, timerData);
+
+  console.log(`Timer started for session ${sessionId}: ${duration}s`);
+  return timerData;
+};
+
+const stopServerTimer = (sessionId) => {
+  const timer = activeTimers.get(sessionId);
+  if (timer) {
+    clearInterval(timer.interval);
+    activeTimers.delete(sessionId);
+    console.log(`Timer stopped for session ${sessionId}`);
+  }
+};
+
+const getTimerRemaining = (sessionId) => {
+  const timer = activeTimers.get(sessionId);
+  return timer ? timer.remaining : 0;
+};
+
+// ============================================
+// BUZZER LOCK MANAGER (first-press wins)
+// ============================================
+const buzzerState = new Map(); // sessionId -> { locked: boolean, winner: team, timestamp }
+
+const resetBuzzer = (sessionId) => {
+  buzzerState.set(sessionId, { locked: false, winner: null, timestamp: null });
+};
+
+const tryPressBuzzer = (sessionId, team, timestamp) => {
+  const state = buzzerState.get(sessionId) || { locked: false, winner: null, timestamp: null };
+
+  if (state.locked) {
+    return { success: false, winner: state.winner };
+  }
+
+  // First press wins!
+  state.locked = true;
+  state.winner = team;
+  state.timestamp = timestamp;
+  buzzerState.set(sessionId, state);
+
+  return { success: true, winner: team };
+};
 
 const prisma = new PrismaClient();
 
@@ -1101,10 +1190,19 @@ io.on('connection', (socket) => {
   // Question start - from Studio to Screen/Player
   socket.on('question-start', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Question started in session ${sessionId}:`, data.question?.id);
+    const timeLimit = data.timeLimit || data.question?.timeLimit || 30;
+    console.log(`Question started in session ${sessionId}:`, data.question?.id, `(${timeLimit}s)`);
+
+    // Start server-side timer for perfect sync
+    startServerTimer(sessionId, timeLimit);
+
+    // Reset buzzer state for new question
+    resetBuzzer(sessionId);
+
     io.to(`session:${sessionId}`).emit('question-start', {
       question: data.question,
-      timeLimit: data.timeLimit || data.question?.timeLimit || 30
+      timeLimit,
+      serverTime: Date.now() // Send server timestamp for sync
     });
   });
 
@@ -1112,21 +1210,41 @@ io.on('connection', (socket) => {
   socket.on('question-end', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
     console.log(`Question ended in session ${sessionId}`);
+
+    // Stop server-side timer
+    stopServerTimer(sessionId);
+
     io.to(`session:${sessionId}`).emit('question-end', {
       questionId: data.questionId,
-      correctAnswer: data.correctAnswer
+      correctAnswer: data.correctAnswer,
+      serverTime: Date.now()
     });
   });
 
-  // Timer events
+  // Timer events - server-side timer is now authoritative
+  socket.on('timer-start', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const duration = data.duration || 30;
+    startServerTimer(sessionId, duration);
+  });
+
+  socket.on('timer-stop', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    stopServerTimer(sessionId);
+    io.to(`session:${sessionId}`).emit('timer-stopped', { serverTime: Date.now() });
+  });
+
+  // Legacy timer-update (clients can request current time)
   socket.on('timer-update', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    io.to(`session:${sessionId}`).emit('timer-update', { timeRemaining: data.timeRemaining });
+    const remaining = getTimerRemaining(sessionId);
+    socket.emit('timer-sync', { remaining, serverTime: Date.now() });
   });
 
   socket.on('timer-end', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    io.to(`session:${sessionId}`).emit('timer-end', {});
+    stopServerTimer(sessionId);
+    io.to(`session:${sessionId}`).emit('timer-end', { serverTime: Date.now() });
   });
 
   // Show leaderboard
@@ -1154,22 +1272,29 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('session-end', {});
   });
 
-  // ========== BUZZER EVENTS ==========
+  // ========== BUZZER EVENTS (with server-side lock for fairness) ==========
 
   socket.on('buzzer-open', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
     console.log(`Buzzer opened in session ${sessionId}`);
-    io.to(`session:${sessionId}`).emit('buzzer-open', {});
+    // Reset buzzer state when opening
+    resetBuzzer(sessionId);
+    io.to(`session:${sessionId}`).emit('buzzer-open', { serverTime: Date.now() });
   });
 
   socket.on('buzzer-lock', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    io.to(`session:${sessionId}`).emit('buzzer-lock', {});
+    // Force lock (manual lock from studio)
+    const state = buzzerState.get(sessionId) || { locked: false, winner: null, timestamp: null };
+    state.locked = true;
+    buzzerState.set(sessionId, state);
+    io.to(`session:${sessionId}`).emit('buzzer-lock', { serverTime: Date.now() });
   });
 
   socket.on('buzzer-reset', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    io.to(`session:${sessionId}`).emit('buzzer-reset', {});
+    resetBuzzer(sessionId);
+    io.to(`session:${sessionId}`).emit('buzzer-reset', { serverTime: Date.now() });
   });
 
   // Buzzer winner announcement - from Studio
@@ -1206,17 +1331,43 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Buzzer press - from Player
-  const handleBuzzerPress = async (data) => {
+  // Buzzer press - from Player (with server-side lock and acknowledgment)
+  const handleBuzzerPress = async (data, callback) => {
     const sessionId = data.sessionId || socket.sessionId;
     const team = data.team || { id: data.teamId, name: data.teamName };
-    console.log(`Buzzer pressed by ${team.name} in session ${sessionId}`);
-    io.to(`session:${sessionId}`).emit('buzzer-pressed', {
-      team,
-      teamId: team.id,
-      teamName: team.name,
-      timestamp: data.timestamp || Date.now()
-    });
+    const clientTimestamp = data.timestamp || Date.now();
+    const serverTimestamp = Date.now();
+
+    // Try to acquire buzzer lock (first press wins)
+    const result = tryPressBuzzer(sessionId, team, serverTimestamp);
+
+    if (result.success) {
+      console.log(`🔔 BUZZER WON by ${team.name} in session ${sessionId} (latency: ${serverTimestamp - clientTimestamp}ms)`);
+
+      // Broadcast winner to all clients
+      io.to(`session:${sessionId}`).emit('buzzer-pressed', {
+        team,
+        teamId: team.id,
+        teamName: team.name,
+        timestamp: serverTimestamp,
+        serverTime: serverTimestamp
+      });
+
+      // Auto-lock buzzer after first press
+      io.to(`session:${sessionId}`).emit('buzzer-lock', { serverTime: serverTimestamp });
+
+      // Send acknowledgment to the pressing player
+      if (typeof callback === 'function') {
+        callback({ success: true, winner: true, serverTime: serverTimestamp });
+      }
+    } else {
+      console.log(`❌ Buzzer press REJECTED for ${team.name} (already won by ${result.winner?.name})`);
+
+      // Send rejection acknowledgment
+      if (typeof callback === 'function') {
+        callback({ success: false, winner: false, actualWinner: result.winner, serverTime: serverTimestamp });
+      }
+    }
   };
   socket.on('buzzer-press', handleBuzzerPress);
   socket.on('buzzer:press', handleBuzzerPress);

@@ -101,10 +101,15 @@ export default function ScreenHome() {
     connectSocket(session.id);
   };
 
-  // Socket connection
+  // Socket connection (optimized for low latency)
   const connectSocket = (sessionId: string) => {
     const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 2000,
+      reconnectionAttempts: 10,
+      timeout: 5000,
     });
     socketRef.current = socket;
 
@@ -141,8 +146,14 @@ export default function ScreenHome() {
       setDisplayMode('QUESTION');
     });
 
+    // Server-side timer sync (authoritative)
+    socket.on('timer-sync', (data) => {
+      setTimeRemaining(data.remaining);
+    });
+
+    // Legacy timer-update support
     socket.on('timer-update', (data) => {
-      setTimeRemaining(data.timeRemaining);
+      setTimeRemaining(data.timeRemaining || data.remaining);
     });
 
     socket.on('timer-end', () => {
@@ -309,16 +320,8 @@ export default function ScreenHome() {
     });
   };
 
-  // Timer effect
-  useEffect(() => {
-    if (displayMode !== 'QUESTION' || timeRemaining <= 0) return;
-
-    const interval = setInterval(() => {
-      setTimeRemaining(prev => Math.max(0, prev - 1));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [displayMode, timeRemaining]);
+  // Timer is now server-side - no client-side interval needed
+  // The server emits 'timer-sync' events every 100ms for smooth synchronized updates
 
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
   const answeredCount = teams.filter(t => t.hasAnswered).length;
