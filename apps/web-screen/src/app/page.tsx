@@ -19,12 +19,14 @@ interface Team {
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST';
   options?: string[];
   correctAnswer?: string;
   points: number;
   timeLimit: number;
   mediaUrl?: string;
+  artist?: string;
+  songTitle?: string;
 }
 
 interface Session {
@@ -59,6 +61,13 @@ export default function ScreenHome() {
   const [correctAnswer, setCorrectAnswer] = useState<string | null>(null);
   const [buzzerWinner, setBuzzerWinner] = useState<Team | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+
+  // Blindtest state
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [blindtestRevealed, setBlindtestRevealed] = useState(false);
+  const [revealedArtist, setRevealedArtist] = useState('');
+  const [revealedSong, setRevealedSong] = useState('');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Fetch sessions
   useEffect(() => {
@@ -194,6 +203,45 @@ export default function ScreenHome() {
 
     socket.on('session-end', () => {
       setDisplayMode('PODIUM');
+    });
+
+    // Blindtest events
+    socket.on('blindtest-play', (data) => {
+      setIsAudioPlaying(true);
+      setBlindtestRevealed(false);
+      if (currentQuestion?.type === 'BLIND_TEST') {
+        setDisplayMode('BLINDTEST');
+      }
+      // Play audio
+      if (audioRef.current && data.audioUrl) {
+        audioRef.current.src = data.audioUrl;
+        audioRef.current.play().catch(console.error);
+      }
+    });
+
+    socket.on('blindtest-pause', () => {
+      setIsAudioPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    });
+
+    socket.on('blindtest-stop', () => {
+      setIsAudioPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+    });
+
+    socket.on('blindtest-reveal', (data) => {
+      setBlindtestRevealed(true);
+      setIsAudioPlaying(false);
+      setRevealedArtist(data.artist);
+      setRevealedSong(data.songTitle);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
     });
   };
 
@@ -783,6 +831,95 @@ export default function ScreenHome() {
         >
           Nouvelle Session
         </button>
+      </main>
+    );
+  }
+
+  // BLINDTEST
+  if (displayMode === 'BLINDTEST') {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black flex flex-col items-center justify-center relative overflow-hidden">
+        {/* Hidden audio element */}
+        <audio ref={audioRef} onEnded={() => setIsAudioPlaying(false)} />
+
+        {/* Animated background circles */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {isAudioPlaying && (
+            <>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-500/20 rounded-full animate-ping" style={{ animationDuration: '2s' }}></div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-pink-500/15 rounded-full animate-ping" style={{ animationDuration: '2.5s' }}></div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-blue-500/10 rounded-full animate-ping" style={{ animationDuration: '3s' }}></div>
+            </>
+          )}
+        </div>
+
+        {/* Audio visualizer bars */}
+        {isAudioPlaying && (
+          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-center gap-2 h-40 px-8">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="w-6 bg-gradient-to-t from-purple-500 to-pink-500 rounded-t-lg"
+                style={{
+                  height: `${Math.random() * 100 + 20}%`,
+                  animation: `audioBar 0.${Math.floor(Math.random() * 5) + 3}s ease-in-out infinite alternate`,
+                  animationDelay: `${i * 0.05}s`
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Main content */}
+        <div className="relative z-10 text-center px-8">
+          {blindtestRevealed ? (
+            // Revealed state
+            <div className="animate-fade-in">
+              <div className="text-8xl mb-8">🎵</div>
+              <h1 className="text-5xl font-bold text-purple-300 mb-4">C'ETAIT...</h1>
+              <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20">
+                <p className="text-7xl font-black text-white mb-4">{revealedSong || currentQuestion?.songTitle}</p>
+                <p className="text-4xl text-purple-300">par</p>
+                <p className="text-6xl font-bold text-pink-400 mt-4">{revealedArtist || currentQuestion?.artist}</p>
+              </div>
+            </div>
+          ) : (
+            // Playing state
+            <div>
+              <div className={`text-[12rem] mb-8 ${isAudioPlaying ? 'animate-bounce' : ''}`}>
+                {isAudioPlaying ? '🎵' : '🎧'}
+              </div>
+              <h1 className="text-6xl font-black text-white mb-4">
+                {isAudioPlaying ? 'ECOUTEZ BIEN...' : 'BLINDTEST'}
+              </h1>
+              <p className="text-3xl text-purple-300">
+                {isAudioPlaying ? 'Qui sera le premier a trouver?' : 'Preparez-vous...'}
+              </p>
+
+              {/* Points info */}
+              <div className="mt-12 bg-white/10 backdrop-blur rounded-2xl px-8 py-4 inline-block">
+                <span className="text-purple-300 text-2xl">Points: </span>
+                <span className="text-4xl font-bold text-yellow-400">{currentQuestion?.points}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Buzzer winner */}
+          {buzzerWinner && !blindtestRevealed && (
+            <div className="mt-12 bg-red-500/20 border-4 border-red-500 rounded-3xl px-16 py-8 animate-pulse">
+              <p className="text-3xl text-red-400 mb-2">🔔 BUZZ!</p>
+              <p className="text-5xl font-black text-white">{buzzerWinner.name}</p>
+            </div>
+          )}
+        </div>
+
+        {/* CSS for audio bar animation */}
+        <style jsx>{`
+          @keyframes audioBar {
+            0% { height: 20%; }
+            100% { height: 100%; }
+          }
+        `}</style>
       </main>
     );
   }

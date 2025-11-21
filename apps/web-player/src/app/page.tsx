@@ -10,11 +10,13 @@ type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAI
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST';
   options?: string[];
   points: number;
   timeLimit: number;
   mediaUrl?: string;
+  artist?: string;
+  songTitle?: string;
 }
 
 interface Team {
@@ -63,6 +65,12 @@ export default function PlayerHome() {
   const [buzzerOpen, setBuzzerOpen] = useState(false);
   const [buzzerWinner, setBuzzerWinner] = useState<string | null>(null);
   const [buzzerWrongFeedback, setBuzzerWrongFeedback] = useState(false);
+
+  // Blindtest state
+  const [isBlindtestPlaying, setIsBlindtestPlaying] = useState(false);
+  const [blindtestRevealed, setBlindtestRevealed] = useState(false);
+  const [revealedArtist, setRevealedArtist] = useState('');
+  const [revealedSong, setRevealedSong] = useState('');
 
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState<Team[]>([]);
@@ -289,6 +297,31 @@ export default function PlayerHome() {
 
     socket.on('session-end', () => {
       setGameState('FINISHED');
+    });
+
+    // Blindtest events
+    socket.on('blindtest-play', () => {
+      setIsBlindtestPlaying(true);
+      setBlindtestRevealed(false);
+      // Open buzzer for blindtest
+      setBuzzerOpen(true);
+      setBuzzerPressed(false);
+    });
+
+    socket.on('blindtest-pause', () => {
+      setIsBlindtestPlaying(false);
+    });
+
+    socket.on('blindtest-stop', () => {
+      setIsBlindtestPlaying(false);
+    });
+
+    socket.on('blindtest-reveal', (data) => {
+      setBlindtestRevealed(true);
+      setIsBlindtestPlaying(false);
+      setRevealedArtist(data.artist);
+      setRevealedSong(data.songTitle);
+      setBuzzerOpen(false);
     });
   };
 
@@ -754,6 +787,73 @@ export default function PlayerHome() {
               >
                 Submit Answer
               </button>
+            </div>
+          )}
+
+          {/* Blindtest */}
+          {currentQuestion.type === 'BLIND_TEST' && (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              {/* Status indicator */}
+              <div className={`mb-6 px-6 py-3 rounded-full ${
+                isBlindtestPlaying ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'
+              }`}>
+                <p className="text-xl font-bold flex items-center">
+                  {isBlindtestPlaying ? (
+                    <><span className="animate-pulse mr-2">🎵</span> Musique en cours...</>
+                  ) : blindtestRevealed ? (
+                    <><span className="mr-2">✅</span> Reponse revelee</>
+                  ) : (
+                    <><span className="mr-2">🎧</span> En attente...</>
+                  )}
+                </p>
+              </div>
+
+              {/* Revealed answer */}
+              {blindtestRevealed && (
+                <div className="mb-6 bg-purple-500/20 border-2 border-purple-500 rounded-xl p-6 text-center">
+                  <p className="text-purple-300 text-lg mb-2">C'etait...</p>
+                  <p className="text-3xl font-bold text-white">{revealedSong}</p>
+                  <p className="text-xl text-purple-300 mt-2">par {revealedArtist}</p>
+                </div>
+              )}
+
+              {/* Wrong answer feedback */}
+              {buzzerWrongFeedback && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
+                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
+                </div>
+              )}
+
+              {/* Buzzer winner or buzzer button */}
+              {buzzerWinner ? (
+                <div className="text-center">
+                  <p className="text-2xl text-white mb-4">
+                    {buzzerWinner === team?.name ? '🎉 Tu as buzze!' : `${buzzerWinner} a buzze!`}
+                  </p>
+                  {buzzerWinner === team?.name && (
+                    <p className="text-gray-400">En attente de validation...</p>
+                  )}
+                </div>
+              ) : !blindtestRevealed && (
+                <button
+                  onClick={handleBuzzer}
+                  disabled={buzzerPressed || !buzzerOpen || !isBlindtestPlaying}
+                  className={`w-56 h-56 rounded-full shadow-2xl transition transform active:scale-90 ${
+                    buzzerPressed
+                      ? 'bg-gray-600'
+                      : buzzerOpen && isBlindtestPlaying
+                        ? 'bg-gradient-to-br from-purple-500 to-pink-700 hover:from-purple-600 hover:to-pink-800 animate-pulse'
+                        : 'bg-gray-600 opacity-50'
+                  }`}
+                >
+                  <div className="flex flex-col items-center">
+                    <span className="text-4xl mb-2">🎵</span>
+                    <span className="text-white text-2xl font-black">
+                      {buzzerPressed ? 'BUZZE!' : buzzerOpen && isBlindtestPlaying ? 'JE SAIS!' : 'ATTENDS...'}
+                    </span>
+                  </div>
+                </button>
+              )}
             </div>
           )}
         </div>
