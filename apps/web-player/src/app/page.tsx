@@ -91,6 +91,10 @@ export default function PlayerHome() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const questionStartTime = useRef<number>(0);
 
+  // Game state ref for socket callbacks (avoid stale closure)
+  const gameStateRef = useRef<GameState>(gameState);
+  gameStateRef.current = gameState;
+
   // Join session via API
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,7 +233,8 @@ export default function PlayerHome() {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
       // Show overlay only if not in JOIN state (user has joined a session)
-      if (gameState !== 'JOIN' && gameState !== 'TEAM_SELECT') {
+      // Use ref to avoid stale closure bug
+      if (gameStateRef.current !== 'JOIN' && gameStateRef.current !== 'TEAM_SELECT') {
         setShowConnectionOverlay(true);
         setConnectionError(`Connexion perdue: ${reason}`);
       }
