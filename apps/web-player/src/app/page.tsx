@@ -70,6 +70,8 @@ export default function PlayerHome() {
   const [buzzerOpen, setBuzzerOpen] = useState(false);
   const [buzzerWinner, setBuzzerWinner] = useState<string | null>(null);
   const [buzzerWrongFeedback, setBuzzerWrongFeedback] = useState(false);
+  const [buzzerLockedForMe, setBuzzerLockedForMe] = useState(false);
+  const [buzzerCorrectFeedback, setBuzzerCorrectFeedback] = useState(false);
 
   // Blindtest state
   const [isBlindtestPlaying, setIsBlindtestPlaying] = useState(false);
@@ -278,6 +280,9 @@ export default function PlayerHome() {
       setBuzzerPressed(false);
       setBuzzerOpen(data.question.type === 'BUZZER');
       setBuzzerWinner(null);
+      setBuzzerLockedForMe(false);
+      setBuzzerWrongFeedback(false);
+      setBuzzerCorrectFeedback(false);
       questionStartTime.current = Date.now();
       setGameState('QUESTION');
       startTimer(data.timeLimit || data.question.timeLimit || 30);
@@ -337,7 +342,17 @@ export default function PlayerHome() {
         setIsCorrect(true);
         setPointsEarned(data.points || 0);
         setTeam(prev => prev ? { ...prev, score: prev.score + (data.points || 0) } : prev);
-        setGameState('RESULT');
+        // Show correct feedback animation before going to RESULT
+        setBuzzerCorrectFeedback(true);
+        setBuzzerOpen(false);
+        // Delay transition to RESULT to show the celebration
+        setTimeout(() => {
+          setBuzzerCorrectFeedback(false);
+          setGameState('RESULT');
+        }, 2000);
+      } else {
+        // Another team got it right, lock buzzer
+        setBuzzerOpen(false);
       }
       setBuzzerWinner(null);
       setBuzzerPressed(false);
@@ -347,11 +362,20 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(false);
         setPointsEarned(0);
-        // Show wrong feedback briefly then allow another try
+        // Show wrong feedback
         setBuzzerWrongFeedback(true);
-        setTimeout(() => setBuzzerWrongFeedback(false), 2000);
         setBuzzerPressed(false);
-        setBuzzerOpen(true);
+        // Check if buzzer is locked for wrong players
+        if (data.lockForWrong) {
+          setBuzzerLockedForMe(true);
+          // Don't reopen buzzer for this player
+        } else {
+          // Allow another try after feedback
+          setTimeout(() => {
+            setBuzzerWrongFeedback(false);
+            setBuzzerOpen(true);
+          }, 2000);
+        }
       } else {
         // Other teams can try again
         setBuzzerOpen(true);
@@ -982,21 +1006,44 @@ export default function PlayerHome() {
           {/* Buzzer */}
           {currentQuestion.type === 'BUZZER' && (
             <div className="flex-1 flex flex-col items-center justify-center">
-              {/* Wrong answer feedback */}
+              {/* CORRECT feedback overlay */}
+              {buzzerCorrectFeedback && (
+                <div className="fixed inset-0 bg-green-600/90 flex flex-col items-center justify-center z-50 animate-pulse">
+                  <div className="text-9xl mb-4 animate-bounce">🎉</div>
+                  <p className="text-5xl font-black text-white mb-4">BONNE RÉPONSE !</p>
+                  <p className="text-3xl text-green-200">+{pointsEarned} points</p>
+                </div>
+              )}
+
+              {/* WRONG feedback overlay */}
               {buzzerWrongFeedback && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
-                  <p className="text-red-400 text-xl font-bold">❌ Wrong! Try again!</p>
+                <div className="fixed inset-0 bg-red-600/90 flex flex-col items-center justify-center z-50">
+                  <div className="text-9xl mb-4">❌</div>
+                  <p className="text-5xl font-black text-white mb-4">MAUVAISE RÉPONSE !</p>
+                  {buzzerLockedForMe ? (
+                    <p className="text-xl text-red-200">Buzzer bloqué pour cette question</p>
+                  ) : (
+                    <p className="text-xl text-red-200">Réessaie !</p>
+                  )}
                 </div>
               )}
 
               {buzzerWinner ? (
                 <div className="text-center">
                   <p className="text-2xl text-white mb-4">
-                    {buzzerWinner === team?.name ? '🎉 You got the buzzer!' : `${buzzerWinner} got the buzzer!`}
+                    {buzzerWinner === team?.name ? '🎉 Tu as buzzé !' : `${buzzerWinner} a buzzé !`}
                   </p>
                   {buzzerWinner === team?.name && (
-                    <p className="text-gray-400">Waiting for validation...</p>
+                    <p className="text-gray-400">En attente de validation...</p>
                   )}
+                </div>
+              ) : buzzerLockedForMe ? (
+                <div className="text-center">
+                  <div className="w-56 h-56 rounded-full bg-gray-700 flex flex-col items-center justify-center opacity-60">
+                    <span className="text-6xl mb-2">🔒</span>
+                    <span className="text-gray-400 text-xl font-bold">BLOQUÉ</span>
+                  </div>
+                  <p className="text-gray-500 mt-4">Tu as déjà eu faux sur cette question</p>
                 </div>
               ) : (
                 <button
@@ -1011,7 +1058,7 @@ export default function PlayerHome() {
                   }`}
                 >
                   <span className="text-white text-3xl font-black">
-                    {buzzerPressed ? 'BUZZED!' : buzzerOpen ? 'BUZZ!' : 'WAIT...'}
+                    {buzzerPressed ? 'BUZZÉ !' : buzzerOpen ? 'BUZZ !' : 'ATTENDS...'}
                   </span>
                 </button>
               )}
@@ -1042,6 +1089,28 @@ export default function PlayerHome() {
           {/* Blindtest */}
           {currentQuestion.type === 'BLIND_TEST' && (
             <div className="flex-1 flex flex-col items-center justify-center">
+              {/* CORRECT feedback overlay */}
+              {buzzerCorrectFeedback && (
+                <div className="fixed inset-0 bg-green-600/90 flex flex-col items-center justify-center z-50 animate-pulse">
+                  <div className="text-9xl mb-4 animate-bounce">🎉</div>
+                  <p className="text-5xl font-black text-white mb-4">BONNE RÉPONSE !</p>
+                  <p className="text-3xl text-green-200">+{pointsEarned} points</p>
+                </div>
+              )}
+
+              {/* WRONG feedback overlay with lock info */}
+              {buzzerWrongFeedback && (
+                <div className="fixed inset-0 bg-red-600/90 flex flex-col items-center justify-center z-50">
+                  <div className="text-9xl mb-4">❌</div>
+                  <p className="text-5xl font-black text-white mb-4">MAUVAISE RÉPONSE !</p>
+                  {buzzerLockedForMe ? (
+                    <p className="text-xl text-red-200">Buzzer bloqué pour cette question</p>
+                  ) : (
+                    <p className="text-xl text-red-200">Réessaie !</p>
+                  )}
+                </div>
+              )}
+
               {/* Status indicator */}
               <div className={`mb-6 px-6 py-3 rounded-full ${
                 isBlindtestPlaying ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'
@@ -1066,13 +1135,6 @@ export default function PlayerHome() {
                 </div>
               )}
 
-              {/* Wrong answer feedback */}
-              {buzzerWrongFeedback && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
-                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
-                </div>
-              )}
-
               {/* Buzzer winner or buzzer button */}
               {buzzerWinner ? (
                 <div className="text-center">
@@ -1082,6 +1144,14 @@ export default function PlayerHome() {
                   {buzzerWinner === team?.name && (
                     <p className="text-gray-400">En attente de validation...</p>
                   )}
+                </div>
+              ) : buzzerLockedForMe ? (
+                <div className="text-center">
+                  <div className="w-56 h-56 rounded-full bg-gray-700 flex flex-col items-center justify-center opacity-60">
+                    <span className="text-6xl mb-2">🔒</span>
+                    <span className="text-gray-400 text-xl font-bold">BLOQUÉ</span>
+                  </div>
+                  <p className="text-gray-500 mt-4">Tu as déjà eu faux sur cette question</p>
                 </div>
               ) : !blindtestRevealed && (
                 <button

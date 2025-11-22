@@ -103,12 +103,19 @@ export default function StudioHome() {
   const [buzzerLocked, setBuzzerLocked] = useState(true);
   const [buzzerPressTime, setBuzzerPressTime] = useState<number>(0);
   const questionStartTimeRef = useRef<number>(0);
+  const [lockWrongBuzzers, setLockWrongBuzzers] = useState(false);
 
   // Blindtest audio
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioRevealed, setAudioRevealed] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isAudioPlayingRef = useRef(false);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    isAudioPlayingRef.current = isAudioPlaying;
+  }, [isAudioPlaying]);
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
@@ -248,6 +255,19 @@ export default function StudioHome() {
             teamId: data.team.id,
             teamName: data.team.name
           });
+
+          // Stop blindtest audio when someone buzzes
+          if (isAudioPlayingRef.current && audioRef.current) {
+            audioRef.current.pause();
+            setIsAudioPlaying(false);
+            // Clear cue end timer
+            if (cueEndTimerRef.current) {
+              clearTimeout(cueEndTimerRef.current);
+              cueEndTimerRef.current = null;
+            }
+            // Emit stop to other clients
+            socket.emit('blindtest-stop', { sessionId: selectedSession.id });
+          }
         }
       }
     });
@@ -268,6 +288,19 @@ export default function StudioHome() {
     socket.on('timer-end', () => {
       setTimeRemaining(0);
       setIsTimerRunning(false);
+
+      // Stop blindtest audio when timer ends
+      if (isAudioPlayingRef.current && audioRef.current) {
+        audioRef.current.pause();
+        setIsAudioPlaying(false);
+        // Clear cue end timer
+        if (cueEndTimerRef.current) {
+          clearTimeout(cueEndTimerRef.current);
+          cueEndTimerRef.current = null;
+        }
+        // Emit stop to other clients
+        socket.emit('blindtest-stop', { sessionId: selectedSession?.id });
+      }
     });
 
     // ========== FINALE MODE EVENTS ==========
@@ -654,7 +687,8 @@ export default function StudioHome() {
       sessionId: selectedSession?.id,
       team,
       teamId: team.id,
-      teamName: team.name
+      teamName: team.name,
+      lockForWrong: lockWrongBuzzers
     });
 
     // Reset buzzer to allow others to try
@@ -1354,6 +1388,21 @@ export default function StudioHome() {
                     </button>
                   </div>
 
+                  {/* Option to lock wrong players */}
+                  <div className="flex items-center mb-4 bg-gray-700/50 rounded-lg p-3">
+                    <label className="flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={lockWrongBuzzers}
+                        onChange={(e) => setLockWrongBuzzers(e.target.checked)}
+                        className="w-5 h-5 mr-3 rounded border-gray-500 text-red-500 focus:ring-red-500"
+                      />
+                      <span className="text-gray-300">
+                        🔒 Bloquer le buzzer pour les joueurs qui ont eu faux
+                      </span>
+                    </label>
+                  </div>
+
                   {buzzerWinner && (
                     <div className="bg-red-500/20 border-2 border-red-500 rounded-xl p-6 text-center animate-pulse">
                       <p className="text-red-400 text-lg mb-2">🔔 BUZZER!</p>
@@ -1457,7 +1506,7 @@ export default function StudioHome() {
                   {/* Buzzer for blindtest */}
                   <div className="mt-6 pt-4 border-t border-gray-700">
                     <h4 className="text-lg font-medium mb-3">🔔 Buzzer</h4>
-                    <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-4 mb-3">
                       <button
                         onClick={openBuzzer}
                         disabled={!buzzerLocked}
@@ -1471,6 +1520,21 @@ export default function StudioHome() {
                       >
                         Reset
                       </button>
+                    </div>
+
+                    {/* Option to lock wrong players */}
+                    <div className="flex items-center mb-3 bg-gray-700/50 rounded-lg p-2">
+                      <label className="flex items-center cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={lockWrongBuzzers}
+                          onChange={(e) => setLockWrongBuzzers(e.target.checked)}
+                          className="w-4 h-4 mr-2 rounded border-gray-500 text-red-500 focus:ring-red-500"
+                        />
+                        <span className="text-gray-300">
+                          🔒 Bloquer buzzer si faux
+                        </span>
+                      </label>
                     </div>
 
                     {buzzerWinner && (
