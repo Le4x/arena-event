@@ -400,11 +400,16 @@ export default function Home() {
 
   const openEditEvent = (event: Event) => {
     setEditingEvent(event);
+    const defaultTheme = { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' };
     setEventForm({
       name: event.name,
-      description: event.description,
+      description: event.description || '',
       logo: event.logo || '',
-      theme: event.theme || { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' }
+      theme: {
+        primaryColor: event.theme?.primaryColor || defaultTheme.primaryColor,
+        secondaryColor: event.theme?.secondaryColor || defaultTheme.secondaryColor,
+        backgroundColor: event.theme?.backgroundColor || defaultTheme.backgroundColor
+      }
     });
     setShowEventModal(true);
   };
