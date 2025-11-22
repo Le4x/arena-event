@@ -402,6 +402,57 @@ export default function StudioHome() {
     } catch (error) {
       console.error('Failed to update question:', error);
     }
+
+    // Auto-play music for blindtest questions
+    if (currentQuestion.type === 'BLIND_TEST' && currentQuestion.mediaUrl) {
+      // Small delay to ensure everything is set up
+      setTimeout(() => {
+        playBlindtestAuto();
+      }, 500);
+    }
+  };
+
+  // Auto-play blindtest (called from startQuestion)
+  const playBlindtestAuto = () => {
+    if (!currentQuestion?.mediaUrl) return;
+
+    // Clear any existing cue end timer
+    if (cueEndTimerRef.current) {
+      clearTimeout(cueEndTimerRef.current);
+      cueEndTimerRef.current = null;
+    }
+
+    setIsAudioPlaying(true);
+
+    // Auto-open buzzer when music starts
+    setBuzzerLocked(false);
+    socketRef.current?.emit('buzzer-open', { sessionId: selectedSession?.id });
+
+    // Play locally for preview with cue point
+    if (audioRef.current) {
+      const startTime = currentQuestion.questionCueStart || 0;
+      audioRef.current.currentTime = startTime;
+      audioRef.current.play();
+
+      // Set up cue end timer if there's an end point
+      if (currentQuestion.questionCueEnd && currentQuestion.questionCueEnd > startTime) {
+        const duration = (currentQuestion.questionCueEnd - startTime) * 1000;
+        cueEndTimerRef.current = setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
+          setIsAudioPlaying(false);
+        }, duration);
+      }
+    }
+
+    // Emit to Screen/Player with cue points
+    socketRef.current?.emit('blindtest-play', {
+      sessionId: selectedSession?.id,
+      audioUrl: currentQuestion.mediaUrl,
+      questionCueStart: currentQuestion.questionCueStart || 0,
+      questionCueEnd: currentQuestion.questionCueEnd || null
+    });
   };
 
   const pauseGame = () => {
