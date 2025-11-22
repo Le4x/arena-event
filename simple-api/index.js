@@ -269,7 +269,9 @@ app.post('/api/upload', async (req, res) => {
     const filepath = join(targetDir, uniqueFilename);
     writeFileSync(filepath, buffer);
 
-    const mediaUrl = `http://91.134.135.247:3001/media/${subdir}/${uniqueFilename}`;
+    // Use environment variable or construct from request host
+    const baseUrl = process.env.API_BASE_URL || `http://${req.headers.host}`;
+    const mediaUrl = `${baseUrl}/media/${subdir}/${uniqueFilename}`;
 
     console.log(`File uploaded: ${mediaUrl}`);
     res.json({ url: mediaUrl, filename: uniqueFilename });
@@ -1917,7 +1919,7 @@ app.post('/sessions/join', async (req, res) => {
 // Public: Create team in session (for Player)
 app.post('/sessions/:sessionId/teams', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, color } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Team name is required' });
@@ -1931,10 +1933,13 @@ app.post('/sessions/:sessionId/teams', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    // Count existing teams to assign color
+    // Count existing teams to assign color if not provided
     const teamCount = await prisma.team.count({
       where: { sessionId: req.params.sessionId }
     });
+
+    const colors = ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+    const teamColor = color || colors[teamCount % colors.length];
 
     const team = await prisma.team.create({
       data: {
@@ -1944,10 +1949,9 @@ app.post('/sessions/:sessionId/teams', async (req, res) => {
       }
     });
 
-    const colors = ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
     const teamWithColor = {
       ...team,
-      color: colors[teamCount % colors.length]
+      color: teamColor
     };
 
     io.to(`session:${session.id}`).emit('team-joined', { team: teamWithColor });
