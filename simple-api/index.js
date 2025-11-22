@@ -269,7 +269,9 @@ app.post('/api/upload', async (req, res) => {
     const filepath = join(targetDir, uniqueFilename);
     writeFileSync(filepath, buffer);
 
-    const mediaUrl = `http://91.134.135.247:3001/media/${subdir}/${uniqueFilename}`;
+    // Use environment variable or construct from request host
+    const baseUrl = process.env.API_BASE_URL || `http://${req.headers.host}`;
+    const mediaUrl = `${baseUrl}/media/${subdir}/${uniqueFilename}`;
 
     console.log(`File uploaded: ${mediaUrl}`);
     res.json({ url: mediaUrl, filename: uniqueFilename });

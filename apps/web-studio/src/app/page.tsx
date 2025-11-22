@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const API_URL = 'http://91.134.135.247:3001';
+// API URL - configurable via environment variable or defaults to the VPS
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
 
 interface Event {
   id: string;
@@ -74,6 +75,9 @@ export default function StudioHome() {
   // Socket connection
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 10;
 
   // Session selection
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -125,10 +129,16 @@ export default function StudioHome() {
   useEffect(() => {
     const fetchSessions = async () => {
       try {
-        const res = await fetch(`${API_URL}/sessions?status=ACTIVE`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const res = await fetch(`${API_URL}/sessions?status=ACTIVE`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (res.ok) {
           const data = await res.json();
           setSessions(data);
+          setConnectionError(null);
         }
         // Also fetch waiting sessions
         const res2 = await fetch(`${API_URL}/sessions?status=WAITING`);
@@ -138,6 +148,11 @@ export default function StudioHome() {
         }
       } catch (error) {
         console.error('Failed to fetch sessions:', error);
+        if (error instanceof Error && error.name === 'AbortError') {
+          setConnectionError('Le serveur ne répond pas. Vérifiez que l\'API est démarrée.');
+        } else {
+          setConnectionError('Impossible de charger les sessions. Vérifiez votre connexion.');
+        }
       } finally {
         setLoadingSessions(false);
       }
@@ -154,18 +169,42 @@ export default function StudioHome() {
       reconnection: true,
       reconnectionDelay: 500,
       reconnectionDelayMax: 2000,
-      reconnectionAttempts: 10,
-      timeout: 5000,
+      reconnectionAttempts: maxRetries,
+      timeout: 10000,
     });
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      console.log('Studio socket connected');
       setIsConnected(true);
+      setConnectionError(null);
+      setRetryCount(0);
       socket.emit('join-session', { sessionId: selectedSession.id, role: 'studio' });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+      console.log('Studio socket disconnected:', reason);
       setIsConnected(false);
+      setConnectionError(`Connexion perdue: ${reason}`);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Studio connection error:', err.message);
+      setConnectionError(`Erreur de connexion: ${err.message}`);
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      setRetryCount(attempt);
+    });
+
+    socket.io.on('reconnect', () => {
+      setIsConnected(true);
+      setConnectionError(null);
+      setRetryCount(0);
+    });
+
+    socket.io.on('reconnect_failed', () => {
+      setConnectionError('Impossible de se reconnecter au serveur');
     });
 
     // Listen for team events

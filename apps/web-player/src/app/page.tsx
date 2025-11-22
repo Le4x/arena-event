@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const API_URL = 'http://91.134.135.247:3001';
+// API URL - configurable via environment variable or defaults to the VPS
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
 
 type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
 
@@ -36,6 +37,10 @@ export default function PlayerHome() {
   // Socket
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [showConnectionOverlay, setShowConnectionOverlay] = useState(false);
+  const maxRetries = 10;
 
   // Join state
   const [sessionCode, setSessionCode] = useState('');
@@ -93,15 +98,21 @@ export default function PlayerHome() {
     setLoading(true);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
       const res = await fetch(`${API_URL}/sessions/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: sessionCode.toUpperCase() }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Session not found');
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Session non trouvée');
       }
 
       const data = await res.json();
@@ -113,7 +124,17 @@ export default function PlayerHome() {
       setExistingTeams(data.session.teams || []);
       setGameState('TEAM_SELECT');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join session');
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          setError('Le serveur ne répond pas. Vérifiez votre connexion.');
+        } else if (err.message.includes('fetch') || err.message.includes('network')) {
+          setError('Erreur réseau. Impossible de joindre le serveur.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Erreur lors de la connexion à la session');
+      }
     } finally {
       setLoading(false);
     }
@@ -164,20 +185,39 @@ export default function PlayerHome() {
     connectSocket(session.id, existingTeam.id);
   };
 
+  // Manual retry function
+  const retryConnection = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.connect();
+    } else if (session && team) {
+      connectSocket(session.id, team.id);
+    }
+    setRetryCount(prev => prev + 1);
+  }, [session, team]);
+
   // Socket connection (optimized for low latency)
   const connectSocket = (sessionId: string, teamId: string) => {
+    // Disconnect existing socket if any
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+
     const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,
       reconnectionDelayMax: 2000,
-      reconnectionAttempts: 10,
-      timeout: 5000,
+      reconnectionAttempts: maxRetries,
+      timeout: 10000,
     });
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      console.log('Socket connected!');
       setIsConnected(true);
+      setConnectionError(null);
+      setShowConnectionOverlay(false);
+      setRetryCount(0);
       socket.emit('join-session', {
         sessionId,
         teamId,
@@ -185,8 +225,39 @@ export default function PlayerHome() {
       });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
       setIsConnected(false);
+      // Show overlay only if not in JOIN state (user has joined a session)
+      if (gameState !== 'JOIN' && gameState !== 'TEAM_SELECT') {
+        setShowConnectionOverlay(true);
+        setConnectionError(`Connexion perdue: ${reason}`);
+      }
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Connection error:', err.message);
+      setConnectionError(`Erreur de connexion: ${err.message}`);
+      setShowConnectionOverlay(true);
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      console.log('Reconnection attempt:', attempt);
+      setRetryCount(attempt);
+    });
+
+    socket.io.on('reconnect', () => {
+      console.log('Reconnected successfully!');
+      setIsConnected(true);
+      setConnectionError(null);
+      setShowConnectionOverlay(false);
+      setRetryCount(0);
+    });
+
+    socket.io.on('reconnect_failed', () => {
+      console.error('All reconnection attempts failed');
+      setConnectionError('Impossible de se reconnecter au serveur');
+      setShowConnectionOverlay(true);
     });
 
     // Game events
@@ -1215,6 +1286,63 @@ export default function PlayerHome() {
           </button>
         </div>
       </main>
+    );
+  }
+
+  // Connection Error Overlay - shows when connection is lost
+  if (showConnectionOverlay) {
+    return (
+      <div className="fixed inset-0 bg-gray-900/95 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
+            </svg>
+          </div>
+
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Connexion perdue</h2>
+          <p className="text-gray-600 mb-6">
+            {connectionError || 'Impossible de se connecter au serveur. Vérifiez votre connexion internet.'}
+          </p>
+
+          {retryCount > 0 && retryCount < maxRetries && (
+            <div className="mb-4">
+              <div className="flex items-center justify-center space-x-2 text-gray-500">
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span className="text-sm">Tentative {retryCount}/{maxRetries}...</span>
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={retryConnection}
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-105 mb-4"
+          >
+            Réessayer la connexion
+          </button>
+
+          <button
+            onClick={() => {
+              socketRef.current?.disconnect();
+              setShowConnectionOverlay(false);
+              setConnectionError(null);
+              setGameState('JOIN');
+              setSession(null);
+              setTeam(null);
+            }}
+            className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-xl transition"
+          >
+            Retour à l'accueil
+          </button>
+
+          <p className="text-xs text-gray-400 mt-6">
+            Si le problème persiste, contactez l'organisateur
+          </p>
+        </div>
+      </div>
     );
   }
 

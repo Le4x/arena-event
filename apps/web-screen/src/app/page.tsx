@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const API_URL = 'http://91.134.135.247:3001';
+// API URL - configurable via environment variable or defaults to the VPS
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
 
 type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST';
 
@@ -50,6 +51,9 @@ export default function ScreenHome() {
   // Socket
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 10;
 
   // Session
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -79,13 +83,24 @@ export default function ScreenHome() {
   useEffect(() => {
     const fetchSessions = async () => {
       try {
-        const res = await fetch(`${API_URL}/sessions?status=ACTIVE`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const res = await fetch(`${API_URL}/sessions?status=ACTIVE`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         const data = res.ok ? await res.json() : [];
         const res2 = await fetch(`${API_URL}/sessions?status=WAITING`);
         const data2 = res2.ok ? await res2.json() : [];
         setSessions([...data, ...data2]);
+        setConnectionError(null);
       } catch (error) {
         console.error('Failed to fetch sessions:', error);
+        if (error instanceof Error && error.name === 'AbortError') {
+          setConnectionError('Le serveur ne répond pas. Vérifiez que l\'API est démarrée.');
+        } else {
+          setConnectionError('Impossible de charger les sessions. Vérifiez votre connexion.');
+        }
       } finally {
         setLoadingSessions(false);
       }
@@ -103,23 +118,52 @@ export default function ScreenHome() {
 
   // Socket connection (optimized for low latency)
   const connectSocket = (sessionId: string) => {
+    // Disconnect existing socket if any
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+
     const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,
       reconnectionDelayMax: 2000,
-      reconnectionAttempts: 10,
-      timeout: 5000,
+      reconnectionAttempts: maxRetries,
+      timeout: 10000,
     });
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      console.log('Screen socket connected');
       setIsConnected(true);
+      setConnectionError(null);
+      setRetryCount(0);
       socket.emit('join-session', { sessionId, role: 'screen' });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+      console.log('Screen socket disconnected:', reason);
       setIsConnected(false);
+      setConnectionError(`Connexion perdue: ${reason}`);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Screen connection error:', err.message);
+      setConnectionError(`Erreur de connexion: ${err.message}`);
+    });
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      setRetryCount(attempt);
+    });
+
+    socket.io.on('reconnect', () => {
+      setIsConnected(true);
+      setConnectionError(null);
+      setRetryCount(0);
+    });
+
+    socket.io.on('reconnect_failed', () => {
+      setConnectionError('Impossible de se reconnecter au serveur');
     });
 
     // Team events
