@@ -112,6 +112,15 @@ export default function StudioHome() {
   const [scoreAdjustment, setScoreAdjustment] = useState(0);
   const [showEndModal, setShowEndModal] = useState(false);
 
+  // Finale mode state
+  const [isFinaleMode, setIsFinaleMode] = useState(false);
+  const [showFinaleModal, setShowFinaleModal] = useState(false);
+  const [finalistCount, setFinalistCount] = useState(4);
+  const [finalistTeams, setFinalistTeams] = useState<Team[]>([]);
+  const [eliminatedTeams, setEliminatedTeams] = useState<Team[]>([]);
+  const [teamJokers, setTeamJokers] = useState<Record<string, Record<string, number>>>({});
+  const [activeJokers, setActiveJokers] = useState<Record<string, string[]>>({});
+
   // Fetch active sessions
   useEffect(() => {
     const fetchSessions = async () => {
@@ -220,6 +229,39 @@ export default function StudioHome() {
     socket.on('timer-end', () => {
       setTimeRemaining(0);
       setIsTimerRunning(false);
+    });
+
+    // ========== FINALE MODE EVENTS ==========
+    socket.on('finale-started', (data) => {
+      setIsFinaleMode(true);
+      setFinalistTeams(data.finalistTeams);
+      setEliminatedTeams(data.eliminatedTeams);
+      setTeamJokers(data.jokers);
+      setActiveJokers({});
+    });
+
+    socket.on('joker-used', (data) => {
+      setTeamJokers(prev => ({
+        ...prev,
+        [data.teamId]: data.remainingJokers
+      }));
+      setActiveJokers(prev => ({
+        ...prev,
+        [data.teamId]: [...(prev[data.teamId] || []), data.jokerType]
+      }));
+    });
+
+    socket.on('team-eliminated', (data) => {
+      setFinalistTeams(prev => prev.filter(t => t.id !== data.teamId));
+      setEliminatedTeams(prev => [data.team, ...prev]);
+    });
+
+    socket.on('finale-ended', () => {
+      setIsFinaleMode(false);
+      setFinalistTeams([]);
+      setEliminatedTeams([]);
+      setTeamJokers({});
+      setActiveJokers({});
     });
 
     return () => {
@@ -351,6 +393,59 @@ export default function StudioHome() {
       sessionId: selectedSession?.id,
       teams: [...teams].sort((a, b) => b.score - a.score),
     });
+  };
+
+  // ========== FINALE MODE FUNCTIONS ==========
+  const startFinale = () => {
+    if (!selectedSession) return;
+
+    const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+
+    socketRef.current?.emit('finale-start', {
+      sessionId: selectedSession.id,
+      finalistCount,
+      teams: sortedTeams
+    });
+
+    setShowFinaleModal(false);
+    setGameStatus('LEADERBOARD');
+  };
+
+  const endFinale = () => {
+    if (!selectedSession) return;
+
+    socketRef.current?.emit('finale-end', {
+      sessionId: selectedSession.id
+    });
+  };
+
+  const eliminateTeam = (teamId: string) => {
+    if (!selectedSession) return;
+
+    socketRef.current?.emit('finale-eliminate', {
+      sessionId: selectedSession.id,
+      teamId
+    });
+  };
+
+  const getJokerEmoji = (jokerType: string) => {
+    switch (jokerType) {
+      case 'DOUBLE': return '🔥';
+      case 'TIME_PLUS': return '⏳';
+      case 'FIFTY_FIFTY': return '🎯';
+      case 'SHIELD': return '🛡️';
+      default: return '🃏';
+    }
+  };
+
+  const getJokerLabel = (jokerType: string) => {
+    switch (jokerType) {
+      case 'DOUBLE': return 'Double';
+      case 'TIME_PLUS': return '+15s';
+      case 'FIFTY_FIFTY': return '50/50';
+      case 'SHIELD': return 'Bouclier';
+      default: return jokerType;
+    }
   };
 
   const nextQuestion = () => {
@@ -1121,6 +1216,24 @@ export default function StudioHome() {
                   <span className="text-2xl block mb-1">🏆</span>
                   Leaderboard
                 </button>
+
+                {!isFinaleMode ? (
+                  <button
+                    onClick={() => setShowFinaleModal(true)}
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                  >
+                    <span className="text-2xl block mb-1">🎯</span>
+                    FINALE
+                  </button>
+                ) : (
+                  <button
+                    onClick={endFinale}
+                    className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg animate-pulse"
+                  >
+                    <span className="text-2xl block mb-1">🏁</span>
+                    Fin Finale
+                  </button>
+                )}
               </div>
 
               {/* Buzzer Controls */}
@@ -1461,6 +1574,149 @@ export default function StudioHome() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Finale Mode Modal */}
+      {showFinaleModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-lg shadow-2xl">
+            <div className="text-center mb-6">
+              <span className="text-6xl">🏆</span>
+              <h3 className="text-3xl font-bold mt-4 bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
+                MODE FINALE
+              </h3>
+            </div>
+
+            <p className="text-gray-300 text-center mb-6">
+              Sélectionne le nombre de finalistes. Seules les meilleures équipes pourront participer à la finale !
+            </p>
+
+            <div className="grid grid-cols-4 gap-3 mb-6">
+              {[2, 4, 6, 8].map(count => (
+                <button
+                  key={count}
+                  onClick={() => setFinalistCount(count)}
+                  className={`py-4 rounded-xl font-bold text-2xl transition ${
+                    finalistCount === count
+                      ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white scale-105'
+                      : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                  }`}
+                >
+                  {count}
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-gray-700/50 rounded-xl p-4 mb-6">
+              <p className="text-sm text-gray-400 mb-3">Équipes qualifiées (Top {finalistCount}):</p>
+              <div className="space-y-2">
+                {[...teams].sort((a, b) => b.score - a.score).slice(0, finalistCount).map((team, idx) => (
+                  <div key={team.id} className="flex items-center bg-gray-700 rounded-lg p-2">
+                    <span className="text-lg mr-2">
+                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`}
+                    </span>
+                    <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: team.color }}></div>
+                    <span className="font-medium">{team.name}</span>
+                    <span className="ml-auto text-purple-400 font-bold">{team.score}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-6">
+              <p className="text-yellow-400 font-semibold mb-2">🃏 Jokers disponibles:</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="flex items-center text-gray-300">
+                  <span className="mr-2">🔥</span> Double - x2 points
+                </div>
+                <div className="flex items-center text-gray-300">
+                  <span className="mr-2">⏳</span> Temps+ - +15 secondes
+                </div>
+                <div className="flex items-center text-gray-300">
+                  <span className="mr-2">🎯</span> 50/50 - Élimine 2 réponses
+                </div>
+                <div className="flex items-center text-gray-300">
+                  <span className="mr-2">🛡️</span> Bouclier - Protège d'une erreur
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-4">
+              <button
+                onClick={() => setShowFinaleModal(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl font-bold"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={startFinale}
+                disabled={teams.length < finalistCount}
+                className="flex-1 bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 text-white py-3 rounded-xl font-bold transition"
+              >
+                🏆 Lancer la Finale !
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Finale Status Panel */}
+      {isFinaleMode && (
+        <div className="fixed bottom-4 right-4 bg-gradient-to-r from-yellow-600/90 to-orange-600/90 backdrop-blur rounded-2xl p-4 shadow-2xl border border-yellow-400/30 max-w-md">
+          <div className="flex items-center mb-3">
+            <span className="text-2xl mr-2">🏆</span>
+            <span className="font-bold text-lg">MODE FINALE</span>
+            <span className="ml-auto bg-yellow-400/20 px-2 py-1 rounded text-sm">
+              {finalistTeams.length} équipes
+            </span>
+          </div>
+
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {finalistTeams.map((team, idx) => (
+              <div key={team.id} className="bg-black/20 rounded-lg p-2 flex items-center">
+                <span className="font-bold mr-2">{idx + 1}.</span>
+                <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: team.color }}></div>
+                <span className="flex-1 font-medium">{team.name}</span>
+
+                {/* Jokers remaining */}
+                <div className="flex space-x-1 mr-2">
+                  {teamJokers[team.id] && Object.entries(teamJokers[team.id]).map(([type, count]) => (
+                    count > 0 && (
+                      <span key={type} className="text-xs opacity-80" title={getJokerLabel(type)}>
+                        {getJokerEmoji(type)}
+                      </span>
+                    )
+                  ))}
+                </div>
+
+                {/* Active jokers for current question */}
+                {activeJokers[team.id]?.length > 0 && (
+                  <div className="bg-green-500/30 px-2 py-1 rounded text-xs animate-pulse">
+                    {activeJokers[team.id].map(j => getJokerEmoji(j)).join('')}
+                  </div>
+                )}
+
+                <span className="ml-2 font-bold text-yellow-300">{team.score}</span>
+              </div>
+            ))}
+          </div>
+
+          {eliminatedTeams.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/20">
+              <p className="text-xs text-yellow-200/60 mb-1">Éliminés:</p>
+              <div className="flex flex-wrap gap-1">
+                {eliminatedTeams.slice(0, 4).map(team => (
+                  <span key={team.id} className="bg-red-500/30 px-2 py-1 rounded text-xs opacity-60">
+                    {team.name}
+                  </span>
+                ))}
+                {eliminatedTeams.length > 4 && (
+                  <span className="text-xs opacity-50">+{eliminatedTeams.length - 4}</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

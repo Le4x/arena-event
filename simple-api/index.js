@@ -116,6 +116,114 @@ const tryPressBuzzer = (sessionId, team, timestamp) => {
   return { success: true, winner: team };
 };
 
+// ============================================
+// FINALE MODE MANAGER
+// ============================================
+const finaleState = new Map(); // sessionId -> { active, finalistTeams, jokers, eliminatedTeams }
+
+const JOKER_TYPES = {
+  DOUBLE: 'DOUBLE',         // Double les points de la question
+  TIME_PLUS: 'TIME_PLUS',   // +15 secondes pour répondre
+  FIFTY_FIFTY: 'FIFTY_FIFTY', // Élimine 2 mauvaises réponses (MCQ)
+  SHIELD: 'SHIELD'          // Protège contre une mauvaise réponse
+};
+
+const initFinale = (sessionId, finalistCount, teams) => {
+  // Sort teams by score and take top N
+  const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+  const finalistTeams = sortedTeams.slice(0, finalistCount);
+
+  // Initialize jokers for each finalist (1 of each type)
+  const jokers = {};
+  finalistTeams.forEach(team => {
+    jokers[team.id] = {
+      [JOKER_TYPES.DOUBLE]: 1,
+      [JOKER_TYPES.TIME_PLUS]: 1,
+      [JOKER_TYPES.FIFTY_FIFTY]: 1,
+      [JOKER_TYPES.SHIELD]: 1
+    };
+  });
+
+  const state = {
+    active: true,
+    finalistCount,
+    finalistTeams,
+    eliminatedTeams: sortedTeams.slice(finalistCount),
+    jokers,
+    activeJokers: {}, // teamId -> active joker for current question
+    shieldedTeams: [], // teams protected by shield this round
+    currentRound: 1
+  };
+
+  finaleState.set(sessionId, state);
+  console.log(`🏆 FINALE started for session ${sessionId} with ${finalistCount} teams`);
+  return state;
+};
+
+const getFinaleState = (sessionId) => {
+  return finaleState.get(sessionId);
+};
+
+const useJoker = (sessionId, teamId, jokerType) => {
+  const state = finaleState.get(sessionId);
+  if (!state || !state.active) return { success: false, error: 'Finale not active' };
+
+  const teamJokers = state.jokers[teamId];
+  if (!teamJokers) return { success: false, error: 'Team not in finale' };
+
+  if (teamJokers[jokerType] <= 0) return { success: false, error: 'Joker already used' };
+
+  // Use the joker
+  teamJokers[jokerType]--;
+
+  // Set active joker for this question
+  if (!state.activeJokers[teamId]) {
+    state.activeJokers[teamId] = [];
+  }
+  state.activeJokers[teamId].push(jokerType);
+
+  // Special handling for SHIELD
+  if (jokerType === JOKER_TYPES.SHIELD) {
+    state.shieldedTeams.push(teamId);
+  }
+
+  finaleState.set(sessionId, state);
+  console.log(`🃏 Joker ${jokerType} used by team ${teamId} in session ${sessionId}`);
+
+  return { success: true, jokerType, remainingJokers: teamJokers };
+};
+
+const clearActiveJokers = (sessionId) => {
+  const state = finaleState.get(sessionId);
+  if (state) {
+    state.activeJokers = {};
+    state.shieldedTeams = [];
+    finaleState.set(sessionId, state);
+  }
+};
+
+const eliminateTeam = (sessionId, teamId) => {
+  const state = finaleState.get(sessionId);
+  if (!state) return null;
+
+  const teamIndex = state.finalistTeams.findIndex(t => t.id === teamId);
+  if (teamIndex === -1) return null;
+
+  const [eliminatedTeam] = state.finalistTeams.splice(teamIndex, 1);
+  state.eliminatedTeams.unshift(eliminatedTeam);
+  delete state.jokers[teamId];
+
+  finaleState.set(sessionId, state);
+  console.log(`❌ Team ${eliminatedTeam.name} eliminated from finale in session ${sessionId}`);
+
+  return eliminatedTeam;
+};
+
+const endFinale = (sessionId) => {
+  finaleState.delete(sessionId);
+  console.log(`🏁 Finale ended for session ${sessionId}`);
+};
+
 const prisma = new PrismaClient();
 
 app.use(cors());
@@ -1425,7 +1533,29 @@ io.on('connection', (socket) => {
 
       const isCorrect = answer === question.correctAnswer;
       const timeVal = responseTime ? (question.timeLimit * 1000 - responseTime) / 1000 : (timeRemaining || 0);
-      const points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
+      let points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
+
+      // Check for finale jokers
+      const state = getFinaleState(sessionId);
+      let jokerApplied = null;
+      let shieldActivated = false;
+
+      if (state?.active && state.activeJokers[teamId]) {
+        const activeJokers = state.activeJokers[teamId];
+
+        // DOUBLE joker - double the points if correct
+        if (activeJokers.includes('DOUBLE') && isCorrect) {
+          points *= 2;
+          jokerApplied = 'DOUBLE';
+          console.log(`🃏 DOUBLE joker applied: ${points} points for team ${teamId}`);
+        }
+
+        // SHIELD joker - protect from wrong answer (no negative impact)
+        if (activeJokers.includes('SHIELD') && !isCorrect) {
+          shieldActivated = true;
+          console.log(`🛡️ SHIELD joker protected team ${teamId} from wrong answer`);
+        }
+      }
 
       if (isCorrect) {
         await prisma.team.update({
@@ -1440,7 +1570,7 @@ io.on('connection', (socket) => {
           questionId,
           content: answer,
           isCorrect,
-          points
+          points: isCorrect ? points : 0
         }
       });
 
@@ -1450,13 +1580,21 @@ io.on('connection', (socket) => {
         questionId,
         answer,
         isCorrect,
-        points
+        points: isCorrect ? points : 0,
+        jokerApplied,
+        shieldActivated
       });
 
       // Emit result back to the submitting player
-      socket.emit('answer-result', { teamId, isCorrect, points });
+      socket.emit('answer-result', {
+        teamId,
+        isCorrect,
+        points: isCorrect ? points : 0,
+        jokerApplied,
+        shieldActivated
+      });
 
-      console.log(`Answer submitted: team=${teamId}, correct=${isCorrect}, points=${points}`);
+      console.log(`Answer submitted: team=${teamId}, correct=${isCorrect}, points=${points}, joker=${jokerApplied || 'none'}`);
     } catch (error) {
       console.error('Socket answer error:', error);
     }
@@ -1471,6 +1609,162 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('score-update', {
       teamId: data.teamId,
       newScore: data.newScore
+    });
+  });
+
+  // ========== FINALE MODE EVENTS ==========
+
+  // Start finale mode - from Studio
+  socket.on('finale-start', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const { finalistCount, teams } = data;
+
+    console.log(`🏆 Starting finale with ${finalistCount} teams in session ${sessionId}`);
+
+    const state = initFinale(sessionId, finalistCount, teams);
+
+    // Broadcast finale start to all clients
+    io.to(`session:${sessionId}`).emit('finale-started', {
+      finalistCount,
+      finalistTeams: state.finalistTeams,
+      eliminatedTeams: state.eliminatedTeams,
+      jokers: state.jokers,
+      serverTime: Date.now()
+    });
+  });
+
+  // Get finale state
+  socket.on('finale-state', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const state = getFinaleState(sessionId);
+
+    socket.emit('finale-state', {
+      active: state?.active || false,
+      finalistTeams: state?.finalistTeams || [],
+      eliminatedTeams: state?.eliminatedTeams || [],
+      jokers: state?.jokers || {},
+      currentRound: state?.currentRound || 0
+    });
+  });
+
+  // Use joker - from Player
+  socket.on('joker-use', (data, callback) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const { teamId, teamName, jokerType } = data;
+
+    const result = useJoker(sessionId, teamId, jokerType);
+
+    if (result.success) {
+      // Broadcast joker usage to all clients
+      io.to(`session:${sessionId}`).emit('joker-used', {
+        teamId,
+        teamName,
+        jokerType,
+        remainingJokers: result.remainingJokers,
+        serverTime: Date.now()
+      });
+
+      // Special handling for FIFTY_FIFTY - Studio needs to send eliminated options
+      if (jokerType === 'FIFTY_FIFTY') {
+        io.to(`session:${sessionId}`).emit('fifty-fifty-request', {
+          teamId,
+          teamName
+        });
+      }
+
+      // Special handling for TIME_PLUS
+      if (jokerType === 'TIME_PLUS') {
+        const timer = activeTimers.get(sessionId);
+        if (timer) {
+          // Add 15 seconds to the timer
+          timer.duration += 15000;
+          console.log(`⏳ TIME_PLUS: Added 15s to timer for session ${sessionId}`);
+
+          io.to(`session:${sessionId}`).emit('time-plus-activated', {
+            teamId,
+            teamName,
+            bonusSeconds: 15,
+            serverTime: Date.now()
+          });
+        }
+      }
+    }
+
+    // Send acknowledgment
+    if (typeof callback === 'function') {
+      callback(result);
+    }
+  });
+
+  // Fifty-fifty response from Studio (which options to eliminate)
+  socket.on('fifty-fifty-options', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const { eliminatedOptions } = data;
+
+    io.to(`session:${sessionId}`).emit('fifty-fifty-applied', {
+      eliminatedOptions,
+      serverTime: Date.now()
+    });
+  });
+
+  // Clear active jokers (at end of question)
+  socket.on('finale-clear-jokers', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    clearActiveJokers(sessionId);
+  });
+
+  // Eliminate team - from Studio
+  socket.on('finale-eliminate', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const { teamId } = data;
+
+    const eliminatedTeam = eliminateTeam(sessionId, teamId);
+
+    if (eliminatedTeam) {
+      io.to(`session:${sessionId}`).emit('team-eliminated', {
+        team: eliminatedTeam,
+        teamId: eliminatedTeam.id,
+        teamName: eliminatedTeam.name,
+        serverTime: Date.now()
+      });
+    }
+  });
+
+  // End finale - from Studio
+  socket.on('finale-end', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const state = getFinaleState(sessionId);
+
+    const winner = state?.finalistTeams?.[0];
+
+    endFinale(sessionId);
+
+    io.to(`session:${sessionId}`).emit('finale-ended', {
+      winner,
+      finalRanking: state?.finalistTeams || [],
+      serverTime: Date.now()
+    });
+  });
+
+  // Finale question start (includes joker state)
+  socket.on('finale-question-start', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    const { question, timeLimit } = data;
+
+    // Clear active jokers from previous question
+    clearActiveJokers(sessionId);
+
+    // Start timer
+    startServerTimer(sessionId, timeLimit || question?.timeLimit || 30);
+
+    const state = getFinaleState(sessionId);
+
+    io.to(`session:${sessionId}`).emit('finale-question-start', {
+      question,
+      timeLimit: timeLimit || question?.timeLimit || 30,
+      jokers: state?.jokers || {},
+      finalistTeams: state?.finalistTeams || [],
+      serverTime: Date.now()
     });
   });
 

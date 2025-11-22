@@ -75,6 +75,13 @@ export default function PlayerHome() {
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState<Team[]>([]);
 
+  // Finale mode state
+  const [isFinaleMode, setIsFinaleMode] = useState(false);
+  const [myJokers, setMyJokers] = useState<Record<string, number>>({});
+  const [activeJoker, setActiveJoker] = useState<string | null>(null);
+  const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
+  const [timePlusActive, setTimePlusActive] = useState(false);
+
   // Timer ref
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const questionStartTime = useRef<number>(0);
@@ -335,6 +342,49 @@ export default function PlayerHome() {
       setRevealedSong(data.songTitle);
       setBuzzerOpen(false);
     });
+
+    // ========== FINALE MODE EVENTS ==========
+    socket.on('finale-started', (data) => {
+      setIsFinaleMode(true);
+      // Set my jokers from the jokers object
+      if (data.jokers && teamId && data.jokers[teamId]) {
+        setMyJokers(data.jokers[teamId]);
+      }
+      setEliminatedOptions([]);
+    });
+
+    socket.on('finale-question-start', (data) => {
+      // Update jokers at start of each finale question
+      if (data.jokers && teamId && data.jokers[teamId]) {
+        setMyJokers(data.jokers[teamId]);
+      }
+      setActiveJoker(null);
+      setEliminatedOptions([]);
+      setTimePlusActive(false);
+    });
+
+    socket.on('joker-used', (data) => {
+      if (data.teamId === teamId) {
+        setMyJokers(data.remainingJokers);
+        setActiveJoker(data.jokerType);
+      }
+    });
+
+    socket.on('fifty-fifty-applied', (data) => {
+      setEliminatedOptions(data.eliminatedOptions || []);
+    });
+
+    socket.on('time-plus-activated', (data) => {
+      setTimePlusActive(true);
+      setTimeout(() => setTimePlusActive(false), 3000);
+    });
+
+    socket.on('finale-ended', () => {
+      setIsFinaleMode(false);
+      setMyJokers({});
+      setActiveJoker(null);
+      setEliminatedOptions([]);
+    });
   };
 
   // Timer is now server-side - no client-side interval needed
@@ -406,6 +456,30 @@ export default function PlayerHome() {
         }
       }
     });
+  };
+
+  // Use joker (finale mode only)
+  const useJoker = (jokerType: string) => {
+    if (!session || !team || !isFinaleMode) return;
+    if (!myJokers[jokerType] || myJokers[jokerType] <= 0) return;
+    if (activeJoker) return; // Already using a joker this question
+
+    socketRef.current?.emit('joker-use', {
+      sessionId: session.id,
+      teamId: team.id,
+      teamName: team.name,
+      jokerType
+    });
+  };
+
+  // Get joker button style
+  const getJokerStyle = (jokerType: string) => {
+    const count = myJokers[jokerType] || 0;
+    const isActive = activeJoker === jokerType;
+
+    if (count <= 0) return 'bg-gray-700 opacity-40 cursor-not-allowed';
+    if (isActive) return 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-2 ring-white animate-pulse';
+    return 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600';
   };
 
   // Cleanup
@@ -654,8 +728,21 @@ export default function PlayerHome() {
         <header className={`p-4 text-center transition-colors ${
           timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
           timeRemaining <= 10 ? 'bg-yellow-500' :
+          isFinaleMode ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
           'bg-purple-600'
         }`}>
+          {/* Finale mode badge */}
+          {isFinaleMode && (
+            <div className="text-xs font-bold text-white/90 mb-1 tracking-wider">
+              🏆 MODE FINALE
+            </div>
+          )}
+          {/* Time plus indicator */}
+          {timePlusActive && (
+            <div className="text-xs font-bold text-green-300 mb-1 animate-pulse">
+              ⏳ +15 SECONDES!
+            </div>
+          )}
           <div className="text-5xl font-black text-white">{timeRemaining}</div>
           <div className="text-white/80 text-sm">seconds remaining</div>
         </header>
@@ -673,8 +760,71 @@ export default function PlayerHome() {
             <p className="text-white text-xl font-semibold text-center leading-relaxed">
               {currentQuestion.text}
             </p>
-            <p className="text-purple-400 text-center mt-2">{currentQuestion.points} points</p>
+            <p className="text-purple-400 text-center mt-2">
+              {currentQuestion.points} points
+              {activeJoker === 'DOUBLE' && <span className="text-yellow-400 ml-2">🔥 x2!</span>}
+            </p>
           </div>
+
+          {/* Joker Buttons (Finale Mode Only) */}
+          {isFinaleMode && !hasAnswered && (
+            <div className="bg-gray-800/50 rounded-2xl p-3 mb-4">
+              <div className="text-xs text-gray-400 text-center mb-2 font-semibold">⚡ JOKERS</div>
+              <div className="grid grid-cols-4 gap-2">
+                {/* DOUBLE - x2 points */}
+                <button
+                  onClick={() => useJoker('DOUBLE')}
+                  disabled={!myJokers['DOUBLE'] || myJokers['DOUBLE'] <= 0 || !!activeJoker}
+                  className={`${getJokerStyle('DOUBLE')} p-2 rounded-xl text-white transition transform active:scale-95`}
+                >
+                  <div className="text-xl">🔥</div>
+                  <div className="text-[10px] font-bold">x2</div>
+                  <div className="text-[10px] opacity-70">{myJokers['DOUBLE'] || 0}</div>
+                </button>
+
+                {/* TIME_PLUS - +15 seconds */}
+                <button
+                  onClick={() => useJoker('TIME_PLUS')}
+                  disabled={!myJokers['TIME_PLUS'] || myJokers['TIME_PLUS'] <= 0 || !!activeJoker}
+                  className={`${getJokerStyle('TIME_PLUS')} p-2 rounded-xl text-white transition transform active:scale-95`}
+                >
+                  <div className="text-xl">⏳</div>
+                  <div className="text-[10px] font-bold">+15s</div>
+                  <div className="text-[10px] opacity-70">{myJokers['TIME_PLUS'] || 0}</div>
+                </button>
+
+                {/* FIFTY_FIFTY - Remove 2 wrong answers */}
+                <button
+                  onClick={() => useJoker('FIFTY_FIFTY')}
+                  disabled={!myJokers['FIFTY_FIFTY'] || myJokers['FIFTY_FIFTY'] <= 0 || !!activeJoker || currentQuestion.type !== 'MCQ'}
+                  className={`${getJokerStyle('FIFTY_FIFTY')} p-2 rounded-xl text-white transition transform active:scale-95 ${currentQuestion.type !== 'MCQ' ? 'opacity-30' : ''}`}
+                >
+                  <div className="text-xl">🎯</div>
+                  <div className="text-[10px] font-bold">50/50</div>
+                  <div className="text-[10px] opacity-70">{myJokers['FIFTY_FIFTY'] || 0}</div>
+                </button>
+
+                {/* SHIELD - Protect from wrong answer penalty */}
+                <button
+                  onClick={() => useJoker('SHIELD')}
+                  disabled={!myJokers['SHIELD'] || myJokers['SHIELD'] <= 0 || !!activeJoker}
+                  className={`${getJokerStyle('SHIELD')} p-2 rounded-xl text-white transition transform active:scale-95`}
+                >
+                  <div className="text-xl">🛡️</div>
+                  <div className="text-[10px] font-bold">Shield</div>
+                  <div className="text-[10px] opacity-70">{myJokers['SHIELD'] || 0}</div>
+                </button>
+              </div>
+              {activeJoker && (
+                <div className="text-center mt-2 text-yellow-400 text-xs font-bold animate-pulse">
+                  {activeJoker === 'DOUBLE' && '🔥 Points x2 actif!'}
+                  {activeJoker === 'TIME_PLUS' && '⏳ +15 secondes ajoutees!'}
+                  {activeJoker === 'FIFTY_FIFTY' && '🎯 2 mauvaises reponses eliminees!'}
+                  {activeJoker === 'SHIELD' && '🛡️ Bouclier actif!'}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* MCQ Options */}
           {currentQuestion.type === 'MCQ' && currentQuestion.options && (
@@ -688,6 +838,25 @@ export default function PlayerHome() {
                   'from-green-500 to-green-600',
                 ];
                 const isSelected = selectedAnswer === letter;
+                const isEliminated = eliminatedOptions.includes(letter);
+
+                // Don't show eliminated options (50/50 joker)
+                if (isEliminated) {
+                  return (
+                    <div
+                      key={idx}
+                      className="bg-gray-700/50 text-gray-500 py-5 px-6 rounded-2xl border-2 border-dashed border-gray-600"
+                    >
+                      <div className="flex items-center">
+                        <span className="w-10 h-10 bg-gray-600/50 rounded-full flex items-center justify-center mr-4 text-xl font-black line-through">
+                          {letter}
+                        </span>
+                        <span className="text-lg text-left flex-1 line-through opacity-50">{option}</span>
+                        <span className="text-2xl">❌</span>
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <button
@@ -906,18 +1075,29 @@ export default function PlayerHome() {
   // RESULT SCREEN
   if (gameState === 'RESULT') {
     const wasCorrect = isCorrect || (selectedAnswer && selectedAnswer === correctAnswer);
+    const wasShielded = activeJoker === 'SHIELD' && !wasCorrect;
 
     return (
       <main className={`min-h-screen flex flex-col items-center justify-center p-4 ${
-        wasCorrect ? 'bg-gradient-to-br from-green-600 to-teal-600' : 'bg-gradient-to-br from-red-600 to-orange-600'
+        wasCorrect ? 'bg-gradient-to-br from-green-600 to-teal-600' :
+        wasShielded ? 'bg-gradient-to-br from-blue-600 to-purple-600' :
+        'bg-gradient-to-br from-red-600 to-orange-600'
       }`}>
         <div className="text-center">
           <div className="text-8xl mb-6">
-            {wasCorrect ? '🎉' : '😢'}
+            {wasCorrect ? '🎉' : wasShielded ? '🛡️' : '😢'}
           </div>
           <h1 className="text-4xl font-black text-white mb-4">
-            {wasCorrect ? 'CORRECT!' : 'WRONG!'}
+            {wasCorrect ? 'CORRECT!' : wasShielded ? 'PROTEGE!' : 'WRONG!'}
           </h1>
+
+          {/* Shield protection message */}
+          {wasShielded && (
+            <div className="bg-white/20 backdrop-blur rounded-2xl p-4 mb-4 animate-pulse">
+              <p className="text-white/90 text-lg font-bold">🛡️ Bouclier actif!</p>
+              <p className="text-white/70 text-sm">Pas de penalite</p>
+            </div>
+          )}
 
           {correctAnswer && (
             <div className="bg-white/20 backdrop-blur rounded-2xl p-4 mb-4">
@@ -930,6 +1110,9 @@ export default function PlayerHome() {
             <div className="bg-white/20 backdrop-blur rounded-2xl p-6 mb-6">
               <p className="text-white/80">Points Earned</p>
               <p className="text-5xl font-black text-white">+{pointsEarned}</p>
+              {activeJoker === 'DOUBLE' && (
+                <p className="text-yellow-300 text-sm mt-2">🔥 Double actif!</p>
+              )}
             </div>
           )}
 
