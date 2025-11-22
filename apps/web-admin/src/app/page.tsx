@@ -17,12 +17,6 @@ interface Event {
   id: string;
   name: string;
   description: string;
-  logo?: string;
-  theme?: {
-    primaryColor?: string;
-    secondaryColor?: string;
-    backgroundColor?: string;
-  };
   status: string;
   createdAt: string;
   _count?: { sessions: number; rounds: number };
@@ -91,11 +85,8 @@ export default function Home() {
   // Form state
   const [eventForm, setEventForm] = useState({
     name: '',
-    description: '',
-    logo: '',
-    theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' }
+    description: ''
   });
-  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [questionForm, setQuestionForm] = useState({
     text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
@@ -241,7 +232,7 @@ export default function Home() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setShowEventModal(false);
-        setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } });
+        setEventForm({ name: '', description: '' });
         loadEvents();
       } else {
         setModalError(data.error || `Failed to create event (${res.status})`);
@@ -274,7 +265,7 @@ export default function Home() {
       if (res.ok) {
         setShowEventModal(false);
         setEditingEvent(null);
-        setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } });
+        setEventForm({ name: '', description: '' });
         loadEvents();
         if (selectedEvent?.id === editingEvent.id) {
           loadEventDetails(editingEvent.id);
@@ -400,16 +391,9 @@ export default function Home() {
 
   const openEditEvent = (event: Event) => {
     setEditingEvent(event);
-    const defaultTheme = { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' };
     setEventForm({
       name: event.name,
-      description: event.description || '',
-      logo: event.logo || '',
-      theme: {
-        primaryColor: event.theme?.primaryColor || defaultTheme.primaryColor,
-        secondaryColor: event.theme?.secondaryColor || defaultTheme.secondaryColor,
-        backgroundColor: event.theme?.backgroundColor || defaultTheme.backgroundColor
-      }
+      description: event.description || ''
     });
     setShowEventModal(true);
   };
@@ -588,7 +572,7 @@ export default function Home() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-3xl font-bold text-white">Events</h2>
-              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } }); setShowEventModal(true); }}
+              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '' }); setShowEventModal(true); }}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition">
                 + Create Event
               </button>

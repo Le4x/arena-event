@@ -448,7 +448,7 @@ app.get('/api/events', authenticateToken, async (req, res) => {
 
 app.post('/api/events', authenticateToken, async (req, res) => {
   try {
-    const { name, description, logo, theme } = req.body;
+    const { name, description } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Event name is required' });
