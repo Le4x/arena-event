@@ -45,8 +45,6 @@ model Event {
   id          String   @id @default(uuid())
   name        String
   description String?
-  logo        String?  // URL to event logo image
-  theme       Json?    // Custom theme colors { primaryColor, secondaryColor, backgroundColor }
   ownerId     String
   owner       User     @relation("EventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
