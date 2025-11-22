@@ -614,11 +614,11 @@ export default function Home() {
                       <span>{event._count?.sessions || 0} sessions</span>
                     </div>
                     <div className="flex space-x-2">
-                      <button onClick={() => loadEventDetails(event.id)} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg text-sm transition">
+                      <button onClick={() => openEditEvent(event)} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg text-sm transition">
                         Edit
                       </button>
-                      <button onClick={() => openEditEvent(event)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition">
-                        ⚙️
+                      <button onClick={() => loadEventDetails(event.id)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition" title="Manage rounds & questions">
+                        📝
                       </button>
                       <button onClick={() => deleteEvent(event.id)} className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg transition">
                         🗑️
