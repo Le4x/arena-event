@@ -235,9 +235,7 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({
           name: eventForm.name,
-          description: eventForm.description,
-          logo: eventForm.logo || null,
-          theme: eventForm.theme
+          description: eventForm.description
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -269,9 +267,7 @@ export default function Home() {
         method: 'PUT',
         body: JSON.stringify({
           name: eventForm.name,
-          description: eventForm.description,
-          logo: eventForm.logo || null,
-          theme: eventForm.theme
+          description: eventForm.description
         }),
       });
       const data = await res.json().catch(() => ({}));

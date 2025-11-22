@@ -458,8 +458,6 @@ app.post('/api/events', authenticateToken, async (req, res) => {
       data: {
         name,
         description: description || '',
-        logo: logo || null,
-        theme: theme || null,
         ownerId: req.user.userId
       }
     });
@@ -524,15 +522,13 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 
 app.put('/api/events/:id', authenticateToken, async (req, res) => {
   try {
-    const { name, description, logo, theme } = req.body;
+    const { name, description } = req.body;
 
     const event = await prisma.event.update({
       where: { id: req.params.id },
       data: {
         name,
-        description,
-        logo: logo || null,
-        theme: theme || null
+        description
       }
     });
 
@@ -1903,7 +1899,7 @@ app.post('/sessions/join', async (req, res) => {
     const session = await prisma.session.findUnique({
       where: { code: code.toUpperCase() },
       include: {
-        event: { select: { id: true, name: true, description: true, logo: true, theme: true } },
+        event: { select: { id: true, name: true, description: true } },
         teams: { select: { id: true, name: true, score: true } }
       }
     });
