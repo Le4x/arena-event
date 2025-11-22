@@ -31,6 +31,12 @@ interface Session {
   id: string;
   code: string;
   eventName: string;
+  eventLogo?: string;
+  eventTheme?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    backgroundColor?: string;
+  };
 }
 
 export default function PlayerHome() {
@@ -97,6 +103,74 @@ export default function PlayerHome() {
   const gameStateRef = useRef<GameState>(gameState);
   gameStateRef.current = gameState;
 
+  // LocalStorage keys
+  const STORAGE_KEY = 'arena_player_session';
+
+  // Save session data to localStorage
+  const saveToStorage = useCallback((sessionData: Session | null, teamData: Team | null) => {
+    if (sessionData && teamData) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        session: sessionData,
+        team: teamData,
+        timestamp: Date.now()
+      }));
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  // Load and restore session from localStorage on mount
+  useEffect(() => {
+    const savedData = localStorage.getItem(STORAGE_KEY);
+    if (savedData) {
+      try {
+        const { session: savedSession, team: savedTeam, timestamp } = JSON.parse(savedData);
+
+        // Check if session is less than 24 hours old
+        const isRecent = Date.now() - timestamp < 24 * 60 * 60 * 1000;
+
+        if (isRecent && savedSession && savedTeam) {
+          // Verify session still exists and is active
+          fetch(`${API_URL}/sessions/${savedSession.id}`)
+            .then(res => {
+              if (res.ok) return res.json();
+              throw new Error('Session expired');
+            })
+            .then(data => {
+              if (data.status !== 'FINISHED') {
+                // Restore session
+                setSession(savedSession);
+                setTeam(savedTeam);
+                setTeamName(savedTeam.name);
+                setTeamColor(savedTeam.color);
+                setGameState('LOBBY');
+                // Reconnect socket
+                connectSocket(savedSession.id, savedTeam.id);
+              } else {
+                // Session ended, clear storage
+                localStorage.removeItem(STORAGE_KEY);
+              }
+            })
+            .catch(() => {
+              // Session no longer exists, clear storage
+              localStorage.removeItem(STORAGE_KEY);
+            });
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+  }, []);
+
+  // Save to localStorage when session/team changes
+  useEffect(() => {
+    if (session && team && gameState !== 'JOIN' && gameState !== 'TEAM_SELECT') {
+      saveToStorage(session, team);
+    }
+  }, [session, team, gameState, saveToStorage]);
+
   // Join session via API
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,6 +200,8 @@ export default function PlayerHome() {
         id: data.session.id,
         code: data.session.code,
         eventName: data.session.event?.name || 'Arena Event',
+        eventLogo: data.session.event?.logo || null,
+        eventTheme: data.session.event?.theme || null,
       });
       setExistingTeams(data.session.teams || []);
       setGameState('TEAM_SELECT');
@@ -189,6 +265,21 @@ export default function PlayerHome() {
     setTeamName(existingTeam.name);
     setGameState('LOBBY');
     connectSocket(session.id, existingTeam.id);
+  };
+
+  // Leave session and clear storage
+  const leaveSession = () => {
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    localStorage.removeItem(STORAGE_KEY);
+    setSession(null);
+    setTeam(null);
+    setGameState('JOIN');
+    setSessionCode('');
+    setTeamName('');
+    setIsConnected(false);
   };
 
   // Manual retry function
@@ -416,6 +507,8 @@ export default function PlayerHome() {
 
     socket.on('session-end', () => {
       setGameState('FINISHED');
+      // Clear storage when session ends
+      localStorage.removeItem(STORAGE_KEY);
     });
 
     // Blindtest events
@@ -775,18 +868,34 @@ export default function PlayerHome() {
 
   // LOBBY SCREEN
   if (gameState === 'LOBBY') {
+    const themeStyle = session?.eventTheme ? {
+      background: `linear-gradient(135deg, ${session.eventTheme.primaryColor || '#4f46e5'} 0%, ${session.eventTheme.secondaryColor || '#9333ea'} 50%, ${session.eventTheme.backgroundColor || '#ec4899'} 100%)`
+    } : undefined;
+
     return (
-      <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
+      <main
+        className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4"
+        style={themeStyle}
+      >
         <div className="w-full max-w-md text-center">
+          {/* Event Header with Logo */}
           <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 mb-8">
-            <div className="text-6xl mb-4 animate-pulse">⏳</div>
-            <h1 className="text-3xl font-bold text-white mb-2">Waiting for host...</h1>
-            <p className="text-purple-200">The game will start soon!</p>
+            {session?.eventLogo ? (
+              <img
+                src={session.eventLogo}
+                alt={session.eventName}
+                className="h-20 mx-auto mb-4 object-contain"
+              />
+            ) : (
+              <div className="text-6xl mb-4 animate-pulse">⏳</div>
+            )}
+            <h1 className="text-3xl font-bold text-white mb-2">{session?.eventName || 'Arena Event'}</h1>
+            <p className="text-purple-200">En attente du lancement...</p>
           </div>
 
           <div className="bg-white rounded-3xl shadow-2xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Your Team</span>
+              <span className="text-gray-500">Ton équipe</span>
               <div className="flex items-center">
                 <div
                   className="w-4 h-4 rounded-full mr-2"
@@ -804,17 +913,25 @@ export default function PlayerHome() {
               <span className="font-bold text-purple-600">{team?.score || 0}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-500">Status</span>
+              <span className="text-gray-500">Statut</span>
               <span className={`flex items-center font-medium ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
                 <span className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                {isConnected ? 'Connected' : 'Connecting...'}
+                {isConnected ? 'Connecté' : 'Connexion...'}
               </span>
             </div>
           </div>
 
-          <p className="text-purple-200 mt-8 text-sm">
-            Get ready! The first question is coming...
+          <p className="text-purple-200 mt-6 text-sm">
+            Prépare-toi ! La première question arrive bientôt...
           </p>
+
+          {/* Leave session button */}
+          <button
+            onClick={leaveSession}
+            className="mt-4 text-white/70 hover:text-white underline text-sm transition"
+          >
+            Quitter la session
+          </button>
         </div>
       </main>
     );
