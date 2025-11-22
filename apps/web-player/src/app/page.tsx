@@ -6,6 +6,15 @@ import { io, Socket } from 'socket.io-client';
 // API URL - configurable via environment variable or defaults to the VPS
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
 
+// Type declaration for Wake Lock API
+interface WakeLockSentinel {
+  released: boolean;
+  type: 'screen';
+  release(): Promise<void>;
+  addEventListener(type: 'release', listener: () => void): void;
+  removeEventListener(type: 'release', listener: () => void): void;
+}
+
 type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
 
 interface Question {
@@ -87,6 +96,11 @@ export default function PlayerHome() {
 
   // Leaderboard
   const [leaderboard, setLeaderboard] = useState<Team[]>([]);
+  const [teamRank, setTeamRank] = useState<number | null>(null);
+
+  // Fullscreen & Wake Lock
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Finale mode state
   const [isFinaleMode, setIsFinaleMode] = useState(false);
@@ -171,6 +185,64 @@ export default function PlayerHome() {
     }
   }, [session, team, gameState, saveToStorage]);
 
+  // Request fullscreen mode
+  const requestFullscreen = useCallback(async () => {
+    try {
+      const elem = document.documentElement;
+      if (elem.requestFullscreen) {
+        await elem.requestFullscreen();
+      } else if ((elem as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen) {
+        await (elem as HTMLElement & { webkitRequestFullscreen: () => Promise<void> }).webkitRequestFullscreen();
+      }
+      setIsFullscreen(true);
+    } catch (err) {
+      console.log('Fullscreen not supported or denied');
+    }
+  }, []);
+
+  // Request wake lock to prevent screen sleep
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as Navigator & { wakeLock: { request: (type: string) => Promise<WakeLockSentinel> } }).wakeLock.request('screen');
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('Wake Lock released');
+        });
+        console.log('Wake Lock active');
+      }
+    } catch (err) {
+      console.log('Wake Lock not supported or denied');
+    }
+  }, []);
+
+  // Release wake lock on unmount
+  useEffect(() => {
+    return () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release();
+      }
+    };
+  }, []);
+
+  // Re-acquire wake lock when page becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && gameState !== 'JOIN' && gameState !== 'TEAM_SELECT') {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [gameState, requestWakeLock]);
+
+  // Update team rank when leaderboard changes
+  useEffect(() => {
+    if (leaderboard.length > 0 && team) {
+      const rank = leaderboard.findIndex(t => t.id === team.id) + 1;
+      setTeamRank(rank > 0 ? rank : null);
+    }
+  }, [leaderboard, team]);
+
   // Join session via API
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -250,6 +322,10 @@ export default function PlayerHome() {
 
       // Connect socket
       connectSocket(session.id, data.id);
+
+      // Request fullscreen and wake lock for better mobile experience
+      requestFullscreen();
+      requestWakeLock();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join team');
     } finally {
@@ -265,6 +341,10 @@ export default function PlayerHome() {
     setTeamName(existingTeam.name);
     setGameState('LOBBY');
     connectSocket(session.id, existingTeam.id);
+
+    // Request fullscreen and wake lock for better mobile experience
+    requestFullscreen();
+    requestWakeLock();
   };
 
   // Leave session and clear storage
@@ -941,8 +1021,31 @@ export default function PlayerHome() {
   if (gameState === 'QUESTION' && currentQuestion) {
     return (
       <main className="min-h-screen bg-gray-900 flex flex-col">
+        {/* Team Info Bar */}
+        <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: team?.color || teamColor }}
+            />
+            <span className="text-white font-semibold text-sm truncate max-w-[120px]">{team?.name}</span>
+          </div>
+          <div className="flex items-center space-x-4">
+            {teamRank && (
+              <div className="flex items-center space-x-1">
+                <span className="text-yellow-400 text-sm">
+                  {teamRank === 1 ? '🥇' : teamRank === 2 ? '🥈' : teamRank === 3 ? '🥉' : `#${teamRank}`}
+                </span>
+              </div>
+            )}
+            <div className="bg-purple-600/30 px-3 py-1 rounded-full">
+              <span className="text-purple-300 font-bold text-sm">{team?.score || 0} pts</span>
+            </div>
+          </div>
+        </div>
+
         {/* Timer Header */}
-        <header className={`p-4 text-center transition-colors ${
+        <header className={`p-3 text-center transition-colors ${
           timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
           timeRemaining <= 10 ? 'bg-yellow-500' :
           isFinaleMode ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
@@ -960,8 +1063,8 @@ export default function PlayerHome() {
               ⏳ +15 SECONDES!
             </div>
           )}
-          <div className="text-5xl font-black text-white">{timeRemaining}</div>
-          <div className="text-white/80 text-sm">seconds remaining</div>
+          <div className="text-4xl font-black text-white">{timeRemaining}</div>
+          <div className="text-white/80 text-xs">secondes</div>
         </header>
 
         {/* Question */}
