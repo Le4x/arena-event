@@ -792,7 +792,17 @@ export default function StudioHome() {
     const artist = currentQuestion?.artist || currentQuestion?.correctAnswer?.split(' - ')[0] || 'Unknown Artist';
     const songTitle = currentQuestion?.songTitle || currentQuestion?.correctAnswer?.split(' - ')[1] || currentQuestion?.correctAnswer || 'Unknown Song';
 
-    // Play reveal cue if set
+    // EMIT FIRST to minimize latency on clients
+    socketRef.current?.emit('blindtest-reveal', {
+      sessionId: selectedSession?.id,
+      artist,
+      songTitle,
+      audioUrl: currentQuestion?.mediaUrl,
+      revealCueStart: currentQuestion?.revealCueStart || 0,
+      revealCueEnd: currentQuestion?.revealCueEnd || null
+    });
+
+    // Then play locally in Studio
     if (audioRef.current && currentQuestion?.revealCueStart !== undefined) {
       audioRef.current.currentTime = currentQuestion.revealCueStart;
       audioRef.current.play();
@@ -815,15 +825,6 @@ export default function StudioHome() {
       }
       setIsAudioPlaying(false);
     }
-
-    socketRef.current?.emit('blindtest-reveal', {
-      sessionId: selectedSession?.id,
-      artist,
-      songTitle,
-      audioUrl: currentQuestion?.mediaUrl,
-      revealCueStart: currentQuestion?.revealCueStart || 0,
-      revealCueEnd: currentQuestion?.revealCueEnd || null
-    });
   };
 
   const openScoreModal = (team: Team) => {

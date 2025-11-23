@@ -339,8 +339,17 @@ export default function ScreenHome() {
       // Play reveal cue if set
       if (audioRef.current && data.audioUrl) {
         const startTime = data.revealCueStart || data.startTime || 0;
-        audioRef.current.src = data.audioUrl;
+
+        // Only set src if it's different (avoid reloading same audio)
+        // Compare using URL endings since src returns absolute URL
+        const currentSrc = audioRef.current.src || '';
+        const newSrc = data.audioUrl;
+        if (!currentSrc.endsWith(newSrc.split('/').pop() || '') && currentSrc !== newSrc) {
+          audioRef.current.src = newSrc;
+        }
+
         audioRef.current.currentTime = startTime;
+        // Use catch to handle autoplay restrictions
         audioRef.current.play().catch(console.error);
         setIsAudioPlaying(true);
 
