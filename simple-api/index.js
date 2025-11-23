@@ -448,7 +448,7 @@ app.get('/api/events', authenticateToken, async (req, res) => {
 
 app.post('/api/events', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, logo, theme } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Event name is required' });
@@ -458,6 +458,8 @@ app.post('/api/events', authenticateToken, async (req, res) => {
       data: {
         name,
         description: description || '',
+        logo: logo || null,
+        theme: theme || null,
         ownerId: req.user.userId
       }
     });
@@ -522,13 +524,15 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 
 app.put('/api/events/:id', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, logo, theme } = req.body;
 
     const event = await prisma.event.update({
       where: { id: req.params.id },
       data: {
         name,
-        description
+        description,
+        logo: logo !== undefined ? logo : undefined,
+        theme: theme !== undefined ? theme : undefined
       }
     });
 
@@ -1899,7 +1903,7 @@ app.post('/sessions/join', async (req, res) => {
     const session = await prisma.session.findUnique({
       where: { code: code.toUpperCase() },
       include: {
-        event: { select: { id: true, name: true, description: true } },
+        event: { select: { id: true, name: true, description: true, logo: true, theme: true } },
         teams: { select: { id: true, name: true, score: true } }
       }
     });

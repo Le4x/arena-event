@@ -17,6 +17,12 @@ interface Event {
   id: string;
   name: string;
   description: string;
+  logo?: string;
+  theme?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    backgroundColor?: string;
+  };
   status: string;
   createdAt: string;
   _count?: { sessions: number; rounds: number };
@@ -85,8 +91,11 @@ export default function Home() {
   // Form state
   const [eventForm, setEventForm] = useState({
     name: '',
-    description: ''
+    description: '',
+    logo: '',
+    theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' }
   });
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [questionForm, setQuestionForm] = useState({
     text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
@@ -226,13 +235,15 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({
           name: eventForm.name,
-          description: eventForm.description
+          description: eventForm.description,
+          logo: eventForm.logo || null,
+          theme: eventForm.theme
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setShowEventModal(false);
-        setEventForm({ name: '', description: '' });
+        setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } });
         loadEvents();
       } else {
         setModalError(data.error || `Failed to create event (${res.status})`);
@@ -258,14 +269,16 @@ export default function Home() {
         method: 'PUT',
         body: JSON.stringify({
           name: eventForm.name,
-          description: eventForm.description
+          description: eventForm.description,
+          logo: eventForm.logo || null,
+          theme: eventForm.theme
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setShowEventModal(false);
         setEditingEvent(null);
-        setEventForm({ name: '', description: '' });
+        setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } });
         loadEvents();
         if (selectedEvent?.id === editingEvent.id) {
           loadEventDetails(editingEvent.id);
@@ -391,9 +404,16 @@ export default function Home() {
 
   const openEditEvent = (event: Event) => {
     setEditingEvent(event);
+    const defaultTheme = { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' };
     setEventForm({
       name: event.name,
-      description: event.description || ''
+      description: event.description || '',
+      logo: event.logo || '',
+      theme: {
+        primaryColor: event.theme?.primaryColor || defaultTheme.primaryColor,
+        secondaryColor: event.theme?.secondaryColor || defaultTheme.secondaryColor,
+        backgroundColor: event.theme?.backgroundColor || defaultTheme.backgroundColor
+      }
     });
     setShowEventModal(true);
   };
@@ -572,7 +592,7 @@ export default function Home() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-3xl font-bold text-white">Events</h2>
-              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '' }); setShowEventModal(true); }}
+              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } }); setShowEventModal(true); }}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition">
                 + Create Event
               </button>
@@ -790,6 +810,110 @@ export default function Home() {
                 <textarea value={eventForm.description} onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500 h-24"
                   placeholder="Describe your event..." />
+              </div>
+
+              {/* Logo Upload */}
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Event Logo</label>
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingLogo(true);
+                      const reader = new FileReader();
+                      reader.onloadend = async () => {
+                        const base64 = reader.result as string;
+                        const res = await fetch(`${API_URL}/api/upload`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ filename: file.name, data: base64, type: 'images' }),
+                        });
+                        const data = await res.json();
+                        if (res.ok) setEventForm(prev => ({ ...prev, logo: data.url }));
+                        setUploadingLogo(false);
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-xl text-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white file:cursor-pointer file:text-xs"
+                  />
+                  {uploadingLogo && <span className="text-purple-400 text-sm">Uploading...</span>}
+                </div>
+                {eventForm.logo && (
+                  <div className="mt-2 p-3 bg-gray-700/50 rounded-lg flex items-center justify-between">
+                    <img src={eventForm.logo} alt="Logo" className="h-12 object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setEventForm({ ...eventForm, logo: '' })}
+                      className="text-red-400 hover:text-red-300 text-xs"
+                    >Remove</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Theme Colors */}
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Theme Colors</label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Primary</label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        value={eventForm.theme.primaryColor}
+                        onChange={(e) => setEventForm({ ...eventForm, theme: { ...eventForm.theme, primaryColor: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer border-0"
+                      />
+                      <input
+                        type="text"
+                        value={eventForm.theme.primaryColor}
+                        onChange={(e) => setEventForm({ ...eventForm, theme: { ...eventForm.theme, primaryColor: e.target.value } })}
+                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Secondary</label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        value={eventForm.theme.secondaryColor}
+                        onChange={(e) => setEventForm({ ...eventForm, theme: { ...eventForm.theme, secondaryColor: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer border-0"
+                      />
+                      <input
+                        type="text"
+                        value={eventForm.theme.secondaryColor}
+                        onChange={(e) => setEventForm({ ...eventForm, theme: { ...eventForm.theme, secondaryColor: e.target.value } })}
+                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Accent</label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        value={eventForm.theme.backgroundColor}
+                        onChange={(e) => setEventForm({ ...eventForm, theme: { ...eventForm.theme, backgroundColor: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer border-0"
+                      />
+                      <input
+                        type="text"
+                        value={eventForm.theme.backgroundColor}
+                        onChange={(e) => setEventForm({ ...eventForm, theme: { ...eventForm.theme, backgroundColor: e.target.value } })}
+                        className="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+                {/* Theme Preview */}
+                <div
+                  className="mt-3 h-8 rounded-lg"
+                  style={{ background: `linear-gradient(135deg, ${eventForm.theme.primaryColor} 0%, ${eventForm.theme.secondaryColor} 50%, ${eventForm.theme.backgroundColor} 100%)` }}
+                />
               </div>
 
             </div>
