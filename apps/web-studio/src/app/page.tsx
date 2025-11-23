@@ -142,17 +142,24 @@ export default function StudioHome() {
         const res = await fetch(`${API_URL}/sessions?status=ACTIVE`, { signal: controller.signal });
         clearTimeout(timeoutId);
 
+        let allSessions: Session[] = [];
+
         if (res.ok) {
           const data = await res.json();
-          setSessions(data);
+          allSessions = data;
           setConnectionError(null);
         }
         // Also fetch waiting sessions
         const res2 = await fetch(`${API_URL}/sessions?status=WAITING`);
         if (res2.ok) {
           const data2 = await res2.json();
-          setSessions(prev => [...prev, ...data2]);
+          // Deduplicate by ID
+          const existingIds = new Set(allSessions.map((s: Session) => s.id));
+          const newSessions = data2.filter((s: Session) => !existingIds.has(s.id));
+          allSessions = [...allSessions, ...newSessions];
         }
+
+        setSessions(allSessions);
       } catch (error) {
         console.error('Failed to fetch sessions:', error);
         if (error instanceof Error && error.name === 'AbortError') {
@@ -946,21 +953,27 @@ export default function StudioHome() {
 
             <div className="mt-8 text-center">
               <button
-                onClick={() => {
+                onClick={async () => {
                   setLoadingSessions(true);
-                  fetch(`${API_URL}/sessions?status=ACTIVE`)
-                    .then(res => res.json())
-                    .then(data => {
-                      setSessions(data);
-                      return fetch(`${API_URL}/sessions?status=WAITING`);
-                    })
-                    .then(res => res.json())
-                    .then(data => setSessions(prev => [...prev, ...data]))
-                    .finally(() => setLoadingSessions(false));
+                  try {
+                    const res1 = await fetch(`${API_URL}/sessions?status=ACTIVE`);
+                    const activeSessions = res1.ok ? await res1.json() : [];
+
+                    const res2 = await fetch(`${API_URL}/sessions?status=WAITING`);
+                    const waitingSessions = res2.ok ? await res2.json() : [];
+
+                    // Deduplicate by ID
+                    const existingIds = new Set(activeSessions.map((s: Session) => s.id));
+                    const uniqueWaiting = waitingSessions.filter((s: Session) => !existingIds.has(s.id));
+
+                    setSessions([...activeSessions, ...uniqueWaiting]);
+                  } finally {
+                    setLoadingSessions(false);
+                  }
                 }}
                 className="text-purple-400 hover:text-purple-300 transition"
               >
-                Refresh Sessions
+                Rafraîchir
               </button>
             </div>
           </div>
