@@ -971,40 +971,43 @@ export default function StudioHome() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Top Bar */}
-      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+      {/* Top Bar - Responsive */}
+      <header className="bg-gray-800 border-b border-gray-700 px-3 lg:px-6 py-3 lg:py-4">
+        <div className="flex items-center justify-between gap-2">
+          {/* Left: Back + Title */}
+          <div className="flex items-center space-x-2 lg:space-x-4 min-w-0">
             <button
               onClick={() => setSelectedSession(null)}
-              className="text-gray-400 hover:text-white transition"
+              className="text-gray-400 hover:text-white transition p-2 hover:bg-gray-700 rounded-lg"
+              title="Retour"
             >
-              ← Back
+              ←
             </button>
-            <div className="h-6 w-px bg-gray-700"></div>
-            <div>
-              <h1 className="text-xl font-bold">{selectedSession.event.name}</h1>
-              <p className="text-gray-400 text-sm">Studio Control</p>
+            <div className="hidden sm:block h-6 w-px bg-gray-700"></div>
+            <div className="min-w-0">
+              <h1 className="text-base lg:text-xl font-bold truncate">{selectedSession.event.name}</h1>
+              <p className="text-gray-400 text-xs lg:text-sm hidden sm:block">Studio Control</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-6">
-            {/* Connection Status */}
-            <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${
+          {/* Right: Status items */}
+          <div className="flex items-center gap-2 lg:gap-4">
+            {/* Connection Status - Icon only on mobile */}
+            <div className={`flex items-center space-x-1 lg:space-x-2 px-2 lg:px-3 py-1 rounded-full ${
               isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
             }`}>
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-              <span className="text-sm">{isConnected ? 'Connected' : 'Disconnected'}</span>
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
+              <span className="text-xs lg:text-sm hidden sm:inline">{isConnected ? 'Connecté' : 'Déconnecté'}</span>
             </div>
 
             {/* Session Code */}
-            <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl">
-              <p className="text-xs text-purple-200">Code</p>
-              <p className="text-2xl font-mono font-bold tracking-widest">{selectedSession.code}</p>
+            <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-3 lg:px-6 py-2 lg:py-3 rounded-xl">
+              <p className="text-[10px] lg:text-xs text-purple-200 hidden lg:block">Code</p>
+              <p className="text-lg lg:text-2xl font-mono font-bold tracking-wider lg:tracking-widest">{selectedSession.code}</p>
             </div>
 
-            {/* Status */}
-            <div className={`px-4 py-2 rounded-full font-semibold ${
+            {/* Status Badge */}
+            <div className={`px-2 lg:px-4 py-1 lg:py-2 rounded-full font-semibold text-xs lg:text-sm ${
               gameStatus === 'LOBBY' ? 'bg-yellow-500/20 text-yellow-400' :
               gameStatus === 'PLAYING' ? 'bg-green-500/20 text-green-400' :
               gameStatus === 'BUZZER_OPEN' ? 'bg-red-500/20 text-red-400 animate-pulse' :
@@ -1017,35 +1020,44 @@ export default function StudioHome() {
             </div>
 
             {/* Connected Teams */}
-            <div className="text-center">
-              <p className="text-2xl font-bold text-green-400">{connectedTeams.length}</p>
-              <p className="text-xs text-gray-400">Online</p>
+            <div className="text-center hidden sm:block">
+              <p className="text-xl lg:text-2xl font-bold text-green-400">{connectedTeams.length}</p>
+              <p className="text-[10px] lg:text-xs text-gray-400">En ligne</p>
             </div>
 
             {/* End Session Button */}
             <button
               onClick={() => setShowEndModal(true)}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition"
+              className="bg-red-600 hover:bg-red-700 text-white px-3 lg:px-4 py-2 rounded-lg transition text-xs lg:text-sm whitespace-nowrap"
             >
-              End Session
+              <span className="hidden sm:inline">Terminer</span>
+              <span className="sm:hidden">✕</span>
             </button>
           </div>
         </div>
       </header>
 
       <div className="flex">
-        {/* Left Sidebar - Teams */}
-        <aside className="w-80 bg-gray-800 border-r border-gray-700 h-[calc(100vh-76px)] overflow-y-auto">
-          <div className="p-4">
-            <h2 className="text-lg font-semibold mb-4 flex items-center">
-              <span className="mr-2">👥</span> Teams ({teams.length})
+        {/* Left Sidebar - Teams (hidden on mobile, collapsible) */}
+        <aside className="hidden md:block w-64 lg:w-80 bg-gray-800 border-r border-gray-700 h-[calc(100vh-68px)] lg:h-[calc(100vh-76px)] overflow-y-auto flex-shrink-0">
+          <div className="p-3 lg:p-4">
+            <h2 className="text-base lg:text-lg font-semibold mb-3 lg:mb-4 flex items-center justify-between">
+              <span className="flex items-center">
+                <span className="mr-2">👥</span> Équipes
+              </span>
+              <span className="bg-purple-600/30 text-purple-300 px-2 py-0.5 rounded-full text-xs">
+                {connectedTeams.length}/{teams.length}
+              </span>
             </h2>
 
             {teams.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <p className="text-4xl mb-2">⏳</p>
-                <p>Waiting for teams...</p>
-                <p className="text-sm mt-2">Share code: {selectedSession.code}</p>
+                <p className="text-sm">En attente d'équipes...</p>
+                <div className="mt-3 bg-gray-700 rounded-lg p-2">
+                  <p className="text-xs text-gray-400">Code:</p>
+                  <p className="text-lg font-mono font-bold">{selectedSession.code}</p>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1053,33 +1065,33 @@ export default function StudioHome() {
                   <div
                     key={team.id}
                     onClick={() => openScoreModal(team)}
-                    className={`bg-gray-700/50 rounded-lg p-3 transition cursor-pointer hover:bg-gray-700 ${
-                      buzzerWinner?.id === team.id ? 'ring-2 ring-red-500 bg-red-500/20' : ''
+                    className={`bg-gray-700/50 rounded-lg p-2 lg:p-3 transition cursor-pointer hover:bg-gray-700 ${
+                      buzzerWinner?.id === team.id ? 'ring-2 ring-red-500 bg-red-500/20 animate-pulse' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
                         <div
-                          className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm text-white"
+                          className="w-7 h-7 lg:w-8 lg:h-8 rounded-full flex items-center justify-center font-bold text-xs lg:text-sm text-white flex-shrink-0"
                           style={{ backgroundColor: team.color || (index === 0 ? '#EAB308' : index === 1 ? '#9CA3AF' : index === 2 ? '#EA580C' : '#4B5563') }}
                         >
                           {index + 1}
                         </div>
-                        <div>
-                          <p className="font-medium">{team.name}</p>
-                          <p className="text-xs">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm lg:text-base truncate">{team.name}</p>
+                          <p className="text-[10px] lg:text-xs flex items-center">
                             {team.isConnected ? (
-                              <span className="text-green-400">● Online</span>
+                              <span className="text-green-400 flex items-center"><span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1 animate-pulse"></span>En ligne</span>
                             ) : (
-                              <span className="text-red-400">● Offline</span>
+                              <span className="text-gray-500 flex items-center"><span className="w-1.5 h-1.5 bg-gray-500 rounded-full mr-1"></span>Hors ligne</span>
                             )}
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xl font-bold text-purple-400">{team.score}</p>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-lg lg:text-xl font-bold text-purple-400">{team.score}</p>
                         {team.lastAnswer && gameStatus !== 'LOBBY' && (
-                          <p className="text-xs text-gray-400">Ans: {team.lastAnswer}</p>
+                          <p className="text-[10px] text-gray-400">Rép: {team.lastAnswer}</p>
                         )}
                       </div>
                     </div>
@@ -1087,13 +1099,13 @@ export default function StudioHome() {
                     <div className="flex space-x-2 mt-2">
                       <button
                         onClick={(e) => { e.stopPropagation(); markCorrect(team); }}
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1 px-2 rounded transition"
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white text-[10px] lg:text-xs py-1 px-1 lg:px-2 rounded transition"
                       >
                         +{currentQuestion?.points || 100}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); adjustScore(team, -50); }}
-                        className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1 px-2 rounded transition"
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white text-[10px] lg:text-xs py-1 px-1 lg:px-2 rounded transition"
                       >
                         -50
                       </button>
@@ -1106,78 +1118,128 @@ export default function StudioHome() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 overflow-y-auto h-[calc(100vh-76px)]">
-          {/* No questions warning */}
-          {rounds.length === 0 || !currentRound?.questions?.length ? (
+        <main className="flex-1 p-4 lg:p-6 overflow-y-auto h-[calc(100vh-76px)]">
+          {/* Round Navigation - Always visible */}
+          {rounds.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b border-gray-700">
+              <span className="text-gray-400 text-sm mr-2 hidden sm:inline">Rounds:</span>
+              {rounds.map((round, idx) => {
+                const hasQuestions = round.questions && round.questions.length > 0;
+                return (
+                  <button
+                    key={round.id}
+                    onClick={() => {
+                      setCurrentRoundIndex(idx);
+                      setCurrentQuestionIndex(0);
+                      setGameStatus('LOBBY');
+                    }}
+                    className={`px-3 py-2 rounded-lg transition text-sm lg:text-base flex items-center gap-2 ${
+                      idx === currentRoundIndex
+                        ? 'bg-purple-600 text-white shadow-lg'
+                        : hasQuestions
+                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          : 'bg-gray-700/50 text-gray-500 hover:bg-gray-600'
+                    }`}
+                  >
+                    {round.name}
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      idx === currentRoundIndex ? 'bg-white/20' : 'bg-gray-600'
+                    }`}>
+                      {round.questions?.length || 0}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* No rounds at all */}
+          {rounds.length === 0 ? (
             <div className="text-center py-20">
               <p className="text-6xl mb-4">📋</p>
-              <h2 className="text-2xl font-bold mb-4">No Questions Found</h2>
-              <p className="text-gray-400 mb-6">Add questions to this event in the Admin Dashboard</p>
+              <h2 className="text-2xl font-bold mb-4">Aucun round trouvé</h2>
+              <p className="text-gray-400 mb-6">Créez des rounds et des questions dans le tableau de bord Admin</p>
               <a
                 href="http://91.134.135.247:3000"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-block bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition"
               >
-                Go to Admin Dashboard
+                Aller au Dashboard Admin
               </a>
+            </div>
+          ) : !currentRound?.questions?.length ? (
+            /* Current round has no questions */
+            <div className="text-center py-16 bg-gray-800/50 rounded-2xl">
+              <p className="text-5xl mb-4">📝</p>
+              <h2 className="text-xl font-bold mb-2">Round "{currentRound?.name}" vide</h2>
+              <p className="text-gray-400 mb-6">Ce round n'a pas de questions. Sélectionnez un autre round ou ajoutez des questions.</p>
+              <div className="flex justify-center gap-3 flex-wrap">
+                {currentRoundIndex > 0 && (
+                  <button
+                    onClick={() => {
+                      setCurrentRoundIndex(currentRoundIndex - 1);
+                      setCurrentQuestionIndex(0);
+                    }}
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-xl transition flex items-center gap-2"
+                  >
+                    ◀ Round précédent
+                  </button>
+                )}
+                {currentRoundIndex < rounds.length - 1 && (
+                  <button
+                    onClick={() => {
+                      setCurrentRoundIndex(currentRoundIndex + 1);
+                      setCurrentQuestionIndex(0);
+                    }}
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-xl transition flex items-center gap-2"
+                  >
+                    Round suivant ▶
+                  </button>
+                )}
+                <a
+                  href="http://91.134.135.247:3000"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition"
+                >
+                  Ajouter des questions
+                </a>
+              </div>
             </div>
           ) : (
             <>
-              {/* Round Navigation */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-2">
-                  {rounds.map((round, idx) => (
-                    <button
-                      key={round.id}
-                      onClick={() => {
-                        setCurrentRoundIndex(idx);
-                        setCurrentQuestionIndex(0);
-                        setGameStatus('LOBBY');
-                      }}
-                      className={`px-4 py-2 rounded-lg transition ${
-                        idx === currentRoundIndex
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                      }`}
-                    >
-                      {round.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Timer & Question Navigation */}
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center space-x-4">
+              <div className="flex flex-col lg:flex-row items-center justify-between gap-4 mb-6">
+                <div className="flex items-center space-x-3">
                   <button
                     onClick={prevQuestion}
                     disabled={currentRoundIndex === 0 && currentQuestionIndex === 0}
-                    className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white p-3 rounded-lg transition"
+                    className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 lg:p-3 rounded-lg transition"
                   >
                     ◀
                   </button>
-                  <div className="text-center">
-                    <p className="text-sm text-gray-400">Question</p>
-                    <p className="text-2xl font-bold">{currentQuestionNumber} / {totalQuestions}</p>
+                  <div className="text-center min-w-[100px]">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide">Question</p>
+                    <p className="text-xl lg:text-2xl font-bold">{currentQuestionNumber} <span className="text-gray-500">/</span> {totalQuestions}</p>
                   </div>
                   <button
                     onClick={nextQuestion}
-                    disabled={currentRoundIndex === rounds.length - 1 && currentQuestionIndex === currentRound.questions.length - 1}
-                    className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white p-3 rounded-lg transition"
+                    disabled={currentRoundIndex === rounds.length - 1 && currentQuestionIndex === (currentRound?.questions?.length || 1) - 1}
+                    className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 lg:p-3 rounded-lg transition"
                   >
                     ▶
                   </button>
                 </div>
 
                 {/* Timer */}
-                <div className={`text-center px-8 py-4 rounded-2xl ${
+                <div className={`text-center px-6 lg:px-8 py-3 lg:py-4 rounded-2xl transition-colors ${
                   timeRemaining <= 5 ? 'bg-red-500/20 animate-pulse' :
                   timeRemaining <= 10 ? 'bg-yellow-500/20' :
                   'bg-gray-800'
                 }`}>
-                  <p className="text-sm text-gray-400">Time</p>
-                  <p className={`text-5xl font-mono font-bold ${
+                  <p className="text-xs text-gray-400 uppercase tracking-wide">Temps</p>
+                  <p className={`text-4xl lg:text-5xl font-mono font-bold ${
                     timeRemaining <= 5 ? 'text-red-400' :
                     timeRemaining <= 10 ? 'text-yellow-400' :
                     'text-white'
@@ -1189,64 +1251,71 @@ export default function StudioHome() {
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setTimeRemaining(t => Math.max(0, t - 10))}
-                    className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition text-sm"
                   >
                     -10s
                   </button>
                   <button
                     onClick={() => setTimeRemaining(t => t + 10)}
-                    className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition"
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition text-sm"
                   >
                     +10s
                   </button>
                 </div>
               </div>
 
-              {/* Current Question */}
-              <div className="bg-gray-800 rounded-xl p-6 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+              {/* Current Question - Responsive */}
+              <div className="bg-gray-800 rounded-xl p-4 lg:p-6 mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <span className={`px-2 lg:px-3 py-1 rounded-full text-xs lg:text-sm font-medium ${
                     currentQuestion?.type === 'MCQ' ? 'bg-blue-500/20 text-blue-400' :
                     currentQuestion?.type === 'TRUE_FALSE' ? 'bg-green-500/20 text-green-400' :
                     currentQuestion?.type === 'BUZZER' ? 'bg-red-500/20 text-red-400' :
+                    currentQuestion?.type === 'BLIND_TEST' ? 'bg-pink-500/20 text-pink-400' :
                     'bg-purple-500/20 text-purple-400'
                   }`}>
-                    {currentQuestion?.type}
+                    {currentQuestion?.type === 'MCQ' ? 'QCM' :
+                     currentQuestion?.type === 'TRUE_FALSE' ? 'Vrai/Faux' :
+                     currentQuestion?.type === 'BUZZER' ? 'Buzzer' :
+                     currentQuestion?.type === 'BLIND_TEST' ? 'Blind Test' :
+                     currentQuestion?.type}
                   </span>
-                  <span className="text-purple-400 font-bold">{currentQuestion?.points} pts</span>
+                  <span className="text-purple-400 font-bold text-sm lg:text-base">{currentQuestion?.points} pts</span>
                 </div>
 
-                <h2 className="text-2xl font-semibold mb-4">{currentQuestion?.text}</h2>
+                <h2 className="text-lg lg:text-2xl font-semibold mb-4 leading-relaxed">{currentQuestion?.text}</h2>
 
-                {currentQuestion?.mediaUrl && (
+                {currentQuestion?.mediaUrl && currentQuestion?.type !== 'BLIND_TEST' && (
                   <div className="mb-4">
-                    <img src={currentQuestion.mediaUrl} alt="Question media" className="max-w-full h-auto rounded-lg" />
+                    <img src={currentQuestion.mediaUrl} alt="Question media" className="max-w-full max-h-48 lg:max-h-64 object-contain rounded-lg mx-auto" />
                   </div>
                 )}
 
                 {currentQuestion?.type === 'MCQ' && currentQuestion.options && (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-3">
                     {currentQuestion.options.map((option, idx) => {
                       const letter = String.fromCharCode(65 + idx);
                       const isCorrect = letter === currentQuestion.correctAnswer;
                       return (
                         <div
                           key={idx}
-                          className={`p-4 rounded-lg border-2 transition ${
+                          className={`p-3 lg:p-4 rounded-lg border-2 transition ${
                             gameStatus === 'REVEAL' && isCorrect
                               ? 'border-green-500 bg-green-500/20'
                               : 'border-gray-600 bg-gray-700/50'
                           }`}
                         >
-                          <span className="inline-block w-8 h-8 rounded-full bg-gray-600 text-center leading-8 mr-3 font-bold">
-                            {letter}
-                          </span>
-                          {option}
-                          {gameStatus !== 'LOBBY' && (
-                            <span className="float-right text-gray-400">
-                              {answerStats[letter] || 0}
+                          <div className="flex items-center">
+                            <span className="inline-flex items-center justify-center w-7 h-7 lg:w-8 lg:h-8 rounded-full bg-gray-600 mr-2 lg:mr-3 font-bold text-sm flex-shrink-0">
+                              {letter}
                             </span>
-                          )}
+                            <span className="flex-1 text-sm lg:text-base">{option}</span>
+                            {gameStatus !== 'LOBBY' && (
+                              <span className="ml-2 text-gray-400 font-medium text-sm bg-gray-600/50 px-2 py-0.5 rounded">
+                                {answerStats[letter] || 0}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1254,28 +1323,28 @@ export default function StudioHome() {
                 )}
 
                 {currentQuestion?.type === 'TRUE_FALSE' && (
-                  <div className="flex space-x-4">
-                    <div className={`flex-1 p-6 rounded-lg border-2 text-center text-xl font-bold ${
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className={`flex-1 p-4 lg:p-6 rounded-lg border-2 text-center text-lg lg:text-xl font-bold ${
                       gameStatus === 'REVEAL' && currentQuestion.correctAnswer === 'TRUE'
                         ? 'border-green-500 bg-green-500/20 text-green-400'
                         : 'border-gray-600 bg-gray-700/50'
                     }`}>
                       VRAI
                       {gameStatus !== 'LOBBY' && (
-                        <span className="block text-sm text-gray-400 mt-2">
-                          {answerStats['TRUE'] || 0} responses
+                        <span className="block text-xs lg:text-sm text-gray-400 mt-2">
+                          {answerStats['TRUE'] || 0} réponses
                         </span>
                       )}
                     </div>
-                    <div className={`flex-1 p-6 rounded-lg border-2 text-center text-xl font-bold ${
+                    <div className={`flex-1 p-4 lg:p-6 rounded-lg border-2 text-center text-lg lg:text-xl font-bold ${
                       gameStatus === 'REVEAL' && currentQuestion.correctAnswer === 'FALSE'
                         ? 'border-green-500 bg-green-500/20 text-green-400'
                         : 'border-gray-600 bg-gray-700/50'
                     }`}>
                       FAUX
                       {gameStatus !== 'LOBBY' && (
-                        <span className="block text-sm text-gray-400 mt-2">
-                          {answerStats['FALSE'] || 0} responses
+                        <span className="block text-xs lg:text-sm text-gray-400 mt-2">
+                          {answerStats['FALSE'] || 0} réponses
                         </span>
                       )}
                     </div>
@@ -1283,9 +1352,9 @@ export default function StudioHome() {
                 )}
 
                 {(currentQuestion?.type === 'BUZZER' || currentQuestion?.type === 'OPEN') && (
-                  <div className="text-center py-8">
-                    <p className="text-gray-400 mb-4">Expected answer:</p>
-                    <p className={`text-3xl font-bold ${
+                  <div className="text-center py-6 lg:py-8 bg-gray-700/30 rounded-xl">
+                    <p className="text-gray-400 mb-3 text-sm">Réponse attendue:</p>
+                    <p className={`text-xl lg:text-3xl font-bold ${
                       gameStatus === 'REVEAL' ? 'text-green-400' : 'text-gray-500 blur-sm hover:blur-none transition-all cursor-pointer'
                     }`}>
                       {currentQuestion.correctAnswer}
@@ -1294,68 +1363,68 @@ export default function StudioHome() {
                 )}
               </div>
 
-              {/* Main Controls */}
-              <div className="grid grid-cols-4 gap-4 mb-6">
+              {/* Main Controls - Responsive grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 lg:gap-3 mb-6">
                 <button
                   onClick={startQuestion}
                   disabled={gameStatus === 'PLAYING' || gameStatus === 'BUZZER_OPEN'}
-                  className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                  className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
                 >
-                  <span className="text-2xl block mb-1">▶️</span>
-                  Start
+                  <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">▶️</span>
+                  <span className="text-xs lg:text-sm">Lancer</span>
                 </button>
 
                 {gameStatus === 'PAUSED' ? (
                   <button
                     onClick={resumeGame}
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
                   >
-                    <span className="text-2xl block mb-1">▶️</span>
-                    Resume
+                    <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">▶️</span>
+                    <span className="text-xs lg:text-sm">Reprendre</span>
                   </button>
                 ) : (
                   <button
                     onClick={pauseGame}
                     disabled={gameStatus === 'LOBBY' || gameStatus === 'REVEAL' || gameStatus === 'LEADERBOARD'}
-                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
                   >
-                    <span className="text-2xl block mb-1">⏸️</span>
-                    Pause
+                    <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">⏸️</span>
+                    <span className="text-xs lg:text-sm">Pause</span>
                   </button>
                 )}
 
                 <button
                   onClick={endQuestion}
                   disabled={gameStatus === 'LOBBY' || gameStatus === 'REVEAL' || gameStatus === 'LEADERBOARD'}
-                  className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
+                  className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
                 >
-                  <span className="text-2xl block mb-1">⏹️</span>
-                  Reveal
+                  <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">⏹️</span>
+                  <span className="text-xs lg:text-sm">Révéler</span>
                 </button>
 
                 <button
                   onClick={showLeaderboard}
-                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
                 >
-                  <span className="text-2xl block mb-1">🏆</span>
-                  Leaderboard
+                  <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">🏆</span>
+                  <span className="text-xs lg:text-sm">Classement</span>
                 </button>
 
                 {!isFinaleMode ? (
                   <button
                     onClick={() => setShowFinaleModal(true)}
-                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 shadow-lg col-span-2 sm:col-span-1"
                   >
-                    <span className="text-2xl block mb-1">🎯</span>
-                    FINALE
+                    <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">🎯</span>
+                    <span className="text-xs lg:text-sm">FINALE</span>
                   </button>
                 ) : (
                   <button
                     onClick={endFinale}
-                    className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg animate-pulse"
+                    className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-3 lg:py-4 px-3 lg:px-6 rounded-xl transition transform hover:scale-105 shadow-lg animate-pulse col-span-2 sm:col-span-1"
                   >
-                    <span className="text-2xl block mb-1">🏁</span>
-                    Fin Finale
+                    <span className="text-xl lg:text-2xl block mb-0.5 lg:mb-1">🏁</span>
+                    <span className="text-xs lg:text-sm">Fin Finale</span>
                   </button>
                 )}
               </div>
@@ -1564,63 +1633,66 @@ export default function StudioHome() {
           )}
         </main>
 
-        {/* Right Sidebar */}
-        <aside className="w-64 bg-gray-800 border-l border-gray-700 p-4 h-[calc(100vh-76px)] overflow-y-auto">
-          <h3 className="text-lg font-semibold mb-4">Quick Links</h3>
+        {/* Right Sidebar - Hidden on mobile/tablet */}
+        <aside className="hidden xl:block w-56 bg-gray-800 border-l border-gray-700 p-3 h-[calc(100vh-76px)] overflow-y-auto flex-shrink-0">
+          <h3 className="text-sm font-semibold mb-3 text-gray-400 uppercase tracking-wide">Liens rapides</h3>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             <a
               href="http://91.134.135.247:3004"
               target="_blank"
               rel="noopener noreferrer"
-              className="block bg-blue-600 hover:bg-blue-700 text-white text-center py-3 px-4 rounded-lg transition"
+              className="block bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-3 rounded-lg transition text-sm"
             >
-              📺 Screen Display
+              📺 Écran
             </a>
             <a
               href="http://91.134.135.247:3003"
               target="_blank"
               rel="noopener noreferrer"
-              className="block bg-green-600 hover:bg-green-700 text-white text-center py-3 px-4 rounded-lg transition"
+              className="block bg-green-600 hover:bg-green-700 text-white text-center py-2 px-3 rounded-lg transition text-sm"
             >
-              📱 Player View
+              📱 Joueur
             </a>
             <a
               href="http://91.134.135.247:3000"
               target="_blank"
               rel="noopener noreferrer"
-              className="block bg-purple-600 hover:bg-purple-700 text-white text-center py-3 px-4 rounded-lg transition"
+              className="block bg-purple-600 hover:bg-purple-700 text-white text-center py-2 px-3 rounded-lg transition text-sm"
             >
-              ⚙️ Admin Dashboard
+              ⚙️ Admin
             </a>
           </div>
 
-          <div className="mt-6 pt-6 border-t border-gray-700">
-            <h3 className="text-lg font-semibold mb-4">🏆 Top 3</h3>
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <h3 className="text-sm font-semibold mb-3 text-gray-400 uppercase tracking-wide">🏆 Podium</h3>
             <div className="space-y-2">
               {sortedTeams.slice(0, 3).map((team, index) => (
-                <div key={team.id} className="flex items-center justify-between bg-gray-700/50 p-3 rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xl">
+                <div key={team.id} className="flex items-center justify-between bg-gray-700/50 p-2 rounded-lg">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className="text-lg flex-shrink-0">
                       {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
                     </span>
-                    <span className="font-medium truncate max-w-[80px]">{team.name}</span>
+                    <span className="font-medium text-sm truncate">{team.name}</span>
                   </div>
-                  <span className="font-bold text-purple-400">{team.score}</span>
+                  <span className="font-bold text-purple-400 text-sm flex-shrink-0">{team.score}</span>
                 </div>
               ))}
+              {sortedTeams.length === 0 && (
+                <p className="text-gray-500 text-xs text-center py-2">Aucune équipe</p>
+              )}
             </div>
           </div>
 
-          <div className="mt-6 pt-6 border-t border-gray-700">
-            <h3 className="text-lg font-semibold mb-4">Session Info</h3>
-            <div className="space-y-2 text-sm">
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <h3 className="text-sm font-semibold mb-3 text-gray-400 uppercase tracking-wide">Infos</h3>
+            <div className="space-y-1.5 text-xs">
               <div className="flex justify-between">
-                <span className="text-gray-400">Teams</span>
+                <span className="text-gray-400">Équipes</span>
                 <span className="font-medium">{teams.length}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Online</span>
+                <span className="text-gray-400">En ligne</span>
                 <span className="font-medium text-green-400">{connectedTeams.length}</span>
               </div>
               <div className="flex justify-between">
