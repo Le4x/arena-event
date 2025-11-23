@@ -773,6 +773,11 @@ export default function PlayerHome() {
   // Team colors
   const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444'];
 
+  // Computed theme style for all screens
+  const themeStyle = session?.eventTheme ? {
+    background: `linear-gradient(135deg, ${session.eventTheme.primaryColor || '#4f46e5'} 0%, ${session.eventTheme.secondaryColor || '#9333ea'} 50%, ${session.eventTheme.backgroundColor || '#ec4899'} 100%)`
+  } : undefined;
+
   // JOIN SCREEN
   if (gameState === 'JOIN') {
     return (
@@ -846,10 +851,17 @@ export default function PlayerHome() {
   // TEAM SELECTION SCREEN
   if (gameState === 'TEAM_SELECT') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
+      <main
+        className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4"
+        style={themeStyle}
+      >
         <div className="w-full max-w-md">
           <div className="text-center mb-6">
-            <div className="text-5xl mb-4">👥</div>
+            {session?.eventLogo ? (
+              <img src={session.eventLogo} alt="" className="h-16 mx-auto mb-4 object-contain" />
+            ) : (
+              <div className="text-5xl mb-4">👥</div>
+            )}
             <h1 className="text-3xl font-bold text-white">{session?.eventName}</h1>
             <p className="text-purple-100 mt-2">
               Code: <span className="font-mono font-bold">{session?.code}</span>
@@ -948,10 +960,6 @@ export default function PlayerHome() {
 
   // LOBBY SCREEN
   if (gameState === 'LOBBY') {
-    const themeStyle = session?.eventTheme ? {
-      background: `linear-gradient(135deg, ${session.eventTheme.primaryColor || '#4f46e5'} 0%, ${session.eventTheme.secondaryColor || '#9333ea'} 50%, ${session.eventTheme.backgroundColor || '#ec4899'} 100%)`
-    } : undefined;
-
     return (
       <main
         className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4"
@@ -1021,6 +1029,17 @@ export default function PlayerHome() {
   if (gameState === 'QUESTION' && currentQuestion) {
     return (
       <main className="min-h-screen bg-gray-900 flex flex-col">
+        {/* Event Header with theme */}
+        {(session?.eventLogo || session?.eventTheme) && (
+          <div
+            className="px-4 py-2 flex items-center justify-center"
+            style={themeStyle || { background: 'linear-gradient(135deg, #4f46e5 0%, #9333ea 100%)' }}
+          >
+            {session?.eventLogo && (
+              <img src={session.eventLogo} alt="" className="h-8 object-contain" />
+            )}
+          </div>
+        )}
         {/* Team Info Bar */}
         <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -1417,7 +1436,14 @@ export default function PlayerHome() {
   // WAITING SCREEN
   if (gameState === 'WAITING') {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+      <main
+        className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4"
+        style={themeStyle}
+      >
+        {/* Logo */}
+        {session?.eventLogo && (
+          <img src={session.eventLogo} alt="" className="h-12 object-contain mb-6 opacity-80" />
+        )}
         <div className="text-center">
           <div className="text-6xl mb-6 animate-bounce">
             {selectedAnswer ? '✅' : buzzerPressed ? '🔔' : '⏳'}
@@ -1425,12 +1451,12 @@ export default function PlayerHome() {
           <h1 className="text-2xl font-bold text-white mb-2">
             {selectedAnswer ? 'Answer Submitted!' : buzzerPressed ? 'Buzzer Pressed!' : "Time's Up!"}
           </h1>
-          <p className="text-gray-400">Waiting for results...</p>
+          <p className="text-white/70">Waiting for results...</p>
 
           {selectedAnswer && (
-            <div className="mt-8 bg-gray-800 rounded-2xl p-6">
-              <p className="text-gray-400 mb-2">Your Answer</p>
-              <p className="text-4xl font-bold text-purple-400">{selectedAnswer}</p>
+            <div className="mt-8 bg-white/20 backdrop-blur rounded-2xl p-6">
+              <p className="text-white/70 mb-2">Your Answer</p>
+              <p className="text-4xl font-bold text-white">{selectedAnswer}</p>
             </div>
           )}
         </div>
@@ -1449,6 +1475,10 @@ export default function PlayerHome() {
         wasShielded ? 'bg-gradient-to-br from-blue-600 to-purple-600' :
         'bg-gradient-to-br from-red-600 to-orange-600'
       }`}>
+        {/* Logo */}
+        {session?.eventLogo && (
+          <img src={session.eventLogo} alt="" className="h-10 object-contain mb-4 opacity-70 absolute top-4" />
+        )}
         <div className="text-center">
           <div className="text-8xl mb-6">
             {wasCorrect ? '🎉' : wasShielded ? '🛡️' : '😢'}
@@ -1498,12 +1528,18 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4">
+      <main
+        className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4"
+        style={themeStyle}
+      >
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
+            {session?.eventLogo && (
+              <img src={session.eventLogo} alt="" className="h-12 mx-auto mb-4 object-contain" />
+            )}
             <div className="text-5xl mb-4">🏆</div>
             <h1 className="text-3xl font-bold text-white">Leaderboard</h1>
-            <p className="text-purple-300 mt-2">Your rank: #{rank}</p>
+            <p className="text-white/70 mt-2">Your rank: #{rank}</p>
           </div>
 
           <div className="space-y-3">
@@ -1545,8 +1581,14 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 flex flex-col items-center justify-center p-4">
+      <main
+        className="min-h-screen bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 flex flex-col items-center justify-center p-4"
+        style={themeStyle}
+      >
         <div className="text-center">
+          {session?.eventLogo && (
+            <img src={session.eventLogo} alt="" className="h-16 mx-auto mb-6 object-contain" />
+          )}
           <div className="text-8xl mb-6">🏆</div>
           <h1 className="text-4xl font-black text-white mb-2">GAME OVER!</h1>
           <p className="text-white/80 text-xl mb-8">Final Results</p>
