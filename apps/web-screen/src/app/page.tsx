@@ -875,69 +875,159 @@ export default function ScreenHome() {
     );
   }
 
-  // PODIUM
+  // PODIUM - Spectacular Finale Animation
   if (displayMode === 'PODIUM') {
     const top3 = sortedTeams.slice(0, 3);
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-yellow-600 via-orange-600 to-red-600 flex flex-col items-center justify-center p-8">
-        <div className="text-center mb-16">
-          <h1 className="text-7xl font-black text-white mb-4">🏆 RESULTATS FINAUX 🏆</h1>
+      <main className="min-h-screen bg-gradient-to-br from-yellow-600 via-orange-600 to-red-600 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* Confetti Effect */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {[...Array(50)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute animate-confetti"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `-20px`,
+                animationDelay: `${Math.random() * 3}s`,
+                animationDuration: `${3 + Math.random() * 2}s`,
+              }}
+            >
+              <div
+                className="w-3 h-3 rotate-45"
+                style={{
+                  backgroundColor: ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'][i % 8],
+                }}
+              />
+            </div>
+          ))}
         </div>
 
-        <div className="flex items-end justify-center gap-8">
+        {/* Sparkle Effects */}
+        <div className="absolute inset-0 pointer-events-none">
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={`sparkle-${i}`}
+              className="absolute animate-ping"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 2}s`,
+                animationDuration: `${1 + Math.random()}s`,
+              }}
+            >
+              <span className="text-2xl">✨</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Animated Background Rays */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+            {[...Array(12)].map((_, i) => (
+              <div
+                key={`ray-${i}`}
+                className="absolute w-2 h-[1000px] bg-gradient-to-t from-white/0 via-white/20 to-white/0 origin-bottom"
+                style={{
+                  transform: `rotate(${i * 30}deg)`,
+                  animation: 'pulse 2s ease-in-out infinite',
+                  animationDelay: `${i * 0.1}s`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="text-center mb-12 z-10 animate-fadeInDown">
+          <h1 className="text-8xl font-black text-white mb-4 drop-shadow-2xl" style={{ textShadow: '0 0 40px rgba(255,215,0,0.8)' }}>
+            🏆 CHAMPIONS 🏆
+          </h1>
+          <p className="text-3xl text-white/90 font-bold">Resultats Finaux</p>
+        </div>
+
+        <div className="flex items-end justify-center gap-12 z-10">
           {/* 2nd Place */}
           {top3[1] && (
-            <div className="text-center">
-              <div className="text-6xl mb-4">🥈</div>
-              <div className="bg-gray-400 rounded-t-2xl w-52 h-44 flex flex-col items-center justify-center">
+            <div className="text-center animate-slideInLeft" style={{ animationDelay: '0.5s', animationFillMode: 'both' }}>
+              <div className="text-7xl mb-4 animate-bounce" style={{ animationDuration: '2s' }}>🥈</div>
+              <div className="bg-gradient-to-b from-gray-300 to-gray-400 rounded-t-3xl w-56 h-48 flex flex-col items-center justify-center shadow-2xl transform hover:scale-105 transition-transform">
                 <div
-                  className="w-8 h-8 rounded-full mb-2"
+                  className="w-12 h-12 rounded-full mb-3 ring-4 ring-white/50 shadow-lg"
                   style={{ backgroundColor: top3[1].color }}
                 ></div>
-                <p className="text-2xl font-bold text-gray-800">{top3[1].name}</p>
-                <p className="text-3xl font-black text-gray-700">{top3[1].score}</p>
+                <p className="text-2xl font-bold text-gray-800 px-2 truncate max-w-full">{top3[1].name}</p>
+                <p className="text-4xl font-black text-gray-700 mt-1">{top3[1].score}</p>
+                <p className="text-sm text-gray-600 font-medium">points</p>
               </div>
-              <div className="bg-gray-500 w-52 h-8 rounded-b-lg"></div>
+              <div className="bg-gray-500 w-56 h-4 rounded-b-lg shadow-lg"></div>
+              <div className="bg-gray-600/50 w-48 h-2 mx-auto rounded-b-lg"></div>
             </div>
           )}
 
-          {/* 1st Place */}
+          {/* 1st Place - WINNER */}
           {top3[0] && (
-            <div className="text-center">
-              <div className="text-8xl mb-4 animate-bounce">🥇</div>
-              <div className="bg-yellow-400 rounded-t-2xl w-60 h-60 flex flex-col items-center justify-center">
+            <div className="text-center animate-fadeInUp" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
+              <div className="relative">
+                <div className="text-9xl mb-4 animate-bounce drop-shadow-2xl" style={{ filter: 'drop-shadow(0 0 20px gold)' }}>🥇</div>
+                {/* Crown glow */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-yellow-400/50 rounded-full blur-3xl animate-pulse"></div>
+              </div>
+              <div className="bg-gradient-to-b from-yellow-300 via-yellow-400 to-yellow-500 rounded-t-3xl w-72 h-72 flex flex-col items-center justify-center shadow-2xl relative overflow-hidden transform hover:scale-105 transition-transform">
+                {/* Shimmer effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-shimmer"></div>
                 <div
-                  className="w-10 h-10 rounded-full mb-2"
+                  className="w-16 h-16 rounded-full mb-4 ring-4 ring-yellow-200 shadow-xl z-10"
                   style={{ backgroundColor: top3[0].color }}
                 ></div>
-                <p className="text-3xl font-bold text-yellow-900">{top3[0].name}</p>
-                <p className="text-5xl font-black text-yellow-800">{top3[0].score}</p>
+                <p className="text-3xl font-black text-yellow-900 px-4 truncate max-w-full z-10">{top3[0].name}</p>
+                <p className="text-6xl font-black text-yellow-800 mt-2 z-10" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.2)' }}>{top3[0].score}</p>
+                <p className="text-lg text-yellow-700 font-bold z-10">POINTS</p>
               </div>
-              <div className="bg-yellow-600 w-60 h-8 rounded-b-lg"></div>
+              <div className="bg-yellow-600 w-72 h-4 rounded-b-lg shadow-lg"></div>
+              <div className="bg-yellow-700/50 w-64 h-2 mx-auto rounded-b-lg"></div>
             </div>
           )}
 
           {/* 3rd Place */}
           {top3[2] && (
-            <div className="text-center">
-              <div className="text-5xl mb-4">🥉</div>
-              <div className="bg-orange-400 rounded-t-2xl w-48 h-36 flex flex-col items-center justify-center">
+            <div className="text-center animate-slideInRight" style={{ animationDelay: '0.8s', animationFillMode: 'both' }}>
+              <div className="text-6xl mb-4 animate-bounce" style={{ animationDuration: '2.5s' }}>🥉</div>
+              <div className="bg-gradient-to-b from-orange-300 to-orange-400 rounded-t-3xl w-52 h-40 flex flex-col items-center justify-center shadow-2xl transform hover:scale-105 transition-transform">
                 <div
-                  className="w-6 h-6 rounded-full mb-2"
+                  className="w-10 h-10 rounded-full mb-2 ring-4 ring-white/50 shadow-lg"
                   style={{ backgroundColor: top3[2].color }}
                 ></div>
-                <p className="text-xl font-bold text-orange-900">{top3[2].name}</p>
-                <p className="text-2xl font-black text-orange-800">{top3[2].score}</p>
+                <p className="text-xl font-bold text-orange-900 px-2 truncate max-w-full">{top3[2].name}</p>
+                <p className="text-3xl font-black text-orange-800 mt-1">{top3[2].score}</p>
+                <p className="text-sm text-orange-700 font-medium">points</p>
               </div>
-              <div className="bg-orange-600 w-48 h-8 rounded-b-lg"></div>
+              <div className="bg-orange-600 w-52 h-4 rounded-b-lg shadow-lg"></div>
+              <div className="bg-orange-700/50 w-44 h-2 mx-auto rounded-b-lg"></div>
             </div>
           )}
         </div>
 
-        <div className="mt-16 text-center">
-          <p className="text-3xl text-white/80">Merci d'avoir joue!</p>
-          <p className="text-xl text-white/60 mt-2">Powered by Arena Event</p>
+        {/* Other teams */}
+        {sortedTeams.length > 3 && (
+          <div className="mt-12 z-10 bg-black/20 backdrop-blur-sm rounded-2xl p-6 animate-fadeIn" style={{ animationDelay: '1.5s', animationFillMode: 'both' }}>
+            <p className="text-white/80 text-center mb-4 font-semibold">Autres participants</p>
+            <div className="flex flex-wrap justify-center gap-4">
+              {sortedTeams.slice(3, 8).map((team, idx) => (
+                <div key={team.id} className="bg-white/10 rounded-xl px-4 py-2 flex items-center gap-3">
+                  <span className="text-white/60 font-bold">{idx + 4}.</span>
+                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: team.color }}></div>
+                  <span className="text-white font-medium">{team.name}</span>
+                  <span className="text-yellow-300 font-bold">{team.score}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-12 text-center z-10 animate-fadeIn" style={{ animationDelay: '2s', animationFillMode: 'both' }}>
+          <p className="text-4xl text-white font-bold drop-shadow-lg">Merci d'avoir joue!</p>
+          <p className="text-xl text-white/70 mt-3">Powered by Arena Event</p>
         </div>
 
         <button
@@ -947,10 +1037,50 @@ export default function ScreenHome() {
             setDisplayMode('SELECT');
             setTeams([]);
           }}
-          className="mt-12 bg-white text-orange-600 font-bold py-4 px-8 rounded-2xl text-xl"
+          className="mt-8 z-10 bg-white/90 hover:bg-white text-orange-600 font-bold py-4 px-10 rounded-2xl text-xl shadow-2xl transform hover:scale-105 transition-all animate-fadeIn"
+          style={{ animationDelay: '2.5s', animationFillMode: 'both' }}
         >
           Nouvelle Session
         </button>
+
+        {/* CSS Animations */}
+        <style jsx>{`
+          @keyframes confetti {
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+          }
+          @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(200%); }
+          }
+          @keyframes fadeInDown {
+            0% { opacity: 0; transform: translateY(-50px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes fadeInUp {
+            0% { opacity: 0; transform: translateY(50px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes slideInLeft {
+            0% { opacity: 0; transform: translateX(-100px); }
+            100% { opacity: 1; transform: translateX(0); }
+          }
+          @keyframes slideInRight {
+            0% { opacity: 0; transform: translateX(100px); }
+            100% { opacity: 1; transform: translateX(0); }
+          }
+          @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+          }
+          .animate-confetti { animation: confetti linear infinite; }
+          .animate-shimmer { animation: shimmer 3s ease-in-out infinite; }
+          .animate-fadeInDown { animation: fadeInDown 0.8s ease-out; }
+          .animate-fadeInUp { animation: fadeInUp 0.8s ease-out; }
+          .animate-slideInLeft { animation: slideInLeft 0.8s ease-out; }
+          .animate-slideInRight { animation: slideInRight 0.8s ease-out; }
+          .animate-fadeIn { animation: fadeIn 0.8s ease-out; }
+        `}</style>
       </main>
     );
   }

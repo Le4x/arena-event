@@ -314,6 +314,13 @@ export default function StudioHome() {
       setConnectionError('Impossible de se reconnecter au serveur');
     });
 
+    // Ping to keep connection alive
+    const pingInterval = setInterval(() => {
+      if (socket.connected) {
+        socket.emit('ping');
+      }
+    }, 25000);
+
     // Listen for team events
     socket.on('team-joined', (data) => {
       setTeams(prev => {
@@ -439,6 +446,7 @@ export default function StudioHome() {
     });
 
     return () => {
+      clearInterval(pingInterval);
       socket.disconnect();
     };
   }, [selectedSession, buzzerLocked, buzzerWinner, playSound]);
@@ -1304,6 +1312,29 @@ export default function StudioHome() {
         </div>
       </header>
 
+      {/* Reconnection Banner */}
+      {connectionError && (
+        <div className="bg-red-600/90 text-white px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full"></div>
+            <div>
+              <p className="font-medium">{connectionError}</p>
+              {retryCount > 0 && <p className="text-sm text-red-200">Tentative {retryCount}/{maxRetries}...</p>}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (socketRef.current) {
+                socketRef.current.connect();
+              }
+            }}
+            className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm font-medium transition"
+          >
+            Réessayer
+          </button>
+        </div>
+      )}
+
       <div className="flex">
         {/* Left Sidebar - Teams (hidden on mobile, collapsible) */}
         <aside className="hidden md:block w-64 lg:w-80 bg-gray-800 border-r border-gray-700 h-[calc(100vh-68px)] lg:h-[calc(100vh-76px)] overflow-y-auto flex-shrink-0">
@@ -2001,6 +2032,79 @@ export default function StudioHome() {
               </div>
             </div>
           </div>
+
+          {/* Real-time Stats */}
+          {gameStatus !== 'LOBBY' && currentQuestion && (
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <h3 className="text-sm font-semibold mb-3 text-gray-400 uppercase tracking-wide">📊 Stats Live</h3>
+
+              {/* Responses count */}
+              <div className="bg-gray-700/50 rounded-lg p-2 mb-3">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs text-gray-400">Réponses</span>
+                  <span className="text-sm font-bold text-purple-400">
+                    {answers.filter(a => a.questionId === currentQuestion.id).length}/{connectedTeams.length}
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-gray-600 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
+                    style={{ width: `${connectedTeams.length > 0 ? (answers.filter(a => a.questionId === currentQuestion.id).length / connectedTeams.length) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Answer distribution for MCQ/TRUE_FALSE */}
+              {(currentQuestion.type === 'MCQ' || currentQuestion.type === 'TRUE_FALSE') && Object.keys(answerStats).length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  <p className="text-xs text-gray-400 mb-2">Distribution</p>
+                  {Object.entries(answerStats).map(([answer, count]) => {
+                    const total = Object.values(answerStats).reduce((a, b) => a + b, 0);
+                    const percentage = total > 0 ? (count / total) * 100 : 0;
+                    const isCorrect = answer === currentQuestion.correctAnswer;
+                    return (
+                      <div key={answer} className="flex items-center gap-2">
+                        <span className={`w-5 h-5 rounded text-xs flex items-center justify-center font-bold ${
+                          isCorrect && gameStatus === 'REVEAL' ? 'bg-green-500 text-white' : 'bg-gray-600 text-gray-300'
+                        }`}>
+                          {answer === 'TRUE' ? 'V' : answer === 'FALSE' ? 'F' : answer}
+                        </span>
+                        <div className="flex-1 h-4 bg-gray-600 rounded overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-500 ${
+                              isCorrect && gameStatus === 'REVEAL' ? 'bg-green-500' : 'bg-purple-500'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-400 w-8 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Accuracy rate */}
+              {gameStatus === 'REVEAL' && (
+                <div className="bg-gray-700/50 rounded-lg p-2">
+                  <p className="text-xs text-gray-400 mb-1">Taux de réussite</p>
+                  <p className="text-xl font-bold text-center">
+                    {(() => {
+                      const questionAnswers = answers.filter(a => a.questionId === currentQuestion.id);
+                      const correct = questionAnswers.filter(a => a.isCorrect).length;
+                      const total = questionAnswers.length;
+                      const rate = total > 0 ? Math.round((correct / total) * 100) : 0;
+                      return (
+                        <span className={rate >= 70 ? 'text-green-400' : rate >= 40 ? 'text-yellow-400' : 'text-red-400'}>
+                          {rate}%
+                        </span>
+                      );
+                    })()}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </aside>
       </div>
 
