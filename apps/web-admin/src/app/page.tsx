@@ -402,6 +402,138 @@ export default function Home() {
     }
   };
 
+  // ========== IMPORT/EXPORT FUNCTIONS ==========
+  const exportEvent = async (eventId: string) => {
+    try {
+      // Get full event details including rounds and questions
+      const res = await apiCall(`/api/events/${eventId}`);
+      if (!res.ok) {
+        alert('Failed to load event for export');
+        return;
+      }
+      const data = await res.json();
+      const event = data.event;
+
+      // Create export data structure
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        event: {
+          name: event.name,
+          description: event.description,
+          logo: event.logo,
+          theme: event.theme,
+          rounds: event.rounds?.map((round: Round) => ({
+            name: round.name,
+            order: round.order,
+            questions: round.questions?.map((q: Question) => ({
+              text: q.text,
+              type: q.type,
+              options: q.options,
+              correctAnswer: q.correctAnswer,
+              points: q.points,
+              timeLimit: q.timeLimit,
+              mediaUrl: q.mediaUrl,
+              questionCueStart: q.questionCueStart,
+              questionCueEnd: q.questionCueEnd,
+              revealCueStart: q.revealCueStart,
+              revealCueEnd: q.revealCueEnd,
+            })) || []
+          })) || []
+        }
+      };
+
+      // Download as JSON file
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${event.name.replace(/[^a-z0-9]/gi, '_')}_export.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export error:', err);
+      alert('Failed to export event');
+    }
+  };
+
+  const importEvent = async (file: File) => {
+    try {
+      const text = await file.text();
+      const importData = JSON.parse(text);
+
+      if (!importData.event || !importData.event.name) {
+        alert('Invalid import file: missing event data');
+        return;
+      }
+
+      // Create the event
+      const eventRes = await apiCall('/api/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: importData.event.name + ' (imported)',
+          description: importData.event.description || '',
+          logo: importData.event.logo || null,
+          theme: importData.event.theme || null,
+        }),
+      });
+
+      if (!eventRes.ok) {
+        const errData = await eventRes.json().catch(() => ({}));
+        alert('Failed to create event: ' + (errData.error || eventRes.status));
+        return;
+      }
+
+      const eventData = await eventRes.json();
+      const newEventId = eventData.event?.id || eventData.id;
+
+      // Create rounds and questions
+      if (importData.event.rounds && importData.event.rounds.length > 0) {
+        for (const round of importData.event.rounds) {
+          const roundRes = await apiCall(`/api/events/${newEventId}/rounds`, {
+            method: 'POST',
+            body: JSON.stringify({ name: round.name }),
+          });
+
+          if (roundRes.ok) {
+            const roundData = await roundRes.json();
+            const newRoundId = roundData.round?.id || roundData.id;
+
+            // Create questions for this round
+            if (round.questions && round.questions.length > 0) {
+              for (const question of round.questions) {
+                await apiCall(`/api/rounds/${newRoundId}/questions`, {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    text: question.text,
+                    type: question.type,
+                    options: question.options,
+                    correctAnswer: question.correctAnswer,
+                    points: question.points,
+                    timeLimit: question.timeLimit,
+                    mediaUrl: question.mediaUrl || null,
+                    questionCueStart: question.questionCueStart,
+                    questionCueEnd: question.questionCueEnd,
+                    revealCueStart: question.revealCueStart,
+                    revealCueEnd: question.revealCueEnd,
+                  }),
+                });
+              }
+            }
+          }
+        }
+      }
+
+      alert('Event imported successfully!');
+      loadEvents();
+    } catch (err) {
+      console.error('Import error:', err);
+      alert('Failed to import event: invalid JSON file');
+    }
+  };
+
   const openEditEvent = (event: Event) => {
     setEditingEvent(event);
     const defaultTheme = { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' };
@@ -592,10 +724,27 @@ export default function Home() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-3xl font-bold text-white">Events</h2>
-              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } }); setShowEventModal(true); }}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition">
-                + Create Event
-              </button>
+              <div className="flex items-center space-x-3">
+                {/* Import Button */}
+                <label className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl font-semibold transition cursor-pointer flex items-center space-x-2">
+                  <span>📥</span>
+                  <span>Import</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) importEvent(file);
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                  />
+                </label>
+                <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } }); setShowEventModal(true); }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition">
+                  + Create Event
+                </button>
+              </div>
             </div>
             {events.length === 0 ? (
               <div className="bg-gray-800 rounded-xl p-12 text-center">
@@ -623,6 +772,9 @@ export default function Home() {
                       </button>
                       <button onClick={() => loadEventDetails(event.id)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition" title="Manage rounds & questions">
                         📝
+                      </button>
+                      <button onClick={() => exportEvent(event.id)} className="bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 px-3 py-2 rounded-lg transition" title="Export event">
+                        📤
                       </button>
                       <button onClick={() => deleteEvent(event.id)} className="bg-red-600/20 hover:bg-red-600/40 text-red-400 px-3 py-2 rounded-lg transition">
                         🗑️

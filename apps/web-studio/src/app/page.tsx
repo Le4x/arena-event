@@ -132,6 +132,99 @@ export default function StudioHome() {
   const [teamJokers, setTeamJokers] = useState<Record<string, Record<string, number>>>({});
   const [activeJokers, setActiveJokers] = useState<Record<string, string[]>>({});
 
+  // Keyboard shortcuts help
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  // Mobile teams drawer
+  const [showMobileTeams, setShowMobileTeams] = useState(false);
+
+  // Sound effects
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Initialize AudioContext on first interaction
+  const initAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    }
+    return audioContextRef.current;
+  }, []);
+
+  // Sound effect functions
+  const playSound = useCallback((type: 'buzzer' | 'correct' | 'wrong' | 'tick' | 'start') => {
+    if (!soundEnabled) return;
+
+    const ctx = initAudioContext();
+    if (!ctx) return;
+
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    switch (type) {
+      case 'buzzer':
+        // Loud buzzer sound - two tones
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(440, now);
+        oscillator.frequency.setValueAtTime(330, now + 0.1);
+        oscillator.frequency.setValueAtTime(440, now + 0.2);
+        gainNode.gain.setValueAtTime(0.3, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        oscillator.start(now);
+        oscillator.stop(now + 0.4);
+        break;
+
+      case 'correct':
+        // Happy ascending tones
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(523, now); // C5
+        oscillator.frequency.setValueAtTime(659, now + 0.1); // E5
+        oscillator.frequency.setValueAtTime(784, now + 0.2); // G5
+        gainNode.gain.setValueAtTime(0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        oscillator.start(now);
+        oscillator.stop(now + 0.4);
+        break;
+
+      case 'wrong':
+        // Sad descending tone
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(300, now);
+        oscillator.frequency.exponentialRampToValueAtTime(150, now + 0.3);
+        gainNode.gain.setValueAtTime(0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        oscillator.start(now);
+        oscillator.stop(now + 0.4);
+        break;
+
+      case 'tick':
+        // Short tick for timer
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, now);
+        gainNode.gain.setValueAtTime(0.1, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+        oscillator.start(now);
+        oscillator.stop(now + 0.05);
+        break;
+
+      case 'start':
+        // Start game sound
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, now);
+        oscillator.frequency.setValueAtTime(550, now + 0.1);
+        oscillator.frequency.setValueAtTime(660, now + 0.2);
+        oscillator.frequency.setValueAtTime(880, now + 0.3);
+        gainNode.gain.setValueAtTime(0.2, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        oscillator.start(now);
+        oscillator.stop(now + 0.5);
+        break;
+    }
+  }, [soundEnabled, initAudioContext]);
+
   // Fetch active sessions
   useEffect(() => {
     const fetchSessions = async () => {
@@ -254,6 +347,8 @@ export default function StudioHome() {
         if (!buzzerWinner) {
           setBuzzerWinner(data.team);
           setBuzzerPressTime(pressTime);
+          // Play buzzer sound
+          playSound('buzzer');
           // Lock buzzer for other players and announce winner
           socket.emit('buzzer-lock', { sessionId: selectedSession.id });
           socket.emit('buzzer-winner', {
@@ -346,7 +441,7 @@ export default function StudioHome() {
     return () => {
       socket.disconnect();
     };
-  }, [selectedSession, buzzerLocked, buzzerWinner]);
+  }, [selectedSession, buzzerLocked, buzzerWinner, playSound]);
 
   // Load session data
   const loadSessionData = useCallback(async (session: Session) => {
@@ -393,6 +488,137 @@ export default function StudioHome() {
     };
   }, []);
 
+  // ========== KEYBOARD SHORTCUTS ==========
+  useEffect(() => {
+    if (!selectedSession) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      // Ignore if any modal is open (except shortcuts help)
+      if (showScoreModal || showEndModal || showFinaleModal) {
+        if (e.key === 'Escape') {
+          setShowScoreModal(false);
+          setShowEndModal(false);
+          setShowFinaleModal(false);
+        }
+        return;
+      }
+
+      // Close shortcuts help
+      if (e.key === 'Escape') {
+        setShowShortcutsHelp(false);
+        return;
+      }
+
+      // Show/hide shortcuts help
+      if (e.key === '?' || (e.key === 'h' && !e.ctrlKey && !e.metaKey)) {
+        e.preventDefault();
+        setShowShortcutsHelp(prev => !prev);
+        return;
+      }
+
+      // Space = Start question
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        if (gameStatus === 'LOBBY' && currentQuestion) {
+          startQuestion();
+        }
+        return;
+      }
+
+      // R = Reveal answer
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        if (gameStatus === 'PLAYING' || gameStatus === 'BUZZER_OPEN') {
+          endQuestion();
+        } else if (currentQuestion?.type === 'BLIND_TEST' && !audioRevealed) {
+          revealBlindtest();
+        }
+        return;
+      }
+
+      // L = Leaderboard
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        showLeaderboard();
+        return;
+      }
+
+      // P = Pause/Resume
+      if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        if (gameStatus === 'PAUSED') {
+          resumeGame();
+        } else if (gameStatus === 'PLAYING' || gameStatus === 'BUZZER_OPEN') {
+          pauseGame();
+        }
+        return;
+      }
+
+      // N or ArrowRight = Next question
+      if (e.key === 'n' || e.key === 'N' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (gameStatus === 'LOBBY' || gameStatus === 'REVEAL' || gameStatus === 'LEADERBOARD') {
+          nextQuestion();
+        }
+        return;
+      }
+
+      // B or ArrowLeft = Previous question
+      if (e.key === 'b' || e.key === 'B' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (gameStatus === 'LOBBY' || gameStatus === 'REVEAL' || gameStatus === 'LEADERBOARD') {
+          prevQuestion();
+        }
+        return;
+      }
+
+      // O = Open buzzer
+      if (e.key === 'o' || e.key === 'O') {
+        e.preventDefault();
+        if ((currentQuestion?.type === 'BUZZER' || currentQuestion?.type === 'BLIND_TEST' || currentQuestion?.type === 'OPEN') && buzzerLocked) {
+          openBuzzer();
+        }
+        return;
+      }
+
+      // M = Play/Pause music (for blindtest)
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        if (currentQuestion?.type === 'BLIND_TEST') {
+          if (isAudioPlaying) {
+            pauseBlindtest();
+          } else {
+            playBlindtest();
+          }
+        }
+        return;
+      }
+
+      // 1-9 = Quick navigate to round
+      if (e.key >= '1' && e.key <= '9') {
+        const roundIdx = parseInt(e.key) - 1;
+        if (roundIdx < rounds.length) {
+          e.preventDefault();
+          setCurrentRoundIndex(roundIdx);
+          setCurrentQuestionIndex(0);
+          setGameStatus('LOBBY');
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    selectedSession, gameStatus, currentQuestion, showScoreModal, showEndModal,
+    showFinaleModal, buzzerLocked, isAudioPlaying, audioRevealed, rounds.length
+  ]);
+
   // Current question and round
   const currentRound = rounds[currentRoundIndex];
   const currentQuestion = currentRound?.questions?.[currentQuestionIndex];
@@ -403,6 +629,7 @@ export default function StudioHome() {
   const startQuestion = async () => {
     if (!currentQuestion || !selectedSession) return;
 
+    playSound('start');
     setGameStatus('PLAYING');
     setTimeRemaining(currentQuestion.timeLimit || 30);
     setIsTimerRunning(true);
@@ -651,11 +878,13 @@ export default function StudioHome() {
   };
 
   const markCorrect = (team: Team) => {
+    playSound('correct');
     adjustScore(team, currentQuestion?.points || 100);
   };
 
   // Calculate buzzer speed bonus and mark correct
   const markBuzzerCorrect = (team: Team) => {
+    playSound('correct');
     const basePoints = currentQuestion?.points || 100;
     const timeLimit = currentQuestion?.timeLimit || 30;
 
@@ -689,6 +918,7 @@ export default function StudioHome() {
 
   // Mark buzzer answer as wrong
   const markBuzzerWrong = (team: Team) => {
+    playSound('wrong');
     // Emit buzzer-wrong event to notify players
     socketRef.current?.emit('buzzer-wrong', {
       sessionId: selectedSession?.id,
@@ -1039,6 +1269,29 @@ export default function StudioHome() {
               <p className="text-[10px] lg:text-xs text-gray-400">En ligne</p>
             </div>
 
+            {/* Sound Toggle Button */}
+            <button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className={`flex items-center gap-1 px-3 py-2 rounded-lg transition text-xs ${
+                soundEnabled
+                  ? 'bg-green-600/30 text-green-400 hover:bg-green-600/40'
+                  : 'bg-gray-700 text-gray-500 hover:bg-gray-600'
+              }`}
+              title={soundEnabled ? 'Désactiver le son' : 'Activer le son'}
+            >
+              <span>{soundEnabled ? '🔊' : '🔇'}</span>
+            </button>
+
+            {/* Keyboard Shortcuts Button */}
+            <button
+              onClick={() => setShowShortcutsHelp(true)}
+              className="hidden sm:flex items-center gap-1 bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white px-3 py-2 rounded-lg transition text-xs"
+              title="Raccourcis clavier (?)"
+            >
+              <span>⌨️</span>
+              <span className="hidden lg:inline">Raccourcis</span>
+            </button>
+
             {/* End Session Button */}
             <button
               onClick={() => setShowEndModal(true)}
@@ -1246,20 +1499,49 @@ export default function StudioHome() {
                   </button>
                 </div>
 
-                {/* Timer */}
-                <div className={`text-center px-6 lg:px-8 py-3 lg:py-4 rounded-2xl transition-colors ${
-                  timeRemaining <= 5 ? 'bg-red-500/20 animate-pulse' :
-                  timeRemaining <= 10 ? 'bg-yellow-500/20' :
-                  'bg-gray-800'
+                {/* Timer with Circular Progress */}
+                <div className={`relative flex items-center justify-center transition-all duration-300 ${
+                  timeRemaining <= 5 ? 'scale-110' : ''
                 }`}>
-                  <p className="text-xs text-gray-400 uppercase tracking-wide">Temps</p>
-                  <p className={`text-4xl lg:text-5xl font-mono font-bold ${
-                    timeRemaining <= 5 ? 'text-red-400' :
-                    timeRemaining <= 10 ? 'text-yellow-400' :
-                    'text-white'
-                  }`}>
-                    {timeRemaining}s
-                  </p>
+                  {/* Circular SVG Progress */}
+                  <svg className="w-24 h-24 lg:w-32 lg:h-32 transform -rotate-90" viewBox="0 0 100 100">
+                    {/* Background circle */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.1)"
+                      strokeWidth="8"
+                    />
+                    {/* Progress circle */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      fill="none"
+                      stroke={timeRemaining <= 5 ? '#ef4444' : timeRemaining <= 10 ? '#eab308' : '#a855f7'}
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(timeRemaining / (currentQuestion?.timeLimit || 30)) * 283} 283`}
+                      className={`transition-all duration-1000 ${timeRemaining <= 5 ? 'animate-pulse' : ''}`}
+                    />
+                  </svg>
+                  {/* Timer text in center */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <p className={`text-3xl lg:text-4xl font-mono font-bold transition-colors ${
+                      timeRemaining <= 5 ? 'text-red-400 animate-pulse' :
+                      timeRemaining <= 10 ? 'text-yellow-400' :
+                      'text-white'
+                    }`}>
+                      {timeRemaining}
+                    </p>
+                    <p className="text-[10px] text-gray-400 uppercase">sec</p>
+                  </div>
+                  {/* Glow effect when low */}
+                  {timeRemaining <= 5 && (
+                    <div className="absolute inset-0 rounded-full bg-red-500/20 animate-ping" style={{animationDuration: '1s'}}></div>
+                  )}
                 </div>
 
                 <div className="flex items-center space-x-2">
@@ -1957,6 +2239,214 @@ export default function StudioHome() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Mobile Teams Bottom Bar - Visible only on mobile */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40">
+        {/* Toggle Button */}
+        <button
+          onClick={() => setShowMobileTeams(!showMobileTeams)}
+          className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-t-xl shadow-lg flex items-center gap-2 transition"
+        >
+          <span>👥</span>
+          <span>{connectedTeams.length}/{teams.length}</span>
+          <span className={`transition-transform ${showMobileTeams ? 'rotate-180' : ''}`}>▼</span>
+        </button>
+
+        {/* Teams Drawer */}
+        <div className={`bg-gray-800 border-t border-gray-700 transition-all duration-300 ${showMobileTeams ? 'max-h-[50vh]' : 'max-h-0'} overflow-hidden`}>
+          <div className="p-4 max-h-[50vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-lg">Équipes</h3>
+              <span className="bg-purple-600/30 text-purple-300 px-3 py-1 rounded-full text-sm">
+                {connectedTeams.length} en ligne
+              </span>
+            </div>
+
+            {teams.length === 0 ? (
+              <div className="text-center py-6 text-gray-500">
+                <p className="text-3xl mb-2">⏳</p>
+                <p className="text-sm">En attente d'équipes...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {sortedTeams.map((team, index) => (
+                  <div
+                    key={team.id}
+                    onClick={() => openScoreModal(team)}
+                    className={`bg-gray-700/50 rounded-lg p-3 transition cursor-pointer hover:bg-gray-700 ${
+                      buzzerWinner?.id === team.id ? 'ring-2 ring-red-500 bg-red-500/20 animate-pulse' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm text-white flex-shrink-0"
+                        style={{ backgroundColor: team.color || (index === 0 ? '#EAB308' : index === 1 ? '#9CA3AF' : index === 2 ? '#EA580C' : '#4B5563') }}
+                      >
+                        {index + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{team.name}</p>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs ${team.isConnected ? 'text-green-400' : 'text-gray-500'}`}>
+                            {team.isConnected ? '● En ligne' : '○ Hors ligne'}
+                          </span>
+                          <span className="font-bold text-purple-400">{team.score}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick score buttons */}
+                    <div className="flex gap-1 mt-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); markCorrect(team); }}
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1 rounded transition"
+                      >
+                        +{currentQuestion?.points || 100}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); adjustScore(team, -50); }}
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1 rounded transition"
+                      >
+                        -50
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Buzzer Winner Alert in Mobile */}
+            {buzzerWinner && (
+              <div className="mt-3 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
+                <p className="text-red-400 text-sm mb-1">🔔 BUZZER!</p>
+                <p className="text-2xl font-bold text-white">{buzzerWinner.name}</p>
+                <div className="flex justify-center gap-2 mt-3">
+                  <button
+                    onClick={() => markBuzzerCorrect(buzzerWinner)}
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm"
+                  >
+                    ✓ Correct
+                  </button>
+                  <button
+                    onClick={() => markBuzzerWrong(buzzerWinner)}
+                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm"
+                  >
+                    ✗ Faux
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Keyboard Shortcuts Help Modal */}
+      {showShortcutsHelp && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowShortcutsHelp(false)}>
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <span>⌨️</span> Raccourcis Clavier
+              </h3>
+              <button
+                onClick={() => setShowShortcutsHelp(false)}
+                className="text-gray-400 hover:text-white text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Game Controls */}
+              <div>
+                <h4 className="text-sm font-semibold text-purple-400 mb-3 uppercase tracking-wide">Contrôles</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Lancer question</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">Espace</kbd>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Révéler</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">R</kbd>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Classement</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">L</kbd>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Pause / Reprendre</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">P</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation */}
+              <div>
+                <h4 className="text-sm font-semibold text-purple-400 mb-3 uppercase tracking-wide">Navigation</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Question suivante</span>
+                    <div className="flex gap-1">
+                      <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">N</kbd>
+                      <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">→</kbd>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Question précédente</span>
+                    <div className="flex gap-1">
+                      <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">B</kbd>
+                      <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">←</kbd>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Aller au round</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">1-9</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Buzzer & Audio */}
+              <div>
+                <h4 className="text-sm font-semibold text-purple-400 mb-3 uppercase tracking-wide">Buzzer & Audio</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Ouvrir buzzer</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">O</kbd>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Play/Pause musique</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">M</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Other */}
+              <div>
+                <h4 className="text-sm font-semibold text-purple-400 mb-3 uppercase tracking-wide">Autre</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Aide raccourcis</span>
+                    <div className="flex gap-1">
+                      <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">?</kbd>
+                      <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">H</kbd>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-3 py-2">
+                    <span className="text-gray-300">Fermer modal</span>
+                    <kbd className="bg-gray-600 px-2 py-1 rounded text-xs font-mono">Échap</kbd>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-gray-700 text-center">
+              <p className="text-gray-500 text-sm">
+                Appuyez sur <kbd className="bg-gray-600 px-2 py-0.5 rounded text-xs font-mono mx-1">?</kbd> à tout moment pour voir cette aide
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>
