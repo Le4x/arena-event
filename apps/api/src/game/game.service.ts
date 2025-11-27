@@ -213,34 +213,39 @@ export class GameService {
       throw new BadRequestException('Team already buzzed');
     }
 
-    // Get current rank (count + 1)
-    const count = await this.prisma.buzzerPress.count({
-      where: { questionId },
-    });
+    // Use transaction to prevent race condition on buzzer rank
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Get current rank (count + 1) within transaction
+      const count = await tx.buzzerPress.count({
+        where: { questionId },
+      });
 
-    const rank = count + 1;
+      const rank = count + 1;
 
-    // Create buzzer press
-    const buzzerPress = await this.prisma.buzzerPress.create({
-      data: {
-        questionId,
-        teamId,
-        rank,
-      },
-    });
-
-    // If this is the first buzz, lock the buzzer
-    if (rank === 1) {
-      await this.prisma.gameState.update({
-        where: { sessionId: session.id },
+      // Create buzzer press
+      const buzzerPress = await tx.buzzerPress.create({
         data: {
-          buzzerLocked: true,
-          buzzerWinner: teamId,
+          questionId,
+          teamId,
+          rank,
         },
       });
-    }
 
-    return buzzerPress;
+      // If this is the first buzz, lock the buzzer
+      if (rank === 1) {
+        await tx.gameState.update({
+          where: { sessionId: session.id },
+          data: {
+            buzzerLocked: true,
+            buzzerWinner: teamId,
+          },
+        });
+      }
+
+      return buzzerPress;
+    });
+
+    return result;
   }
 
   /**

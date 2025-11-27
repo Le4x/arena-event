@@ -2,8 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// API URL - MUST be configured via environment variable
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+// Frontend URLs for quick links
+const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL || 'http://localhost:3002';
+const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'http://localhost:3003';
+const SCREEN_URL = process.env.NEXT_PUBLIC_SCREEN_URL || 'http://localhost:3004';
+const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3000';
 
 interface User {
   id: string;
@@ -732,9 +738,9 @@ export default function Home() {
             <div className="bg-gray-800 rounded-xl p-6">
               <h3 className="text-xl font-semibold text-white mb-4">Quick Links</h3>
               <div className="grid grid-cols-3 gap-4">
-                <a href="http://91.134.135.247:3002" target="_blank" className="bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-xl text-center font-semibold transition">🎮 Studio</a>
-                <a href="http://91.134.135.247:3003" target="_blank" className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl text-center font-semibold transition">📱 Player</a>
-                <a href="http://91.134.135.247:3004" target="_blank" className="bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-center font-semibold transition">📺 Screen</a>
+                <a href={STUDIO_URL} target="_blank" rel="noopener noreferrer" className="bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-xl text-center font-semibold transition">🎮 Studio</a>
+                <a href={PLAYER_URL} target="_blank" rel="noopener noreferrer" className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl text-center font-semibold transition">📱 Player</a>
+                <a href={SCREEN_URL} target="_blank" rel="noopener noreferrer" className="bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-center font-semibold transition">📺 Screen</a>
               </div>
             </div>
           </div>
@@ -919,7 +925,7 @@ export default function Home() {
                       }`}>
                         {session.status}
                       </span>
-                      <a href={`http://91.134.135.247:3002?session=${session.id}`} target="_blank"
+                      <a href={`${STUDIO_URL}?session=${session.id}`} target="_blank" rel="noopener noreferrer"
                         className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition">
                         Open Studio
                       </a>

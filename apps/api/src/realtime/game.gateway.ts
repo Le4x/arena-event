@@ -33,7 +33,11 @@ interface BuzzerPayload {
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    // Production: Use environment variable for allowed origins
+    // Development: Allow localhost on all ports
+    origin: process.env.NODE_ENV === 'production'
+      ? (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean)
+      : [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/],
     credentials: true,
   },
 })
