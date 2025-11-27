@@ -125,6 +125,12 @@ export default function Home() {
   }, [token]);
 
   const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
+    // Check if token exists
+    if (!token) {
+      console.error('No token available for API call');
+      throw new Error('Not authenticated');
+    }
+
     const response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers: {
@@ -133,6 +139,17 @@ export default function Home() {
         ...options.headers,
       },
     });
+
+    // Handle 401 Unauthorized - token expired or invalid
+    if (response.status === 401) {
+      console.error('Token invalid or expired, logging out');
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setToken(null);
+      setUser(null);
+      throw new Error('Session expired - please login again');
+    }
+
     return response;
   }, [token]);
 
@@ -246,11 +263,15 @@ export default function Home() {
         setEventForm({ name: '', description: '', logo: '', theme: { primaryColor: '#4f46e5', secondaryColor: '#9333ea', backgroundColor: '#ec4899' } });
         loadEvents();
       } else {
-        setModalError(data.error || `Failed to create event (${res.status})`);
+        // More detailed error message
+        const errorMsg = data.error || data.message || `HTTP ${res.status}: ${res.statusText}`;
+        console.error('Create event failed:', errorMsg, data);
+        setModalError(errorMsg);
       }
     } catch (err) {
       console.error('Create event error:', err);
-      setModalError('Network error - check if API is running');
+      const errorMsg = err instanceof Error ? err.message : 'Network error - check if API is running';
+      setModalError(errorMsg);
     } finally {
       setModalLoading(false);
     }
