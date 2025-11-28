@@ -92,19 +92,38 @@ const getTimerRemaining = (sessionId) => {
 };
 
 // ============================================
-// BUZZER LOCK MANAGER (first-press wins)
+// BUZZER LOCK MANAGER (first-press wins) - WITH PERSISTENCE
 // ============================================
-const buzzerState = new Map(); // sessionId -> { locked: boolean, winner: team, timestamp }
+const buzzerState = new Map(); // sessionId -> { locked: boolean, winner: team, timestamp, questionId, queue: [] }
 
-const resetBuzzer = (sessionId) => {
-  buzzerState.set(sessionId, { locked: false, winner: null, timestamp: null });
+const resetBuzzer = (sessionId, questionId = null) => {
+  buzzerState.set(sessionId, { 
+    locked: false, 
+    winner: null, 
+    timestamp: null, 
+    questionId,
+    queue: [] // Track all buzzer presses in order
+  });
 };
 
 const tryPressBuzzer = (sessionId, team, timestamp) => {
-  const state = buzzerState.get(sessionId) || { locked: false, winner: null, timestamp: null };
+  const state = buzzerState.get(sessionId) || { locked: false, winner: null, timestamp: null, queue: [] };
+
+  // Check if this team already buzzed
+  const alreadyBuzzed = state.queue?.some(entry => entry.team?.id === team?.id);
+  if (alreadyBuzzed) {
+    return { success: false, winner: state.winner, reason: 'already_buzzed' };
+  }
+
+  // Calculate rank based on queue length
+  const rank = (state.queue?.length || 0) + 1;
+
+  // Add to queue regardless of lock state (for history)
+  if (!state.queue) state.queue = [];
+  state.queue.push({ team, timestamp, rank });
 
   if (state.locked) {
-    return { success: false, winner: state.winner };
+    return { success: false, winner: state.winner, rank, reason: 'buzzer_locked' };
   }
 
   // First press wins!
@@ -113,7 +132,37 @@ const tryPressBuzzer = (sessionId, team, timestamp) => {
   state.timestamp = timestamp;
   buzzerState.set(sessionId, state);
 
-  return { success: true, winner: team };
+  return { success: true, winner: team, rank };
+};
+
+// Persist buzzer press to database (async, non-blocking)
+const persistBuzzerPress = async (prismaClient, questionId, teamId, rank) => {
+  if (!questionId || !teamId) return null;
+  
+  try {
+    const buzzerPress = await prismaClient.buzzerPress.upsert({
+      where: {
+        questionId_teamId: { questionId, teamId }
+      },
+      update: {},
+      create: {
+        questionId,
+        teamId,
+        rank,
+        pressedAt: new Date()
+      }
+    });
+    return buzzerPress;
+  } catch (error) {
+    console.error('Failed to persist buzzer press:', error.message);
+    return null;
+  }
+};
+
+// Get buzzer queue for a session (for analytics)
+const getBuzzerQueue = (sessionId) => {
+  const state = buzzerState.get(sessionId);
+  return state?.queue || [];
 };
 
 // ============================================
@@ -281,8 +330,44 @@ app.post('/api/upload', async (req, res) => {
   }
 });
 
-const JWT_SECRET = 'arena-event-super-secret-jwt-key-2024';
-const JWT_EXPIRES_IN = '7d';
+// ============================================
+// CONFIGURATION (Environment Variables)
+// ============================================
+const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
+
+// ============================================
+// RATE LIMITING (Anti-spam protection)
+// ============================================
+const rateLimitMap = new Map(); // key -> { count, resetTime }
+
+const rateLimit = (key, maxRequests = 10, windowMs = 1000) => {
+  const now = Date.now();
+  const record = rateLimitMap.get(key);
+  
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+    return { allowed: true, remaining: maxRequests - 1 };
+  }
+  
+  if (record.count >= maxRequests) {
+    return { allowed: false, remaining: 0, retryAfter: record.resetTime - now };
+  }
+  
+  record.count++;
+  return { allowed: true, remaining: maxRequests - record.count };
+};
+
+// Cleanup old rate limit entries every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of rateLimitMap.entries()) {
+    if (now > record.resetTime) {
+      rateLimitMap.delete(key);
+    }
+  }
+}, 60000);
 
 // ============================================
 // MIDDLEWARE
@@ -1445,20 +1530,41 @@ io.on('connection', (socket) => {
   const handleBuzzerPress = async (data, callback) => {
     const sessionId = data.sessionId || socket.sessionId;
     const team = data.team || { id: data.teamId, name: data.teamName };
+    const questionId = data.questionId; // For persistence
     const clientTimestamp = data.timestamp || Date.now();
     const serverTimestamp = Date.now();
+
+    // Rate limiting: max 5 buzzer attempts per second per team
+    const rateLimitKey = `buzzer:${sessionId}:${team.id}`;
+    const limitResult = rateLimit(rateLimitKey, 5, 1000);
+    
+    if (!limitResult.allowed) {
+      console.log(`⚠️ RATE LIMITED: ${team.name} in session ${sessionId}`);
+      if (typeof callback === 'function') {
+        callback({ success: false, error: 'rate_limited', retryAfter: limitResult.retryAfter });
+      }
+      return;
+    }
 
     // Try to acquire buzzer lock (first press wins)
     const result = tryPressBuzzer(sessionId, team, serverTimestamp);
 
     if (result.success) {
-      console.log(`🔔 BUZZER WON by ${team.name} in session ${sessionId} (latency: ${serverTimestamp - clientTimestamp}ms)`);
+      console.log(`🔔 BUZZER WON by ${team.name} (rank #${result.rank}) in session ${sessionId} (latency: ${serverTimestamp - clientTimestamp}ms)`);
+
+      // Persist to database (async, non-blocking)
+      if (questionId && team.id) {
+        persistBuzzerPress(prisma, questionId, team.id, result.rank).catch(err => 
+          console.error('Buzzer persistence error:', err.message)
+        );
+      }
 
       // Broadcast winner to all clients
       io.to(`session:${sessionId}`).emit('buzzer-pressed', {
         team,
         teamId: team.id,
         teamName: team.name,
+        rank: result.rank,
         timestamp: serverTimestamp,
         serverTime: serverTimestamp
       });
@@ -1468,14 +1574,22 @@ io.on('connection', (socket) => {
 
       // Send acknowledgment to the pressing player
       if (typeof callback === 'function') {
-        callback({ success: true, winner: true, serverTime: serverTimestamp });
+        callback({ success: true, winner: true, rank: result.rank, serverTime: serverTimestamp });
       }
     } else {
-      console.log(`❌ Buzzer press REJECTED for ${team.name} (already won by ${result.winner?.name})`);
+      const reason = result.reason || 'buzzer_locked';
+      console.log(`❌ Buzzer press REJECTED for ${team.name} - ${reason} (winner: ${result.winner?.name})`);
+
+      // Still persist for analytics (they tried but were too slow)
+      if (questionId && team.id && reason !== 'already_buzzed' && result.rank) {
+        persistBuzzerPress(prisma, questionId, team.id, result.rank).catch(err => 
+          console.error('Buzzer persistence error:', err.message)
+        );
+      }
 
       // Send rejection acknowledgment
       if (typeof callback === 'function') {
-        callback({ success: false, winner: false, actualWinner: result.winner, serverTime: serverTimestamp });
+        callback({ success: false, winner: false, reason, actualWinner: result.winner, serverTime: serverTimestamp });
       }
     }
   };
@@ -1525,6 +1639,16 @@ io.on('connection', (socket) => {
   const handleAnswerSubmit = async (data) => {
     const { teamId, questionId, answer, responseTime, timeRemaining } = data;
     const sessionId = data.sessionId || socket.sessionId;
+
+    // Rate limiting: max 3 answer submissions per second per team
+    const rateLimitKey = `answer:${sessionId}:${teamId}`;
+    const limitResult = rateLimit(rateLimitKey, 3, 1000);
+    
+    if (!limitResult.allowed) {
+      console.log(`⚠️ RATE LIMITED answer from team ${teamId}`);
+      socket.emit('answer-rejected', { error: 'rate_limited', retryAfter: limitResult.retryAfter });
+      return;
+    }
 
     try {
       const question = await prisma.question.findUnique({ where: { id: questionId } });

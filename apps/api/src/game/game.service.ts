@@ -157,88 +157,103 @@ export class GameService {
   }
 
   /**
-   * Record a buzzer press
+   * Record a buzzer press - ATOMIC VERSION (no race condition)
+   * Uses Prisma transaction with serializable isolation level
    */
   async pressBuzzer(data: { questionId: string; teamId: string }) {
     const { questionId, teamId } = data;
 
-    // Get game state to check if buzzer is locked
-    const question = await this.prisma.question.findUnique({
-      where: { id: questionId },
-      include: {
-        round: {
-          include: {
-            event: {
-              include: {
-                sessions: {
-                  include: {
-                    gameState: true,
+    // Use a transaction to ensure atomicity
+    const buzzerPress = await this.prisma.$transaction(async (tx) => {
+      // 1. Get game state to check if buzzer is locked
+      const question = await tx.question.findUnique({
+        where: { id: questionId },
+        include: {
+          round: {
+            include: {
+              event: {
+                include: {
+                  sessions: {
+                    include: {
+                      gameState: true,
+                    },
                   },
                 },
               },
             },
           },
         },
-      },
-    });
+      });
 
-    if (!question) {
-      throw new NotFoundException('Question not found');
-    }
+      if (!question) {
+        throw new NotFoundException('Question not found');
+      }
 
-    // Find the game state for this question
-    const session = question.round.event.sessions.find(
-      (s) => s.currentQuestionId === questionId,
-    );
+      // Find the game state for this question
+      const session = question.round.event.sessions.find(
+        (s) => s.currentQuestionId === questionId,
+      );
 
-    if (!session || !session.gameState) {
-      throw new BadRequestException('Question is not active');
-    }
+      if (!session || !session.gameState) {
+        throw new BadRequestException('Question is not active');
+      }
 
-    if (session.gameState.buzzerLocked) {
-      throw new BadRequestException('Buzzer is locked');
-    }
+      if (session.gameState.buzzerLocked) {
+        throw new BadRequestException('Buzzer is locked');
+      }
 
-    // Check if team already buzzed
-    const existingBuzz = await this.prisma.buzzerPress.findUnique({
-      where: {
-        questionId_teamId: {
-          questionId,
-          teamId,
-        },
-      },
-    });
-
-    if (existingBuzz) {
-      throw new BadRequestException('Team already buzzed');
-    }
-
-    // Get current rank (count + 1)
-    const count = await this.prisma.buzzerPress.count({
-      where: { questionId },
-    });
-
-    const rank = count + 1;
-
-    // Create buzzer press
-    const buzzerPress = await this.prisma.buzzerPress.create({
-      data: {
-        questionId,
-        teamId,
-        rank,
-      },
-    });
-
-    // If this is the first buzz, lock the buzzer
-    if (rank === 1) {
-      await this.prisma.gameState.update({
-        where: { sessionId: session.id },
-        data: {
-          buzzerLocked: true,
-          buzzerWinner: teamId,
+      // 2. Check if team already buzzed (within transaction)
+      const existingBuzz = await tx.buzzerPress.findUnique({
+        where: {
+          questionId_teamId: {
+            questionId,
+            teamId,
+          },
         },
       });
-    }
+
+      if (existingBuzz) {
+        throw new BadRequestException('Team already buzzed');
+      }
+
+      // 3. Get current rank atomically using raw query with FOR UPDATE lock
+      // This prevents race conditions by locking the rows during count
+      const countResult = await tx.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*)::int as count 
+        FROM buzzer_presses 
+        WHERE "questionId" = ${questionId}
+        FOR UPDATE
+      `;
+      
+      const rank = Number(countResult[0].count) + 1;
+
+      // 4. Create buzzer press with the calculated rank
+      const newBuzzerPress = await tx.buzzerPress.create({
+        data: {
+          questionId,
+          teamId,
+          rank,
+        },
+      });
+
+      // 5. If this is the first buzz, lock the buzzer
+      if (rank === 1) {
+        await tx.gameState.update({
+          where: { sessionId: session.id },
+          data: {
+            buzzerLocked: true,
+            buzzerWinner: teamId,
+          },
+        });
+      }
+
+      return newBuzzerPress;
+    }, {
+      // Serializable isolation ensures no concurrent modifications
+      isolationLevel: 'Serializable',
+      // Timeout after 5 seconds to prevent deadlocks
+      timeout: 5000,
+    });
 
     return buzzerPress;
   }
