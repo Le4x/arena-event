@@ -131,7 +131,7 @@ cat > /etc/nginx/sites-available/arena-event << 'EOF'
 # API
 server {
     listen 80;
-    server_name api.arena-event.com;
+    server_name api.arena-event.fr;
 
     location / {
         proxy_pass http://localhost:3001;
@@ -149,7 +149,7 @@ server {
 # Admin
 server {
     listen 80;
-    server_name admin.arena-event.com;
+    server_name admin.arena-event.fr;
 
     location / {
         proxy_pass http://localhost:3000;
@@ -164,7 +164,7 @@ server {
 # Studio
 server {
     listen 80;
-    server_name studio.arena-event.com;
+    server_name studio.arena-event.fr;
 
     location / {
         proxy_pass http://localhost:3002;
@@ -179,7 +179,7 @@ server {
 # Player
 server {
     listen 80;
-    server_name player.arena-event.com;
+    server_name player.arena-event.fr;
 
     location / {
         proxy_pass http://localhost:3003;
@@ -194,7 +194,7 @@ server {
 # Screen
 server {
     listen 80;
-    server_name screen.arena-event.com;
+    server_name screen.arena-event.fr;
 
     location / {
         proxy_pass http://localhost:3004;
@@ -209,8 +209,8 @@ server {
 # Main domain redirect to admin
 server {
     listen 80;
-    server_name arena-event.com www.arena-event.com;
-    return 301 http://admin.arena-event.com$request_uri;
+    server_name arena-event.fr www.arena-event.fr;
+    return 301 http://admin.arena-event.fr$request_uri;
 }
 EOF
 
@@ -241,9 +241,9 @@ echo "3. Check application status: pm2 status"
 echo "4. View logs: pm2 logs"
 echo ""
 echo -e "${YELLOW}🌐 Your applications will be available at:${NC}"
-echo "   - Admin:  https://admin.arena-event.com"
-echo "   - API:    https://api.arena-event.com"
-echo "   - Studio: https://studio.arena-event.com"
-echo "   - Player: https://player.arena-event.com"
-echo "   - Screen: https://screen.arena-event.com"
+echo "   - Admin:  https://admin.arena-event.fr"
+echo "   - API:    https://api.arena-event.fr"
+echo "   - Studio: https://studio.arena-event.fr"
+echo "   - Player: https://player.arena-event.fr"
+echo "   - Screen: https://screen.arena-event.fr"
 echo ""
