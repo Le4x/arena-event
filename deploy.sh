@@ -53,10 +53,10 @@ npm install
 cd ..
 
 echo -e "${GREEN}Step 9: Building all applications...${NC}"
-cd apps/web-admin && npm install && npm run build && cd ../..
-cd apps/web-player && npm install && npm run build && cd ../..
-cd apps/web-screen && npm install && npm run build && cd ../..
-cd apps/web-studio && npm install && npm run build && cd ../..
+(cd apps/web-admin && npm install && npm run build)
+(cd apps/web-player && npm install && npm run build)
+(cd apps/web-screen && npm install && npm run build)
+(cd apps/web-studio && npm install && npm run build)
 
 echo -e "${GREEN}Step 10: Running database migrations...${NC}"
 cd simple-api
