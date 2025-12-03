@@ -3,8 +3,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// API URL - configurable via environment variable
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3000';
+const SCREEN_URL = process.env.NEXT_PUBLIC_SCREEN_URL || 'http://localhost:3004';
+const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'http://localhost:3003';
 
 interface Event {
   id: string;
@@ -814,7 +817,7 @@ export default function StudioHome() {
                 <p className="text-xl text-gray-400 mb-4">No active sessions found</p>
                 <p className="text-gray-500">Create a session in the Admin Dashboard first</p>
                 <a
-                  href="http://91.134.135.247:3000"
+                  href={ADMIN_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-block mt-6 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition"
@@ -1029,7 +1032,7 @@ export default function StudioHome() {
               <h2 className="text-2xl font-bold mb-4">No Questions Found</h2>
               <p className="text-gray-400 mb-6">Add questions to this event in the Admin Dashboard</p>
               <a
-                href="http://91.134.135.247:3000"
+                href={ADMIN_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-block bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl transition"
@@ -1455,7 +1458,7 @@ export default function StudioHome() {
 
           <div className="space-y-3">
             <a
-              href="http://91.134.135.247:3004"
+              href={SCREEN_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="block bg-blue-600 hover:bg-blue-700 text-white text-center py-3 px-4 rounded-lg transition"
@@ -1463,7 +1466,7 @@ export default function StudioHome() {
               📺 Screen Display
             </a>
             <a
-              href="http://91.134.135.247:3003"
+              href={PLAYER_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="block bg-green-600 hover:bg-green-700 text-white text-center py-3 px-4 rounded-lg transition"
@@ -1471,7 +1474,7 @@ export default function StudioHome() {
               📱 Player View
             </a>
             <a
-              href="http://91.134.135.247:3000"
+              href={ADMIN_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="block bg-purple-600 hover:bg-purple-700 text-white text-center py-3 px-4 rounded-lg transition"
