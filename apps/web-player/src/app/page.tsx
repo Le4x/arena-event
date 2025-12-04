@@ -170,6 +170,12 @@ export default function PlayerHome() {
       setTeam(data);
       setGameState('LOBBY');
 
+      // Save to localStorage for auto-reconnect
+      localStorage.setItem('arena_sessionId', session.id);
+      localStorage.setItem('arena_teamId', data.id);
+      localStorage.setItem('arena_teamName', data.name);
+      localStorage.setItem('arena_teamColor', data.color);
+
       // Connect socket
       connectSocket(session.id, data.id);
     } catch (err) {
@@ -186,6 +192,13 @@ export default function PlayerHome() {
     setTeam(existingTeam);
     setTeamName(existingTeam.name);
     setGameState('LOBBY');
+
+    // Save to localStorage for auto-reconnect
+    localStorage.setItem('arena_sessionId', session.id);
+    localStorage.setItem('arena_teamId', existingTeam.id);
+    localStorage.setItem('arena_teamName', existingTeam.name);
+    localStorage.setItem('arena_teamColor', existingTeam.color);
+
     connectSocket(session.id, existingTeam.id);
   };
 
@@ -238,6 +251,27 @@ export default function PlayerHome() {
         setShowConnectionOverlay(true);
         setConnectionError(`Connexion perdue: ${reason}`);
       }
+    });
+
+    // Handle device replacement (when another phone connects for same team)
+    socket.on('device-replaced', (data) => {
+      console.warn('Device replaced:', data.message);
+      // Clear localStorage to prevent auto-reconnect loop
+      localStorage.removeItem('arena_sessionId');
+      localStorage.removeItem('arena_teamId');
+      localStorage.removeItem('arena_teamName');
+      localStorage.removeItem('arena_teamColor');
+      // Show error and disconnect
+      setConnectionError(data.message || 'Un autre appareil s\'est connecté pour votre équipe');
+      setShowConnectionOverlay(true);
+      socket.disconnect();
+      // Return to join screen after 3 seconds
+      setTimeout(() => {
+        setGameState('JOIN');
+        setSession(null);
+        setTeam(null);
+        setShowConnectionOverlay(false);
+      }, 3000);
     });
 
     socket.on('connect_error', (err) => {
@@ -557,6 +591,33 @@ export default function PlayerHome() {
     if (isActive) return 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-2 ring-white animate-pulse';
     return 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600';
   };
+
+  // Auto-reconnect from localStorage on page load
+  useEffect(() => {
+    const savedSessionId = localStorage.getItem('arena_sessionId');
+    const savedTeamId = localStorage.getItem('arena_teamId');
+    const savedTeamName = localStorage.getItem('arena_teamName');
+    const savedTeamColor = localStorage.getItem('arena_teamColor');
+
+    if (savedSessionId && savedTeamId && savedTeamName) {
+      console.log('🔄 Auto-reconnecting to session...');
+      // Restore session and team state
+      setSession({
+        id: savedSessionId,
+        code: '', // Code not needed for reconnect
+        eventName: 'Arena Event',
+      });
+      setTeam({
+        id: savedTeamId,
+        name: savedTeamName,
+        color: savedTeamColor || '#8B5CF6',
+        score: 0, // Will be updated from server
+      });
+      setGameState('LOBBY');
+      // Reconnect socket
+      connectSocket(savedSessionId, savedTeamId);
+    }
+  }, []);
 
   // Cleanup
   useEffect(() => {

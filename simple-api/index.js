@@ -41,6 +41,9 @@ const io = new Server(httpServer, {
 let redisCache = null;
 let redisClients = null;
 
+// Track connected devices per team (1 device per team limit)
+const connectedTeamDevices = new Map(); // teamId -> socketId
+
 // ============================================
 // SERVER-SIDE TIMER MANAGER (for sync across all clients)
 // ============================================
@@ -1373,6 +1376,30 @@ io.on('connection', (socket) => {
 
     if (teamId) {
       socket.teamId = teamId;
+
+      // 1 DEVICE PER TEAM LIMIT (only for players)
+      if (role === 'player') {
+        const existingSocketId = connectedTeamDevices.get(teamId);
+
+        if (existingSocketId && existingSocketId !== socket.id) {
+          // Another device is already connected for this team
+          const existingSocket = io.sockets.sockets.get(existingSocketId);
+
+          if (existingSocket) {
+            console.log(`🚫 Team ${teamId}: replacing old device ${existingSocketId} with new device ${socket.id}`);
+            // Notify the old device it's being replaced
+            existingSocket.emit('device-replaced', {
+              message: 'Un nouveau téléphone s\'est connecté pour cette équipe. Vous avez été déconnecté.'
+            });
+            // Disconnect the old device
+            existingSocket.disconnect(true);
+          }
+        }
+
+        // Register this device as the active one for this team
+        connectedTeamDevices.set(teamId, socket.id);
+        console.log(`✅ Team ${teamId} connected on device ${socket.id}`);
+      }
     }
   };
   socket.on('join-session', joinSession);
@@ -2041,6 +2068,12 @@ io.on('connection', (socket) => {
     console.log('Client disconnected:', socket.id);
     if (socket.sessionId && socket.teamId) {
       io.to(`session:${socket.sessionId}`).emit('team-left', { teamId: socket.teamId });
+
+      // Clean up device tracking for this team
+      if (socket.role === 'player' && connectedTeamDevices.get(socket.teamId) === socket.id) {
+        connectedTeamDevices.delete(socket.teamId);
+        console.log(`🔌 Team ${socket.teamId} device disconnected and removed from tracking`);
+      }
     }
   });
 });
