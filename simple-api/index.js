@@ -1620,18 +1620,95 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('blindtest-stop', {});
   });
 
-  socket.on('blindtest-reveal', (data) => {
+  // ========== HELPER FUNCTIONS FOR ANSWER VALIDATION ==========
+
+  function normalizeAnswer(answer) {
+    if (!answer) return '';
+    return answer.toString().toLowerCase().trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+  }
+
+  function compareAnswers(userAnswer, correctAnswer) {
+    const norm1 = normalizeAnswer(userAnswer);
+    const norm2 = normalizeAnswer(correctAnswer);
+    if (norm1 === norm2) return true;
+    if (norm2.length > 5 && norm1.includes(norm2)) return true;
+    if (norm1.length > 5 && norm2.includes(norm1)) return true;
+    return false;
+  }
+
+  // ========== REVEAL WITH AUTO SCORE CALCULATION ==========
+
+  socket.on('blindtest-reveal', async (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Blindtest reveal in session ${sessionId}: ${data.artist} - ${data.songTitle}`);
-    io.to(`session:${sessionId}`).emit('blindtest-reveal', {
-      artist: data.artist,
-      songTitle: data.songTitle,
-      audioUrl: data.audioUrl,
-      startTime: data.startTime || data.revealCueStart || 0,
-      endTime: data.endTime || data.revealCueEnd || null,
-      revealCueStart: data.revealCueStart,
-      revealCueEnd: data.revealCueEnd
-    });
+    const { questionId } = data;
+
+    console.log(`🎯 Reveal: ${data.artist} - ${data.songTitle}`);
+
+    try {
+      if (questionId) {
+        const question = await prisma.question.findUnique({ where: { id: questionId } });
+
+        if (question) {
+          const answers = await prisma.answer.findMany({
+            where: { questionId },
+            include: { team: true }
+          });
+
+          console.log(`📊 Validating ${answers.length} answers for reveal...`);
+
+          for (const answer of answers) {
+            const isCorrect = compareAnswers(answer.content, question.correctAnswer);
+
+            if (isCorrect && answer.points === 0) {
+              const points = question.points;
+              await prisma.team.update({
+                where: { id: answer.teamId },
+                data: { score: { increment: points } }
+              });
+              await prisma.answer.update({
+                where: { id: answer.id },
+                data: { isCorrect: true, points }
+              });
+              console.log(`✅ Team ${answer.team.name} awarded ${points} points on reveal`);
+            } else if (!isCorrect) {
+              await prisma.answer.update({
+                where: { id: answer.id },
+                data: { isCorrect: false, points: 0 }
+              });
+            }
+          }
+
+          const teams = await prisma.team.findMany({
+            where: { sessionId },
+            orderBy: { score: 'desc' }
+          });
+
+          io.to(`session:${sessionId}`).emit('leaderboard-update', {
+            teams: teams.map(t => ({ id: t.id, name: t.name, score: t.score }))
+          });
+        }
+      }
+
+      io.to(`session:${sessionId}`).emit('blindtest-reveal', {
+        questionId,
+        artist: data.artist,
+        songTitle: data.songTitle,
+        correctAnswer: data.correctAnswer || `${data.artist} - ${data.songTitle}`,
+        audioUrl: data.audioUrl,
+        startTime: data.startTime || data.revealCueStart || 0,
+        endTime: data.endTime || data.revealCueEnd || null,
+        revealCueStart: data.revealCueStart,
+        revealCueEnd: data.revealCueEnd
+      });
+    } catch (error) {
+      console.error('❌ Reveal error:', error);
+      io.to(`session:${sessionId}`).emit('blindtest-reveal', {
+        artist: data.artist,
+        songTitle: data.songTitle
+      });
+    }
   });
 
   // ========== ANSWER EVENTS ==========
@@ -1657,7 +1734,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const isCorrect = answer === question.correctAnswer;
+      const isCorrect = compareAnswers(answer, question.correctAnswer);
       const timeVal = responseTime ? (question.timeLimit * 1000 - responseTime) / 1000 : (timeRemaining || 0);
       let points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
 
