@@ -212,6 +212,26 @@ export default function PlayerHome() {
     setRetryCount(prev => prev + 1);
   }, [session, team]);
 
+  // Disconnect function (clears localStorage and returns to join screen)
+  const handleDisconnect = () => {
+    // Clear localStorage
+    localStorage.removeItem('arena_sessionId');
+    localStorage.removeItem('arena_teamId');
+    localStorage.removeItem('arena_teamName');
+    localStorage.removeItem('arena_teamColor');
+
+    // Disconnect socket
+    socketRef.current?.disconnect();
+
+    // Reset state
+    setSession(null);
+    setTeam(null);
+    setGameState('JOIN');
+    setIsConnected(false);
+
+    console.log('🔌 Manually disconnected');
+  };
+
   // Socket connection (optimized for low latency)
   const connectSocket = (sessionId: string, teamId: string) => {
     // Disconnect existing socket if any
@@ -403,8 +423,16 @@ export default function PlayerHome() {
       }
     });
 
+    // Listen for score updates from server (after reveal)
+    socket.on('score-updated', (data) => {
+      if (data.teamId === team?.id) {
+        setTeam(prev => prev ? { ...prev, score: data.newScore } : prev);
+        console.log(`📊 Score updated: ${data.newScore}`);
+      }
+    });
+
     socket.on('score-update', (data) => {
-      if (data.teamId === teamId) {
+      if (data.teamId === team?.id) {
         setTeam(prev => prev ? { ...prev, score: data.newScore } : prev);
       }
     });
@@ -601,21 +629,35 @@ export default function PlayerHome() {
 
     if (savedSessionId && savedTeamId && savedTeamName) {
       console.log('🔄 Auto-reconnecting to session...');
-      // Restore session and team state
-      setSession({
-        id: savedSessionId,
-        code: '', // Code not needed for reconnect
-        eventName: 'Arena Event',
-      });
-      setTeam({
-        id: savedTeamId,
-        name: savedTeamName,
-        color: savedTeamColor || '#8B5CF6',
-        score: 0, // Will be updated from server
-      });
-      setGameState('LOBBY');
-      // Reconnect socket
-      connectSocket(savedSessionId, savedTeamId);
+
+      // Fetch fresh team data from server to get current score
+      fetch(`${API_URL}/api/teams/${savedTeamId}`)
+        .then(res => res.json())
+        .then(teamData => {
+          // Restore session and team state with fresh data
+          setSession({
+            id: savedSessionId,
+            code: '',
+            eventName: 'Arena Event',
+          });
+          setTeam({
+            id: teamData.id,
+            name: teamData.name,
+            color: teamData.color,
+            score: teamData.score, // Fresh score from server
+          });
+          setGameState('LOBBY');
+          // Reconnect socket
+          connectSocket(savedSessionId, savedTeamId);
+        })
+        .catch(err => {
+          console.error('Auto-reconnect failed:', err);
+          // Clear localStorage if team no longer exists
+          localStorage.removeItem('arena_sessionId');
+          localStorage.removeItem('arena_teamId');
+          localStorage.removeItem('arena_teamName');
+          localStorage.removeItem('arena_teamColor');
+        });
     }
   }, []);
 
@@ -840,6 +882,15 @@ export default function PlayerHome() {
               <span className="text-gray-500">Score</span>
               <span className="font-bold text-purple-600">{team?.score || 0}</span>
             </div>
+
+            {/* Disconnect Button */}
+            <button
+              onClick={handleDisconnect}
+              className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg mb-4 transition-all"
+            >
+              🔌 Déconnexion
+            </button>
+
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Status</span>
               <span className={`flex items-center font-medium ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
