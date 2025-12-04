@@ -331,6 +331,31 @@ export default function PlayerHome() {
       setShowConnectionOverlay(true);
     });
 
+    // Health check - ping/pong every 30s
+    const healthCheckInterval = setInterval(() => {
+      if (socket.connected) {
+        const pingTime = Date.now();
+        socket.emit('ping');
+        socket.once('pong', (data) => {
+          const latency = Date.now() - pingTime;
+          console.log(`🏓 Pong received (${latency}ms)`);
+        });
+      }
+    }, 30000);
+
+    // Send heartbeat every 15s
+    const heartbeatInterval = setInterval(() => {
+      if (socket.connected) {
+        socket.emit('heartbeat');
+      }
+    }, 15000);
+
+    // Cleanup intervals on disconnect
+    socket.on('disconnect', () => {
+      clearInterval(healthCheckInterval);
+      clearInterval(heartbeatInterval);
+    });
+
     // Game events
     socket.on('question-start', (data) => {
       setCurrentQuestion(data.question);

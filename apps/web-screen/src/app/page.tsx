@@ -168,6 +168,31 @@ export default function ScreenHome() {
       setConnectionError('Impossible de se reconnecter au serveur');
     });
 
+    // Health check - ping/pong every 30s
+    const healthCheckInterval = setInterval(() => {
+      if (socket.connected) {
+        const pingTime = Date.now();
+        socket.emit('ping');
+        socket.once('pong', (data) => {
+          const latency = Date.now() - pingTime;
+          console.log(`🏓 Screen pong (${latency}ms)`);
+        });
+      }
+    }, 30000);
+
+    // Send heartbeat every 15s
+    const heartbeatInterval = setInterval(() => {
+      if (socket.connected) {
+        socket.emit('heartbeat');
+      }
+    }, 15000);
+
+    // Cleanup intervals on disconnect
+    socket.on('disconnect', () => {
+      clearInterval(healthCheckInterval);
+      clearInterval(heartbeatInterval);
+    });
+
     // Team events
     socket.on('team-joined', (data) => {
       setTeams(prev => {

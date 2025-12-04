@@ -45,6 +45,116 @@ let redisClients = null;
 const connectedTeamDevices = new Map(); // teamId -> socketId
 
 // ============================================
+// ANSWER QUEUE WITH RETRY (for reliability)
+// ============================================
+const answerQueue = new Map(); // queueId -> { teamId, questionId, answer, attempts, maxAttempts }
+
+// Add answer to queue and attempt to save with retry
+async function queueAnswer(data, socket) {
+  const { teamId, questionId, answer, sessionId } = data;
+  const queueId = `${questionId}-${teamId}`;
+
+  // Check if already in queue (duplicate prevention)
+  if (answerQueue.has(queueId)) {
+    console.log(`⏭️ Answer already in queue: ${queueId}`);
+    return { success: false, reason: 'already_queued' };
+  }
+
+  // Add to queue
+  answerQueue.set(queueId, {
+    teamId,
+    questionId,
+    answer,
+    sessionId,
+    socketId: socket.id,
+    attempts: 0,
+    maxAttempts: 3,
+    timestamp: Date.now()
+  });
+
+  console.log(`📥 Answer queued: ${queueId}`);
+
+  // Attempt to save immediately
+  const result = await processAnswerQueue(queueId);
+  return result;
+}
+
+// Process answer from queue (with retry)
+async function processAnswerQueue(queueId) {
+  const item = answerQueue.get(queueId);
+  if (!item) return { success: false, reason: 'not_in_queue' };
+
+  item.attempts++;
+
+  try {
+    // Check if answer already exists (duplicate protection)
+    const existingAnswer = await prisma.answer.findUnique({
+      where: {
+        questionId_teamId: { questionId: item.questionId, teamId: item.teamId }
+      }
+    });
+
+    if (existingAnswer) {
+      console.log(`⚠️ Answer already exists: ${queueId}`);
+      answerQueue.delete(queueId);
+      return { success: true, duplicate: true };
+    }
+
+    // Save answer to database (no validation, no points - wait for reveal)
+    await prisma.answer.create({
+      data: {
+        teamId: item.teamId,
+        questionId: item.questionId,
+        content: item.answer,
+        isCorrect: false,
+        points: 0
+      }
+    });
+
+    console.log(`✅ Answer saved: ${queueId} (attempt ${item.attempts})`);
+
+    // Broadcast to session
+    io.to(`session:${item.sessionId}`).emit('answer-submitted', {
+      teamId: item.teamId,
+      questionId: item.questionId,
+      answered: true
+    });
+
+    // Remove from queue
+    answerQueue.delete(queueId);
+
+    return { success: true, attempts: item.attempts };
+
+  } catch (error) {
+    console.error(`❌ Failed to save answer ${queueId} (attempt ${item.attempts}):`, error.message);
+
+    // Retry if attempts remaining
+    if (item.attempts < item.maxAttempts) {
+      console.log(`🔄 Will retry answer ${queueId} (${item.maxAttempts - item.attempts} attempts left)`);
+      setTimeout(() => processAnswerQueue(queueId), 1000 * item.attempts); // Exponential backoff
+      return { success: false, queued: true, attempts: item.attempts };
+    } else {
+      console.error(`💔 Answer ${queueId} failed after ${item.maxAttempts} attempts`);
+      answerQueue.delete(queueId);
+      return { success: false, reason: 'max_attempts_reached', error: error.message };
+    }
+  }
+}
+
+// Periodic cleanup of stale queue items (older than 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  const staleThreshold = 5 * 60 * 1000; // 5 minutes
+
+  for (const [queueId, item] of answerQueue.entries()) {
+    if (now - item.timestamp > staleThreshold) {
+      console.log(`🗑️ Removing stale answer from queue: ${queueId}`);
+      answerQueue.delete(queueId);
+    }
+  }
+}, 60000); // Check every minute
+
+// ============================================
 // SERVER-SIDE TIMER MANAGER (for sync across all clients)
 // ============================================
 const activeTimers = new Map(); // sessionId -> { interval, startTime, duration, remaining }
@@ -1856,50 +1966,29 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Check if answer already exists (to handle duplicate submissions)
-      const existingAnswer = await prisma.answer.findUnique({
-        where: {
-          questionId_teamId: { questionId, teamId }
-        }
-      });
-
-      if (existingAnswer) {
-        console.log(`⚠️ Team ${teamId} already answered question ${questionId}, ignoring duplicate`);
-        socket.emit('answer-result', {
-          teamId,
-          submitted: true,
-          duplicate: true
-        });
-        return;
-      }
-
-      // DON'T validate or award points yet - wait for reveal!
-      // Store answer with NO validation, NO points
-      await prisma.answer.create({
-        data: {
-          teamId,
-          questionId,
-          content: answer,
-          isCorrect: false,  // Not validated yet
-          points: 0          // No points until reveal
-        }
-      });
-
-      // Emit to all in session (for Screen) - NO feedback on correctness
-      io.to(`session:${sessionId}`).emit('answer-submitted', {
+      // Use answer queue with retry mechanism for reliability
+      const queueResult = await queueAnswer({
         teamId,
         questionId,
-        answered: true
-      });
+        answer,
+        sessionId
+      }, socket);
 
-      // Emit result back to the submitting player - NO feedback
+      // Emit result back to the submitting player
       socket.emit('answer-result', {
         teamId,
-        submitted: true,
-        message: 'Answer recorded - wait for reveal!'
+        submitted: queueResult.success,
+        duplicate: queueResult.duplicate,
+        queued: queueResult.queued,
+        message: queueResult.success
+          ? 'Answer recorded - wait for reveal!'
+          : queueResult.queued
+            ? 'Answer queued - retrying...'
+            : 'Failed to save answer',
+        attempts: queueResult.attempts
       });
 
-      console.log(`Answer submitted: team=${teamId}, waiting for reveal...`);
+      console.log(`Answer ${queueResult.success ? 'saved' : 'queued'}: team=${teamId}`);
     } catch (error) {
       console.error('Socket answer error:', error);
     }
@@ -2071,6 +2160,21 @@ io.on('connection', (socket) => {
       finalistTeams: state?.finalistTeams || [],
       serverTime: Date.now()
     });
+  });
+
+  // ========== HEALTH CHECK ==========
+
+  // Ping/Pong health check
+  socket.on('ping', () => {
+    socket.emit('pong', {
+      serverTime: Date.now(),
+      socketId: socket.id
+    });
+  });
+
+  // Client heartbeat - update last seen time
+  socket.on('heartbeat', () => {
+    socket.lastSeen = Date.now();
   });
 
   // ========== DISCONNECT ==========
