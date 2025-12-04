@@ -73,14 +73,18 @@ export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
   // Modal state
   const [showEventModal, setShowEventModal] = useState(false);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
   // Form state
   const [eventForm, setEventForm] = useState({ name: '', description: '' });
@@ -89,6 +93,10 @@ export default function Home() {
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
     revealCueStart: null as number | null, revealCueEnd: null as number | null
   });
+  const [userForm, setUserForm] = useState({
+    email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER'
+  });
+  const [newPassword, setNewPassword] = useState('');
   const [audioDuration, setAudioDuration] = useState(0);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [modalError, setModalError] = useState('');
