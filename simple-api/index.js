@@ -8,6 +8,7 @@ import { Server } from 'socket.io';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
+import { setupSocketIORedisAdapter } from './redis-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2390,14 +2391,26 @@ app.post('/sessions/:sessionId/emit', async (req, res) => {
 const PORT = 3001;
 const HOST = '0.0.0.0';
 
-httpServer.listen(PORT, HOST, () => {
-  console.log(`
+// Setup Redis adapter for Socket.IO (async initialization)
+async function startServer() {
+  try {
+    await setupSocketIORedisAdapter(io);
+    console.log('✅ Socket.IO Redis Adapter configured');
+    console.log('   - Multiple API instances can now share WebSocket state');
+    console.log('   - Pub/Sub enabled for cross-instance communication');
+  } catch (err) {
+    console.error('⚠️  Failed to setup Redis adapter:', err.message);
+    console.log('   Continuing without Redis adapter (single-instance mode)');
+  }
+
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
 ║   🎮 ARENA EVENT API v2.1.0                          ║
 ║                                                       ║
 ║   Server running on http://${HOST}:${PORT}              ║
-║   WebSocket enabled                                   ║
+║   WebSocket enabled with Redis Adapter                ║
 ║                                                       ║
 ║   Routes available:                                   ║
 ║   - Auth: /api/auth/*                                ║
@@ -2408,5 +2421,11 @@ httpServer.listen(PORT, HOST, () => {
 ║   - Teams: /api/sessions/:id/teams                   ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
-  `);
+    `);
+  });
+}
+
+startServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
