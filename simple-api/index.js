@@ -1829,51 +1829,39 @@ io.on('connection', (socket) => {
         console.log(`⚠️ Team ${teamId} already answered question ${questionId}, ignoring duplicate`);
         socket.emit('answer-result', {
           teamId,
-          isCorrect: existingAnswer.isCorrect,
-          points: existingAnswer.points,
+          submitted: true,
           duplicate: true
         });
         return;
       }
 
-      if (isCorrect) {
-        await prisma.team.update({
-          where: { id: teamId },
-          data: { score: { increment: points } }
-        });
-      }
-
+      // DON'T validate or award points yet - wait for reveal!
+      // Store answer with NO validation, NO points
       await prisma.answer.create({
         data: {
           teamId,
           questionId,
           content: answer,
-          isCorrect,
-          points: isCorrect ? points : 0
+          isCorrect: false,  // Not validated yet
+          points: 0          // No points until reveal
         }
       });
 
-      // Emit to all in session (for Screen)
+      // Emit to all in session (for Screen) - NO feedback on correctness
       io.to(`session:${sessionId}`).emit('answer-submitted', {
         teamId,
         questionId,
-        answer,
-        isCorrect,
-        points: isCorrect ? points : 0,
-        jokerApplied,
-        shieldActivated
+        answered: true
       });
 
-      // Emit result back to the submitting player
+      // Emit result back to the submitting player - NO feedback
       socket.emit('answer-result', {
         teamId,
-        isCorrect,
-        points: isCorrect ? points : 0,
-        jokerApplied,
-        shieldActivated
+        submitted: true,
+        message: 'Answer recorded - wait for reveal!'
       });
 
-      console.log(`Answer submitted: team=${teamId}, correct=${isCorrect}, points=${points}, joker=${jokerApplied || 'none'}`);
+      console.log(`Answer submitted: team=${teamId}, waiting for reveal...`);
     } catch (error) {
       console.error('Socket answer error:', error);
     }
