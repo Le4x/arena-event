@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import QRCode from 'react-qr-code';
 
 // API URL - configurable via environment variable
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -485,16 +486,29 @@ export default function ScreenHome() {
             <p className="text-3xl text-purple-300">{selectedSession?.event.name}</p>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 max-w-4xl mx-auto border border-white/20 shadow-2xl">
-            <p className="text-3xl text-purple-200 mb-6">Rejoins le jeu sur</p>
-            <div className="text-5xl font-bold text-white mb-8">
-              {PLAYER_URL.replace(/^https?:\/\//, '')}
+          <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 max-w-5xl mx-auto border border-white/20 shadow-2xl">
+            <p className="text-4xl text-purple-200 mb-8 font-bold">📱 Scanne pour rejoindre !</p>
+
+            {/* QR Code - Large and centered */}
+            <div className="bg-white rounded-3xl p-8 mb-8 inline-block shadow-2xl">
+              <QRCode
+                value={`${PLAYER_URL}?session=${selectedSession?.code}`}
+                size={280}
+                level="H"
+              />
             </div>
 
-            <div className="border-t border-white/20 pt-8 mt-8">
-              <p className="text-3xl text-purple-200 mb-6">Code de session</p>
-              <div className="inline-block bg-gradient-to-r from-yellow-400 to-orange-500 rounded-2xl px-16 py-8">
-                <span className="text-8xl font-black text-black tracking-[0.2em]">
+            <div className="mb-6">
+              <p className="text-2xl text-purple-300 mb-2">ou va sur</p>
+              <div className="text-4xl font-bold text-white">
+                {PLAYER_URL.replace(/^https?:\/\//, '')}
+              </div>
+            </div>
+
+            <div className="border-t border-white/20 pt-6 mt-6">
+              <p className="text-2xl text-purple-200 mb-4">avec le code</p>
+              <div className="inline-block bg-gradient-to-r from-yellow-400 to-orange-500 rounded-2xl px-12 py-6">
+                <span className="text-7xl font-black text-black tracking-[0.2em]">
                   {selectedSession?.code}
                 </span>
               </div>

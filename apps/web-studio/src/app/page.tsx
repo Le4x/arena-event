@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import QRCode from 'react-qr-code';
 
 // API URL - configurable via environment variable
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -920,21 +919,6 @@ export default function StudioHome() {
             <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 rounded-xl">
               <p className="text-xs text-purple-200">Code</p>
               <p className="text-2xl font-mono font-bold tracking-widest">{selectedSession.code}</p>
-            </div>
-
-            {/* QR Code for Teams */}
-            <div className="bg-gray-800 px-4 py-4 rounded-xl border border-gray-700">
-              <p className="text-xs text-gray-400 text-center mb-2">📱 QR Code pour connexion rapide</p>
-              <div className="bg-white p-3 rounded-lg">
-                <QRCode
-                  value={`${PLAYER_URL}?session=${selectedSession.code}`}
-                  size={140}
-                  level="M"
-                />
-              </div>
-              <p className="text-xs text-gray-500 text-center mt-2 break-all">
-                {PLAYER_URL}?session={selectedSession.code}
-              </p>
             </div>
 
             {/* Status */}
