@@ -274,9 +274,18 @@ export default function PlayerHome() {
       });
     });
 
+    // Health check intervals
+    let healthCheckInterval: NodeJS.Timeout | null = null;
+    let heartbeatInterval: NodeJS.Timeout | null = null;
+
     socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
+
+      // Cleanup health check intervals
+      if (healthCheckInterval) clearInterval(healthCheckInterval);
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+
       // Show overlay only if not in JOIN state (user has joined a session)
       // Use ref to avoid stale closure bug
       if (gameStateRef.current !== 'JOIN' && gameStateRef.current !== 'TEAM_SELECT') {
@@ -325,14 +334,8 @@ export default function PlayerHome() {
       setRetryCount(0);
     });
 
-    socket.io.on('reconnect_failed', () => {
-      console.error('All reconnection attempts failed');
-      setConnectionError('Impossible de se reconnecter au serveur');
-      setShowConnectionOverlay(true);
-    });
-
-    // Health check - ping/pong every 30s
-    const healthCheckInterval = setInterval(() => {
+    // Start health check - ping/pong every 30s
+    healthCheckInterval = setInterval(() => {
       if (socket.connected) {
         const pingTime = Date.now();
         socket.emit('ping');
@@ -344,16 +347,16 @@ export default function PlayerHome() {
     }, 30000);
 
     // Send heartbeat every 15s
-    const heartbeatInterval = setInterval(() => {
+    heartbeatInterval = setInterval(() => {
       if (socket.connected) {
         socket.emit('heartbeat');
       }
     }, 15000);
 
-    // Cleanup intervals on disconnect
-    socket.on('disconnect', () => {
-      clearInterval(healthCheckInterval);
-      clearInterval(heartbeatInterval);
+    socket.io.on('reconnect_failed', () => {
+      console.error('All reconnection attempts failed');
+      setConnectionError('Impossible de se reconnecter au serveur');
+      setShowConnectionOverlay(true);
     });
 
     // Game events

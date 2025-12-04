@@ -1192,6 +1192,24 @@ app.get('/api/sessions/:sessionId/teams', async (req, res) => {
   }
 });
 
+// Get single team by ID (for auto-reconnect)
+app.get('/api/teams/:id', async (req, res) => {
+  try {
+    const team = await prisma.team.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    res.json(team);
+  } catch (error) {
+    console.error('Get team error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.put('/api/teams/:id/score', authenticateToken, async (req, res) => {
   try {
     const { score, increment } = req.body;
