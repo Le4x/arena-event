@@ -124,16 +124,22 @@ export default function PresenterDashboard() {
     }
   };
 
-  // Fetch active sessions
+  // Fetch active and lobby sessions
   const fetchSessions = async (authToken: string) => {
     try {
-      const response = await fetch(`${API_URL}/sessions?status=ACTIVE`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`
-        }
-      });
-      const data = await response.json();
-      setSessions(data);
+      const [activeRes, lobbyRes] = await Promise.all([
+        fetch(`${API_URL}/sessions?status=ACTIVE`, {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        }),
+        fetch(`${API_URL}/sessions?status=LOBBY`, {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        })
+      ]);
+
+      const activeData = activeRes.ok ? await activeRes.json() : [];
+      const lobbyData = lobbyRes.ok ? await lobbyRes.json() : [];
+
+      setSessions([...activeData, ...lobbyData]);
     } catch (error) {
       console.error('Error fetching sessions:', error);
     }
