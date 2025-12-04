@@ -8,6 +8,7 @@ import { Server } from 'socket.io';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
+import { setupSocketIORedisAdapter, createRedisClient, RedisCache } from './redis-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +36,10 @@ const io = new Server(httpServer, {
   allowUpgrades: true,
   perMessageDeflate: false // Disable compression for lower latency
 });
+
+// Initialize Redis for multi-instance support
+let redisCache = null;
+let redisClients = null;
 
 // ============================================
 // SERVER-SIDE TIMER MANAGER (for sync across all clients)
@@ -1760,6 +1765,24 @@ io.on('connection', (socket) => {
         }
       }
 
+      // Check if answer already exists (to handle duplicate submissions)
+      const existingAnswer = await prisma.answer.findUnique({
+        where: {
+          questionId_teamId: { questionId, teamId }
+        }
+      });
+
+      if (existingAnswer) {
+        console.log(`⚠️ Team ${teamId} already answered question ${questionId}, ignoring duplicate`);
+        socket.emit('answer-result', {
+          teamId,
+          isCorrect: existingAnswer.isCorrect,
+          points: existingAnswer.points,
+          duplicate: true
+        });
+        return;
+      }
+
       if (isCorrect) {
         await prisma.team.update({
           where: { id: teamId },
@@ -2461,20 +2484,33 @@ app.post('/sessions/:sessionId/emit', async (req, res) => {
 });
 
 // ============================================
-// START SERVER
+// START SERVER WITH REDIS
 // ============================================
 
 const PORT = 3001;
 const HOST = '0.0.0.0';
 
-httpServer.listen(PORT, HOST, () => {
-  console.log(`
+async function startServer() {
+  try {
+    // Setup Redis adapter for Socket.IO (multi-instance support)
+    console.log('🔄 Initializing Redis for multi-instance WebSocket sync...');
+    redisClients = await setupSocketIORedisAdapter(io);
+
+    // Create Redis cache client
+    const cacheClient = await createRedisClient();
+    redisCache = new RedisCache(cacheClient);
+    console.log('✅ Redis cache initialized');
+
+    // Start HTTP server
+    httpServer.listen(PORT, HOST, () => {
+      console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
-║   🎮 ARENA EVENT API v2.1.0                          ║
+║   🎮 ARENA EVENT API v2.1.0 - CLUSTER MODE           ║
 ║                                                       ║
 ║   Server running on http://${HOST}:${PORT}              ║
-║   WebSocket enabled                                   ║
+║   WebSocket enabled with Redis sync                   ║
+║   Multi-instance support: ✅                          ║
 ║                                                       ║
 ║   Routes available:                                   ║
 ║   - Auth: /api/auth/*                                ║
@@ -2485,5 +2521,27 @@ httpServer.listen(PORT, HOST, () => {
 ║   - Teams: /api/sessions/:id/teams                   ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
-  `);
-});
+      `);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    console.log('⚠️  Starting WITHOUT Redis (single instance only)');
+
+    // Fallback: start without Redis
+    httpServer.listen(PORT, HOST, () => {
+      console.log(`
+╔═══════════════════════════════════════════════════════╗
+║                                                       ║
+║   🎮 ARENA EVENT API v2.1.0 - SINGLE MODE            ║
+║                                                       ║
+║   Server running on http://${HOST}:${PORT}              ║
+║   WebSocket enabled (no Redis sync)                   ║
+║   Multi-instance support: ❌                          ║
+║                                                       ║
+╚═══════════════════════════════════════════════════════╝
+      `);
+    });
+  }
+}
+
+startServer();
