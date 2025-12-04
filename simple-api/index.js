@@ -1399,6 +1399,24 @@ io.on('connection', (socket) => {
         // Register this device as the active one for this team
         connectedTeamDevices.set(teamId, socket.id);
         console.log(`✅ Team ${teamId} connected on device ${socket.id}`);
+
+        // Notify studio that team is connected
+        prisma.team.findUnique({ where: { id: teamId } })
+          .then(team => {
+            if (team) {
+              io.to(`session:${sessionId}`).emit('team-joined', {
+                team: {
+                  id: team.id,
+                  name: team.name,
+                  color: team.color,
+                  score: team.score,
+                  isConnected: true
+                }
+              });
+              console.log(`📢 Notified studio: Team ${team.name} is online`);
+            }
+          })
+          .catch(err => console.error('Error fetching team for team-joined event:', err));
       }
     }
   };
@@ -1461,7 +1479,7 @@ io.on('connection', (socket) => {
 
             if (isCorrect && answer.points === 0) {
               const points = question.points;
-              await prisma.team.update({
+              const updatedTeam = await prisma.team.update({
                 where: { id: answer.teamId },
                 data: { score: { increment: points } }
               });
@@ -1470,6 +1488,12 @@ io.on('connection', (socket) => {
                 data: { isCorrect: true, points }
               });
               console.log(`✅ AUTO-AWARD: Team ${answer.team.name} +${points} points`);
+
+              // Notify studio of score update (for real-time leaderboard)
+              io.to(`session:${sessionId}`).emit('score-updated', {
+                teamId: answer.teamId,
+                newScore: updatedTeam.score
+              });
             } else if (!isCorrect && answer.isCorrect) {
               // Mark as incorrect if it was marked as correct before
               await prisma.answer.update({
@@ -1478,16 +1502,6 @@ io.on('connection', (socket) => {
               });
             }
           }
-
-          // Broadcast updated leaderboard
-          const teams = await prisma.team.findMany({
-            where: { sessionId },
-            orderBy: { score: 'desc' }
-          });
-
-          io.to(`session:${sessionId}`).emit('leaderboard-update', {
-            teams: teams.map(t => ({ id: t.id, name: t.name, score: t.score }))
-          });
         }
       }
     } catch (error) {
@@ -1748,7 +1762,7 @@ io.on('connection', (socket) => {
 
             if (isCorrect && answer.points === 0) {
               const points = question.points;
-              await prisma.team.update({
+              const updatedTeam = await prisma.team.update({
                 where: { id: answer.teamId },
                 data: { score: { increment: points } }
               });
@@ -1757,6 +1771,12 @@ io.on('connection', (socket) => {
                 data: { isCorrect: true, points }
               });
               console.log(`✅ Team ${answer.team.name} awarded ${points} points on reveal`);
+
+              // Notify studio of score update (for real-time leaderboard)
+              io.to(`session:${sessionId}`).emit('score-updated', {
+                teamId: answer.teamId,
+                newScore: updatedTeam.score
+              });
             } else if (!isCorrect) {
               await prisma.answer.update({
                 where: { id: answer.id },
@@ -1764,15 +1784,6 @@ io.on('connection', (socket) => {
               });
             }
           }
-
-          const teams = await prisma.team.findMany({
-            where: { sessionId },
-            orderBy: { score: 'desc' }
-          });
-
-          io.to(`session:${sessionId}`).emit('leaderboard-update', {
-            teams: teams.map(t => ({ id: t.id, name: t.name, score: t.score }))
-          });
         }
       }
 
