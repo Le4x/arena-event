@@ -2,6 +2,7 @@
 node_modules
 .pnp
 .pnp.js
+package-lock.json
 
 # Testing
 coverage
@@ -12,6 +13,7 @@ coverage
 out/
 build
 dist
+next-env.d.ts
 
 # Misc
 .DS_Store
