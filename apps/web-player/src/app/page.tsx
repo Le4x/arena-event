@@ -49,6 +49,18 @@ export default function PlayerHome() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Auto-fill session code from URL parameter (for QR code support)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const sessionParam = urlParams.get('session');
+      if (sessionParam) {
+        setSessionCode(sessionParam.toUpperCase());
+        console.log('📱 QR Code detected - session pre-filled:', sessionParam);
+      }
+    }
+  }, []);
+
   // Session state
   const [session, setSession] = useState<Session | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
