@@ -1406,17 +1406,70 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Question end - from Studio to Screen/Player
-  socket.on('question-end', (data) => {
+  // Question end - from Studio to Screen/Player (with auto-validation)
+  socket.on('question-end', async (data) => {
     const sessionId = data.sessionId || socket.sessionId;
+    const { questionId, correctAnswer } = data;
+
     console.log(`Question ended in session ${sessionId}`);
 
     // Stop server-side timer
     stopServerTimer(sessionId);
 
+    // AUTO-VALIDATE ANSWERS AND AWARD POINTS
+    try {
+      if (questionId) {
+        const question = await prisma.question.findUnique({ where: { id: questionId } });
+
+        if (question) {
+          const answers = await prisma.answer.findMany({
+            where: { questionId },
+            include: { team: true }
+          });
+
+          console.log(`📊 Auto-validating ${answers.length} answers for question ${questionId.substring(0, 8)}...`);
+
+          for (const answer of answers) {
+            const isCorrect = compareAnswers(answer.content, question.correctAnswer);
+
+            if (isCorrect && answer.points === 0) {
+              const points = question.points;
+              await prisma.team.update({
+                where: { id: answer.teamId },
+                data: { score: { increment: points } }
+              });
+              await prisma.answer.update({
+                where: { id: answer.id },
+                data: { isCorrect: true, points }
+              });
+              console.log(`✅ AUTO-AWARD: Team ${answer.team.name} +${points} points`);
+            } else if (!isCorrect && answer.isCorrect) {
+              // Mark as incorrect if it was marked as correct before
+              await prisma.answer.update({
+                where: { id: answer.id },
+                data: { isCorrect: false, points: 0 }
+              });
+            }
+          }
+
+          // Broadcast updated leaderboard
+          const teams = await prisma.team.findMany({
+            where: { sessionId },
+            orderBy: { score: 'desc' }
+          });
+
+          io.to(`session:${sessionId}`).emit('leaderboard-update', {
+            teams: teams.map(t => ({ id: t.id, name: t.name, score: t.score }))
+          });
+        }
+      }
+    } catch (error) {
+      console.error('❌ Auto-validation error:', error);
+    }
+
     io.to(`session:${sessionId}`).emit('question-end', {
       questionId: data.questionId,
-      correctAnswer: data.correctAnswer,
+      correctAnswer: data.correctAnswer || correctAnswer,
       serverTime: Date.now()
     });
   });
