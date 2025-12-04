@@ -1,0 +1,246 @@
+// Prisma Schema for Arena Event Platform
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User Management & Authentication
+// ============================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      Role     @default(ORGANIZER)
+  firstName String?
+  lastName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownedEvents        Event[]   @relation("EventOwner")
+  gameMasterSessions Session[] @relation("GameMaster")
+
+  @@index([email])
+  @@map("users")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORGANIZER
+  GAME_MASTER
+  PRESENTER
+}
+
+// ============================================
+// Events & Sessions
+// ============================================
+
+model Event {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  ownerId     String
+  owner       User     @relation("EventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sessions Session[]
+  rounds   Round[]
+
+  @@index([ownerId])
+  @@map("events")
+}
+
+model Session {
+  id               String        @id @default(uuid())
+  code             String        @unique
+  eventId          String
+  event            Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  gameMasterId     String?
+  gameMaster       User?         @relation("GameMaster", fields: [gameMasterId], references: [id])
+  status           SessionStatus @default(LOBBY)
+  startedAt        DateTime?
+  endedAt          DateTime?
+  currentRoundId   String?
+  currentQuestionId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  teams     Team[]
+  gameState GameState?
+
+  @@index([code])
+  @@index([eventId])
+  @@index([status])
+  @@map("sessions")
+}
+
+enum SessionStatus {
+  LOBBY
+  ACTIVE
+  PAUSED
+  FINISHED
+}
+
+model GameState {
+  id                String    @id @default(uuid())
+  sessionId         String    @unique
+  session           Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  currentRoundId    String?
+  currentQuestionId String?
+  questionStartedAt DateTime?
+  questionEndsAt    DateTime?
+  buzzerLocked      Boolean   @default(false)
+  buzzerWinner      String?
+  phase             GamePhase @default(LOBBY)
+  updatedAt         DateTime  @updatedAt
+
+  @@map("game_states")
+}
+
+enum GamePhase {
+  LOBBY
+  ROUND_INTRO
+  QUESTION_DISPLAY
+  QUESTION_ACTIVE
+  QUESTION_REVEAL
+  LEADERBOARD
+  FINAL
+}
+
+// ============================================
+// Content: Rounds & Questions
+// ============================================
+
+model Round {
+  id          String   @id @default(uuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions Question[]
+
+  @@unique([eventId, order])
+  @@index([eventId])
+  @@map("rounds")
+}
+
+model Question {
+  id            String       @id @default(uuid())
+  roundId       String
+  round         Round        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  type          QuestionType
+  content       String
+  mediaUrl      String?
+  // Cue points for audio playback (in seconds)
+  questionCueStart Float?    // Start time for question phase audio
+  questionCueEnd   Float?    // End time for question phase audio
+  revealCueStart   Float?    // Start time for reveal phase (BLIND_TEST)
+  revealCueEnd     Float?    // End time for reveal phase (BLIND_TEST)
+  timeLimit     Int          @default(30)
+  points        Int          @default(100)
+  order         Int
+  choices       Json?
+  correctAnswer String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  answers       Answer[]
+  buzzerPresses BuzzerPress[]
+
+  @@unique([roundId, order])
+  @@index([roundId])
+  @@map("questions")
+}
+
+enum QuestionType {
+  MCQ
+  TEXT
+  BUZZER
+  BLIND_TEST
+  IMAGE
+  TRUE_FALSE
+}
+
+// ============================================
+// Players & Teams
+// ============================================
+
+model Team {
+  id        String   @id @default(uuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  name      String
+  score     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  devices       PlayerDevice[]
+  answers       Answer[]
+  buzzerPresses BuzzerPress[]
+
+  @@unique([sessionId, name])
+  @@index([sessionId])
+  @@map("teams")
+}
+
+model PlayerDevice {
+  id        String   @id @default(uuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  socketId  String?
+  lastSeen  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+  @@index([socketId])
+  @@map("player_devices")
+}
+
+// ============================================
+// Game Actions: Answers & Buzzers
+// ============================================
+
+model Answer {
+  id          String   @id @default(uuid())
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  content     String
+  isCorrect   Boolean?
+  points      Int      @default(0)
+  submittedAt DateTime @default(now())
+
+  @@unique([questionId, teamId])
+  @@index([questionId])
+  @@index([teamId])
+  @@map("answers")
+}
+
+model BuzzerPress {
+  id         String   @id @default(uuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  rank       Int
+  pressedAt  DateTime @default(now())
+
+  @@unique([questionId, teamId])
+  @@unique([questionId, rank])
+  @@index([questionId])
+  @@index([teamId])
+  @@map("buzzer_presses")
+}
