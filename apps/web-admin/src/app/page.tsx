@@ -117,6 +117,7 @@ export default function Home() {
     if (token) {
       loadEvents();
       loadSessions();
+      loadUsers();
     }
   }, [token]);
 
@@ -168,6 +169,151 @@ export default function Home() {
       console.error('Load sessions error:', err);
       setSessions([]);
     }
+  };
+
+  const loadUsers = async () => {
+    try {
+      const res = await apiCall('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data || []);
+      }
+    } catch (err) {
+      console.error('Load users error:', err);
+      setUsers([]);
+    }
+  };
+
+  const createUser = async () => {
+    if (!userForm.email.trim() || !userForm.password.trim()) {
+      setModalError('Email and password are required');
+      return;
+    }
+    if (userForm.password.length < 6) {
+      setModalError('Password must be at least 6 characters');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
+    try {
+      const res = await apiCall('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(userForm),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowUserModal(false);
+        setUserForm({ email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' });
+        loadUsers();
+      } else {
+        setModalError(data.error || 'Failed to create user');
+      }
+    } catch (err) {
+      console.error('Create user error:', err);
+      setModalError('Network error');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const updateUser = async () => {
+    if (!editingUser) return;
+    if (!userForm.email.trim()) {
+      setModalError('Email is required');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
+    try {
+      const res = await apiCall(`/api/users/${editingUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          email: userForm.email,
+          firstName: userForm.firstName,
+          lastName: userForm.lastName,
+          role: userForm.role,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowUserModal(false);
+        setEditingUser(null);
+        setUserForm({ email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' });
+        loadUsers();
+      } else {
+        setModalError(data.error || 'Failed to update user');
+      }
+    } catch (err) {
+      console.error('Update user error:', err);
+      setModalError('Network error');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    try {
+      const res = await apiCall(`/api/users/${userId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        loadUsers();
+      } else {
+        alert(data.error || 'Failed to delete user');
+      }
+    } catch (err) {
+      console.error('Delete user error:', err);
+      alert('Network error');
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!editingUser) return;
+    if (!newPassword.trim() || newPassword.length < 6) {
+      setModalError('Password must be at least 6 characters');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
+    try {
+      const res = await apiCall(`/api/users/${editingUser.id}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setShowPasswordModal(false);
+        setEditingUser(null);
+        setNewPassword('');
+        alert('Password reset successfully');
+      } else {
+        setModalError(data.error || 'Failed to reset password');
+      }
+    } catch (err) {
+      console.error('Reset password error:', err);
+      setModalError('Network error');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const openEditUser = (user: User) => {
+    setEditingUser(user);
+    setUserForm({
+      email: user.email,
+      password: '',
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      role: user.role,
+    });
+    setShowUserModal(true);
+  };
+
+  const openPasswordReset = (user: User) => {
+    setEditingUser(user);
+    setNewPassword('');
+    setModalError('');
+    setShowPasswordModal(true);
   };
 
   const loadEventDetails = async (eventId: string) => {
@@ -737,29 +883,81 @@ export default function Home() {
         {/* Users Tab */}
         {activeTab === 'users' && (
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white">Users</h2>
-            <div className="bg-gray-800 rounded-xl p-6 space-y-3">
-              <div className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold">AU</div>
-                  <div>
-                    <p className="text-white font-medium">Admin User</p>
-                    <p className="text-gray-400 text-sm">admin@arena-event.com</p>
-                  </div>
-                </div>
-                <span className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm">SUPER_ADMIN</span>
-              </div>
-              <div className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-teal-500 rounded-full flex items-center justify-center text-white font-bold">OU</div>
-                  <div>
-                    <p className="text-white font-medium">Organizer User</p>
-                    <p className="text-gray-400 text-sm">organizer@arena-event.com</p>
-                  </div>
-                </div>
-                <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">ORGANIZER</span>
-              </div>
+            <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-bold text-white">Users</h2>
+              <button
+                onClick={() => {
+                  setEditingUser(null);
+                  setUserForm({ email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' });
+                  setModalError('');
+                  setShowUserModal(true);
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition">
+                + Create User
+              </button>
             </div>
+            {users.length === 0 ? (
+              <div className="bg-gray-800 rounded-xl p-12 text-center">
+                <p className="text-6xl mb-4">👥</p>
+                <p className="text-gray-400 text-lg">No users yet. Create your first user!</p>
+              </div>
+            ) : (
+              <div className="bg-gray-800 rounded-xl p-6 space-y-3">
+                {users.map((u) => {
+                  const initials = `${u.firstName?.[0] || ''}${u.lastName?.[0] || ''}`.toUpperCase() || u.email.substring(0, 2).toUpperCase();
+                  const roleColors = {
+                    SUPER_ADMIN: 'bg-purple-500/20 text-purple-400',
+                    ORGANIZER: 'bg-green-500/20 text-green-400',
+                    GAME_MASTER: 'bg-blue-500/20 text-blue-400',
+                    PRESENTER: 'bg-yellow-500/20 text-yellow-400',
+                  };
+                  const avatarColors = {
+                    SUPER_ADMIN: 'from-purple-500 to-pink-500',
+                    ORGANIZER: 'from-green-500 to-teal-500',
+                    GAME_MASTER: 'from-blue-500 to-cyan-500',
+                    PRESENTER: 'from-yellow-500 to-orange-500',
+                  };
+                  return (
+                    <div key={u.id} className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
+                      <div className="flex items-center space-x-4">
+                        <div className={`w-12 h-12 bg-gradient-to-br ${avatarColors[u.role as keyof typeof avatarColors] || 'from-gray-500 to-gray-600'} rounded-full flex items-center justify-center text-white font-bold`}>
+                          {initials}
+                        </div>
+                        <div>
+                          <p className="text-white font-medium">
+                            {u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.email}
+                          </p>
+                          <p className="text-gray-400 text-sm">{u.email}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <span className={`${roleColors[u.role as keyof typeof roleColors] || 'bg-gray-500/20 text-gray-400'} px-3 py-1 rounded-full text-sm`}>
+                          {u.role}
+                        </span>
+                        <button
+                          onClick={() => openEditUser(u)}
+                          className="text-gray-400 hover:text-white transition px-2"
+                          title="Edit user">
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => openPasswordReset(u)}
+                          className="text-gray-400 hover:text-yellow-400 transition px-2"
+                          title="Reset password">
+                          🔑
+                        </button>
+                        <button
+                          onClick={() => deleteUser(u.id)}
+                          className="text-gray-400 hover:text-red-400 transition px-2"
+                          title="Delete user">
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -1201,6 +1399,145 @@ export default function Home() {
                 className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition">Cancel</button>
               <button onClick={() => createSession(selectedEvent.id)}
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl transition">Start Session</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Modal */}
+      {showUserModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md">
+            <h3 className="text-2xl font-bold text-white mb-6">{editingUser ? 'Edit User' : 'Create User'}</h3>
+            {modalError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+                <p className="text-red-200 text-sm">{modalError}</p>
+              </div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Email</label>
+                <input
+                  type="email"
+                  value={userForm.email}
+                  onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="user@arena-event.fr"
+                  required
+                />
+              </div>
+              {!editingUser && (
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">Password</label>
+                  <input
+                    type="password"
+                    value={userForm.password}
+                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Minimum 6 characters"
+                    required
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">First Name</label>
+                  <input
+                    type="text"
+                    value={userForm.firstName}
+                    onChange={(e) => setUserForm({ ...userForm, firstName: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="John"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">Last Name</label>
+                  <input
+                    type="text"
+                    value={userForm.lastName}
+                    onChange={(e) => setUserForm({ ...userForm, lastName: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Doe"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Role</label>
+                <select
+                  value={userForm.role}
+                  onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                  <option value="ORGANIZER">Organizer</option>
+                  <option value="GAME_MASTER">Game Master</option>
+                  <option value="PRESENTER">Presenter</option>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex space-x-4 mt-6">
+              <button
+                onClick={() => {
+                  setShowUserModal(false);
+                  setEditingUser(null);
+                  setModalError('');
+                }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+                disabled={modalLoading}>
+                Cancel
+              </button>
+              <button
+                onClick={editingUser ? updateUser : createUser}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl transition disabled:opacity-50"
+                disabled={modalLoading}>
+                {modalLoading ? 'Saving...' : (editingUser ? 'Save Changes' : 'Create User')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordModal && editingUser && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md">
+            <h3 className="text-2xl font-bold text-white mb-6">Reset Password</h3>
+            <p className="text-gray-400 mb-4">
+              Reset password for <span className="text-white font-medium">{editingUser.email}</span>
+            </p>
+            {modalError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+                <p className="text-red-200 text-sm">{modalError}</p>
+              </div>
+            )}
+            <div className="mb-6">
+              <label className="block text-sm text-gray-300 mb-2">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Minimum 6 characters"
+                required
+              />
+            </div>
+            <div className="flex space-x-4">
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setEditingUser(null);
+                  setNewPassword('');
+                  setModalError('');
+                }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+                disabled={modalLoading}>
+                Cancel
+              </button>
+              <button
+                onClick={resetPassword}
+                className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-3 rounded-xl transition disabled:opacity-50"
+                disabled={modalLoading}>
+                {modalLoading ? 'Resetting...' : 'Reset Password'}
+              </button>
             </div>
           </div>
         </div>
