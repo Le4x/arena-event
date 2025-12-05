@@ -1464,6 +1464,16 @@ io.on('connection', (socket) => {
 
     if (teamId) {
       socket.teamId = teamId;
+
+      // Notify studio and other clients that this team is now connected
+      io.to(`session:${sessionId}`).emit('team-connected', {
+        teamId,
+        sessionId,
+        role,
+        timestamp: Date.now()
+      });
+
+      console.log(`Team ${teamId} connected to session ${sessionId}`);
     }
   };
   socket.on('join-session', joinSession);

@@ -224,6 +224,13 @@ export default function StudioHome() {
       ));
     });
 
+    socket.on('team-connected', (data) => {
+      setTeams(prev => prev.map(t =>
+        t.id === data.teamId ? { ...t, isConnected: true } : t
+      ));
+      console.log(`Team ${data.teamId} is now connected`);
+    });
+
     // Listen for answers
     socket.on('answer-submitted', (data) => {
       setAnswers(prev => [...prev, data]);
