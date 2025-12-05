@@ -92,6 +92,32 @@ const getTimerRemaining = (sessionId) => {
 };
 
 // ============================================
+// CONNECTION TRACKING (for real-time status)
+// ============================================
+const connectedTeams = new Map(); // sessionId -> Set<teamId>
+
+const trackTeamConnection = (sessionId, teamId) => {
+  if (!connectedTeams.has(sessionId)) {
+    connectedTeams.set(sessionId, new Set());
+  }
+  connectedTeams.get(sessionId).add(teamId);
+  console.log(`Team ${teamId} marked as connected in session ${sessionId}`);
+};
+
+const untrackTeamConnection = (sessionId, teamId) => {
+  const teams = connectedTeams.get(sessionId);
+  if (teams) {
+    teams.delete(teamId);
+    console.log(`Team ${teamId} marked as disconnected from session ${sessionId}`);
+  }
+};
+
+const getConnectedTeams = (sessionId) => {
+  const teams = connectedTeams.get(sessionId);
+  return teams ? Array.from(teams) : [];
+};
+
+// ============================================
 // BUZZER LOCK MANAGER (first-press wins) - WITH PERSISTENCE
 // ============================================
 const buzzerState = new Map(); // sessionId -> { locked: boolean, winner: team, timestamp, questionId, queue: [] }
@@ -1465,6 +1491,9 @@ io.on('connection', (socket) => {
     if (teamId) {
       socket.teamId = teamId;
 
+      // Track this team as connected
+      trackTeamConnection(sessionId, teamId);
+
       // Notify studio and other clients that this team is now connected
       io.to(`session:${sessionId}`).emit('team-connected', {
         teamId,
@@ -1474,6 +1503,16 @@ io.on('connection', (socket) => {
       });
 
       console.log(`Team ${teamId} connected to session ${sessionId}`);
+    }
+
+    // If this is a studio connection, send the current list of connected teams
+    if (role === 'studio') {
+      const connected = getConnectedTeams(sessionId);
+      socket.emit('session-state', {
+        connectedTeams: connected,
+        timestamp: Date.now()
+      });
+      console.log(`Sent session state to studio: ${connected.length} teams connected`);
     }
   };
   socket.on('join-session', joinSession);
@@ -2005,7 +2044,20 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     if (socket.sessionId && socket.teamId) {
+      // Untrack this team from connected teams
+      untrackTeamConnection(socket.sessionId, socket.teamId);
+
+      // Emit team-left for backward compatibility
       io.to(`session:${socket.sessionId}`).emit('team-left', { teamId: socket.teamId });
+
+      // Emit team-disconnected for real-time status update
+      io.to(`session:${socket.sessionId}`).emit('team-disconnected', {
+        teamId: socket.teamId,
+        sessionId: socket.sessionId,
+        timestamp: Date.now()
+      });
+
+      console.log(`Team ${socket.teamId} disconnected from session ${socket.sessionId}`);
     }
   });
 });
