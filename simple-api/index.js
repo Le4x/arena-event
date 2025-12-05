@@ -512,6 +512,102 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// USERS ROUTES
+// ============================================
+
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can list all users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(users);
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can update users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const { firstName, lastName, role } = req.body;
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...(firstName !== undefined && { firstName }),
+        ...(lastName !== undefined && { lastName }),
+        ...(role !== undefined && { role })
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    res.json(user);
+  } catch (error) {
+    console.error('Update user error:', error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can delete users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+
+    // Prevent deleting yourself
+    if (id === req.user.userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    await prisma.user.delete({
+      where: { id }
+    });
+
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
 // EVENTS ROUTES
 // ============================================
 
