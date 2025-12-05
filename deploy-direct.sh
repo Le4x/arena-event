@@ -17,9 +17,21 @@ git pull origin $BRANCH
 echo "📦 Installation des dépendances..."
 npm install
 
-echo "🔨 Build de l'admin..."
+echo "🔨 Build de toutes les apps Next.js..."
 cd apps/web-admin
 npm run build || echo "⚠️  Admin build failed, skipping..."
+cd ../..
+
+cd apps/web-studio
+npm run build || echo "⚠️  Studio build failed, skipping..."
+cd ../..
+
+cd apps/web-player
+npm run build || echo "⚠️  Player build failed, skipping..."
+cd ../..
+
+cd apps/web-screen
+npm run build || echo "⚠️  Screen build failed, skipping..."
 cd ../..
 
 echo "🔄 Redémarrage des services..."
