@@ -17,13 +17,6 @@ git pull origin $BRANCH
 echo "📦 Installation des dépendances..."
 npm install
 
-echo "🔨 Build de l'API NestJS..."
-cd apps/api
-npm run db:generate
-npm run db:migrate:deploy
-npm run build
-cd ../..
-
 echo "🔨 Build de l'admin..."
 cd apps/web-admin
 npm run build || echo "⚠️  Admin build failed, skipping..."
