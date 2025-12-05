@@ -119,8 +119,8 @@ const trackTeamConnection = (sessionId, teamId) => {
 };
 
 const untrackTeamConnection = (sessionId, teamId) => {
-  // Don't immediately disconnect - give them a grace period (2 seconds)
-  // This handles page refreshes where they reconnect quickly
+  // Don't immediately disconnect - give them a grace period (5 seconds)
+  // This handles page refreshes and mobile app switching where they reconnect quickly
   const disconnectTimer = setTimeout(() => {
     const teams = connectedTeams.get(sessionId);
     if (teams && teams.has(teamId)) {
@@ -138,10 +138,10 @@ const untrackTeamConnection = (sessionId, teamId) => {
       });
     }
     disconnectTimers.delete(teamId);
-  }, 2000); // 2 second grace period
+  }, 5000); // 5 second grace period for mobile app switching
 
   disconnectTimers.set(teamId, disconnectTimer);
-  console.log(`Team ${teamId} disconnect scheduled (2s grace period)`);
+  console.log(`Team ${teamId} disconnect scheduled (5s grace period)`);
 };
 
 const getConnectedTeams = (sessionId) => {
@@ -1856,6 +1856,19 @@ io.on('connection', (socket) => {
       }
 
       const isCorrect = normalizedAnswer === normalizedCorrect;
+
+      // Debug logging for TRUE_FALSE questions
+      if (question.type === 'TRUE_FALSE') {
+        console.log(`🔍 TRUE_FALSE Debug:`, {
+          originalAnswer: answer,
+          normalizedAnswer,
+          originalCorrect: question.correctAnswer,
+          normalizedCorrect,
+          isCorrect,
+          match: normalizedAnswer === normalizedCorrect
+        });
+      }
+
       const timeVal = responseTime ? (question.timeLimit * 1000 - responseTime) / 1000 : (timeRemaining || 0);
       let points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
 
@@ -2098,7 +2111,7 @@ io.on('connection', (socket) => {
     console.log('Client disconnected:', socket.id);
     if (socket.sessionId && socket.teamId) {
       // Untrack this team from connected teams (with grace period)
-      // The grace period will emit team-disconnected/team-left after 2 seconds if no reconnection
+      // The grace period will emit team-disconnected/team-left after 5 seconds if no reconnection
       untrackTeamConnection(socket.sessionId, socket.teamId);
       console.log(`Team ${socket.teamId} disconnect initiated from session ${socket.sessionId} (grace period active)`);
     }

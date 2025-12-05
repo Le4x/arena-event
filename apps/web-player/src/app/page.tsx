@@ -74,6 +74,31 @@ export default function PlayerHome() {
     }
   }, []);
 
+  // Handle page visibility changes (mobile app switching)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is now hidden (user switched apps/tabs)
+        console.log('📱 Page hidden - connection will pause');
+        // Socket.IO will handle disconnect automatically
+      } else {
+        // Page is now visible (user came back)
+        console.log('📱 Page visible - checking connection');
+        // Force reconnect if disconnected
+        if (socketRef.current && !socketRef.current.connected && session && team) {
+          console.log('🔄 Forcing reconnection...');
+          socketRef.current.connect();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [session, team]);
+
   // Game state
   const [gameState, setGameState] = useState<GameState>('JOIN');
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
