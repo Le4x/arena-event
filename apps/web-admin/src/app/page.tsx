@@ -944,7 +944,19 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Type</label>
-                  <select value={questionForm.type} onChange={(e) => setQuestionForm({ ...questionForm, type: e.target.value })}
+                  <select value={questionForm.type} onChange={(e) => {
+                    const newType = e.target.value;
+                    // Reset correctAnswer based on type
+                    let newCorrectAnswer = questionForm.correctAnswer;
+                    if (newType === 'TRUE_FALSE') {
+                      newCorrectAnswer = 'TRUE'; // Default to TRUE for TRUE_FALSE
+                    } else if (newType === 'MCQ' || newType === 'IMAGE') {
+                      newCorrectAnswer = 'A'; // Default to A for MCQ
+                    } else {
+                      newCorrectAnswer = ''; // Empty for BUZZER and BLIND_TEST
+                    }
+                    setQuestionForm({ ...questionForm, type: newType, correctAnswer: newCorrectAnswer });
+                  }}
                     className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white">
                     <option value="MCQ">Multiple Choice</option>
                     <option value="TRUE_FALSE">True/False</option>

@@ -1901,8 +1901,20 @@ io.on('connection', (socket) => {
         });
       }
 
-      await prisma.answer.create({
-        data: {
+      // Use upsert to allow updating answer if team answers multiple times
+      await prisma.answer.upsert({
+        where: {
+          questionId_teamId: {
+            questionId,
+            teamId
+          }
+        },
+        update: {
+          content: answer,
+          isCorrect,
+          points: isCorrect ? points : 0
+        },
+        create: {
           teamId,
           questionId,
           content: answer,
