@@ -1802,7 +1802,28 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const isCorrect = answer === question.correctAnswer;
+      // Normalize answer based on question type
+      let normalizedAnswer = answer;
+      let normalizedCorrect = question.correctAnswer;
+
+      if (question.type === 'OPEN' || question.type === 'BLIND_TEST') {
+        // For open questions and blindtest, normalize: trim, lowercase, remove accents
+        normalizedAnswer = answer.toString().trim().toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Remove accents
+        normalizedCorrect = question.correctAnswer.toString().trim().toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      } else if (question.type === 'MCQ' || question.type === 'TRUE_FALSE') {
+        // For MCQ and TRUE_FALSE, strict comparison (uppercase already)
+        normalizedAnswer = answer.toString().trim().toUpperCase();
+        normalizedCorrect = question.correctAnswer.toString().trim().toUpperCase();
+      } else if (question.type === 'BUZZER') {
+        // For buzzer, we don't validate here - validation happens in buzzer-correct/wrong events
+        // But we still store the answer
+        normalizedAnswer = answer.toString().trim();
+        normalizedCorrect = question.correctAnswer ? question.correctAnswer.toString().trim() : '';
+      }
+
+      const isCorrect = normalizedAnswer === normalizedCorrect;
       const timeVal = responseTime ? (question.timeLimit * 1000 - responseTime) / 1000 : (timeRemaining || 0);
       let points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
 
