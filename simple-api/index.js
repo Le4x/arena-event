@@ -95,21 +95,53 @@ const getTimerRemaining = (sessionId) => {
 // CONNECTION TRACKING (for real-time status)
 // ============================================
 const connectedTeams = new Map(); // sessionId -> Set<teamId>
+const disconnectTimers = new Map(); // teamId -> setTimeout reference (grace period)
 
 const trackTeamConnection = (sessionId, teamId) => {
+  // Cancel any pending disconnect for this team (they reconnected!)
+  const disconnectTimer = disconnectTimers.get(teamId);
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimers.delete(teamId);
+    console.log(`Team ${teamId} reconnected (disconnect cancelled)`);
+  }
+
   if (!connectedTeams.has(sessionId)) {
     connectedTeams.set(sessionId, new Set());
   }
+
+  const wasAlreadyConnected = connectedTeams.get(sessionId).has(teamId);
   connectedTeams.get(sessionId).add(teamId);
-  console.log(`Team ${teamId} marked as connected in session ${sessionId}`);
+
+  if (!wasAlreadyConnected) {
+    console.log(`Team ${teamId} marked as connected in session ${sessionId}`);
+  }
 };
 
 const untrackTeamConnection = (sessionId, teamId) => {
-  const teams = connectedTeams.get(sessionId);
-  if (teams) {
-    teams.delete(teamId);
-    console.log(`Team ${teamId} marked as disconnected from session ${sessionId}`);
-  }
+  // Don't immediately disconnect - give them a grace period (2 seconds)
+  // This handles page refreshes where they reconnect quickly
+  const disconnectTimer = setTimeout(() => {
+    const teams = connectedTeams.get(sessionId);
+    if (teams && teams.has(teamId)) {
+      teams.delete(teamId);
+      console.log(`Team ${teamId} marked as disconnected from session ${sessionId} (after grace period)`);
+
+      // Emit team-left for backward compatibility
+      io.to(`session:${sessionId}`).emit('team-left', { teamId });
+
+      // Emit team-disconnected after grace period
+      io.to(`session:${sessionId}`).emit('team-disconnected', {
+        teamId,
+        sessionId,
+        timestamp: Date.now()
+      });
+    }
+    disconnectTimers.delete(teamId);
+  }, 2000); // 2 second grace period
+
+  disconnectTimers.set(teamId, disconnectTimer);
+  console.log(`Team ${teamId} disconnect scheduled (2s grace period)`);
 };
 
 const getConnectedTeams = (sessionId) => {
@@ -2065,20 +2097,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     if (socket.sessionId && socket.teamId) {
-      // Untrack this team from connected teams
+      // Untrack this team from connected teams (with grace period)
+      // The grace period will emit team-disconnected/team-left after 2 seconds if no reconnection
       untrackTeamConnection(socket.sessionId, socket.teamId);
-
-      // Emit team-left for backward compatibility
-      io.to(`session:${socket.sessionId}`).emit('team-left', { teamId: socket.teamId });
-
-      // Emit team-disconnected for real-time status update
-      io.to(`session:${socket.sessionId}`).emit('team-disconnected', {
-        teamId: socket.teamId,
-        sessionId: socket.sessionId,
-        timestamp: Date.now()
-      });
-
-      console.log(`Team ${socket.teamId} disconnected from session ${socket.sessionId}`);
+      console.log(`Team ${socket.teamId} disconnect initiated from session ${socket.sessionId} (grace period active)`);
     }
   });
 });
