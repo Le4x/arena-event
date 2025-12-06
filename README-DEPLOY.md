@@ -148,6 +148,23 @@ npx prisma migrate deploy
 npx prisma generate
 ```
 
+### `fatal: couldn't find remote ref <branch>`
+
+Le dépôt sur le VPS n'a pas de remote configuré ou la branche n'existe pas côté serveur. Configurez d'abord le remote puis récupérez la bonne branche :
+
+```bash
+# Ajouter le remote si absent (remplacez par l'URL de votre dépôt Git)
+git remote add origin <URL_DU_DEPOT>
+
+# Vérifier les branches disponibles sur le serveur
+git fetch --all
+git branch -a
+
+# Se placer sur la branche à déployer (exemple : main)
+git checkout main
+git pull origin main
+```
+
 ### Voir les erreurs détaillées
 
 ```bash

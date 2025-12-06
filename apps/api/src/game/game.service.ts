@@ -160,42 +160,34 @@ export class GameService {
    * Record a buzzer press - ATOMIC VERSION (no race condition)
    * Uses Prisma transaction with serializable isolation level
    */
-  async pressBuzzer(data: { questionId: string; teamId: string }) {
-    const { questionId, teamId } = data;
+  async pressBuzzer(data: { questionId: string; teamId: string; sessionId: string }) {
+    const { questionId, teamId, sessionId } = data;
 
     // Use a transaction to ensure atomicity
     const buzzerPress = await this.prisma.$transaction(async (tx) => {
-      // 1. Get game state to check if buzzer is locked
-      const question = await tx.question.findUnique({
-        where: { id: questionId },
-        include: {
-          round: {
-            include: {
-              event: {
-                include: {
-                  sessions: {
-                    include: {
-                      gameState: true,
-                    },
-                  },
-                },
-              },
-            },
+      const [session, question] = await Promise.all([
+        tx.session.findUnique({
+          where: { id: sessionId },
+          include: {
+            gameState: true,
           },
-        },
-      });
+        }),
+        tx.question.findUnique({
+          where: { id: questionId },
+          select: { id: true },
+        }),
+      ]);
+
+      if (!session || !session.gameState) {
+        throw new BadRequestException('Session is not ready');
+      }
 
       if (!question) {
         throw new NotFoundException('Question not found');
       }
 
-      // Find the game state for this question
-      const session = question.round.event.sessions.find(
-        (s) => s.currentQuestionId === questionId,
-      );
-
-      if (!session || !session.gameState) {
-        throw new BadRequestException('Question is not active');
+      if (session.currentQuestionId !== questionId) {
+        throw new BadRequestException('Question is not active for this session');
       }
 
       if (session.gameState.buzzerLocked) {
@@ -219,12 +211,12 @@ export class GameService {
       // 3. Get current rank atomically using raw query with FOR UPDATE lock
       // This prevents race conditions by locking the rows during count
       const countResult = await tx.$queryRaw<[{ count: bigint }]>`
-        SELECT COUNT(*)::int as count 
-        FROM buzzer_presses 
+        SELECT COUNT(*)::int as count
+        FROM buzzer_presses
         WHERE "questionId" = ${questionId}
         FOR UPDATE
       `;
-      
+
       const rank = Number(countResult[0].count) + 1;
 
       // 4. Create buzzer press with the calculated rank
@@ -239,7 +231,7 @@ export class GameService {
       // 5. If this is the first buzz, lock the buzzer
       if (rank === 1) {
         await tx.gameState.update({
-          where: { sessionId: session.id },
+          where: { sessionId },
           data: {
             buzzerLocked: true,
             buzzerWinner: teamId,
@@ -247,7 +239,7 @@ export class GameService {
         });
       }
 
-      return newBuzzerPress;
+      return { ...newBuzzerPress, winnerTeamId: rank === 1 ? teamId : session.gameState.buzzerWinner };
     }, {
       // Serializable isolation ensures no concurrent modifications
       isolationLevel: 'Serializable',
