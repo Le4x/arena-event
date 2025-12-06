@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Team } from '@prisma/client';
+import { MAX_TEAMS_PER_SESSION } from '@arena-event/shared';
 
 @Injectable()
 export class TeamsService {
@@ -56,18 +57,28 @@ export class TeamsService {
       throw new ConflictException('Team name already exists in this session');
     }
 
+    const teamCount = await this.prisma.team.count({
+      where: { sessionId: data.sessionId },
+    });
+
+    if (teamCount >= MAX_TEAMS_PER_SESSION) {
+      throw new ConflictException('Maximum number of teams reached for this session');
+    }
+
     return this.prisma.team.create({
       data,
     });
   }
 
   async updateScore(id: string, delta: number): Promise<Team> {
-    const team = await this.findOne(id);
+    await this.findOne(id);
 
     return this.prisma.team.update({
       where: { id },
       data: {
-        score: team.score + delta,
+        score: {
+          increment: delta,
+        },
       },
     });
   }

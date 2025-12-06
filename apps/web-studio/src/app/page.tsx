@@ -182,7 +182,7 @@ export default function StudioHome() {
       setIsConnected(true);
       setConnectionError(null);
       setRetryCount(0);
-      socket.emit('join-session', { sessionId: selectedSession.id, role: 'studio' });
+      socket.emit('join_session', { sessionId: selectedSession.id, role: 'studio' });
     });
 
     socket.on('disconnect', (reason) => {

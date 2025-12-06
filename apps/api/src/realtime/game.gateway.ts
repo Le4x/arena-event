@@ -8,19 +8,35 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { GameService } from '../game/game.service';
 import { TeamsService } from '../teams/teams.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { WsGameMasterGuard, WsSessionGuard } from './ws-auth.guard';
+import { WsBuzzerRateLimitGuard, WsRateLimitGuard } from './ws-rate-limit.guard';
+
+const DEFAULT_WS_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3002',
+  'http://localhost:3003',
+  'http://localhost:3004',
+];
+
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  : DEFAULT_WS_ORIGINS;
 
 interface JoinSessionPayload {
   sessionId: string;
   teamId?: string;
-  role?: 'player' | 'gamemaster' | 'screen';
+  role?: 'player' | 'gamemaster' | 'screen' | 'studio';
 }
 
 interface SubmitAnswerPayload {
+  sessionId: string;
   questionId: string;
   teamId: string;
   content: string;
@@ -33,7 +49,7 @@ interface BuzzerPayload {
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: allowedOrigins,
     credentials: true,
   },
 })
@@ -76,6 +92,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (!session) {
         client.emit('error', { message: 'Session not found' });
         return;
+      }
+
+      if (role === 'player' && teamId) {
+        const team = await this.teamsService.findOne(teamId);
+
+        if (team.sessionId !== sessionId) {
+          client.emit('error', { message: 'Team does not belong to this session' });
+          return;
+        }
       }
 
       // Join the session room
@@ -123,14 +148,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Submit an answer
    */
+  @UseGuards(WsRateLimitGuard, WsSessionGuard)
   @SubscribeMessage('submit_answer')
   async handleSubmitAnswer(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: SubmitAnswerPayload,
   ) {
     try {
-      const answer = await this.gameService.submitAnswer(payload);
-
       // Get session ID from client metadata
       const clientMeta = await this.roomsService.getClientMeta(client.id);
 
@@ -138,6 +162,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('error', { message: 'Not in a session' });
         return;
       }
+
+      if (clientMeta.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Invalid session context' });
+        return;
+      }
+
+      if (clientMeta.teamId && clientMeta.teamId !== payload.teamId) {
+        client.emit('error', { message: 'Invalid team context' });
+        return;
+      }
+
+      const answer = await this.gameService.submitAnswer(payload);
 
       // Emit to gamemaster only (not to all players)
       this.server.to(`session:${clientMeta.sessionId}`).emit('answer_submitted', {
@@ -156,15 +192,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Press buzzer
    */
+  @UseGuards(WsBuzzerRateLimitGuard, WsSessionGuard)
   @SubscribeMessage('buzzer_press')
   async handleBuzzerPress(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: BuzzerPayload,
   ) {
     try {
-      const buzzerPress = await this.gameService.pressBuzzer(payload);
-
-      // Get session ID
       const clientMeta = await this.roomsService.getClientMeta(client.id);
 
       if (!clientMeta) {
@@ -172,7 +206,22 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
+      if (clientMeta.teamId && clientMeta.teamId !== payload.teamId) {
+        client.emit('error', { message: 'Invalid team context' });
+        return;
+      }
+
       const team = await this.teamsService.findOne(payload.teamId);
+
+      if (team.sessionId !== clientMeta.sessionId) {
+        client.emit('error', { message: 'Team does not belong to this session' });
+        return;
+      }
+
+      const buzzerPress = await this.gameService.pressBuzzer({
+        ...payload,
+        sessionId: clientMeta.sessionId,
+      });
 
       // Broadcast to all in session
       this.server.to(`session:${clientMeta.sessionId}`).emit('buzz', {
@@ -181,6 +230,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         rank: buzzerPress.rank,
         timestamp: buzzerPress.pressedAt,
       });
+
+      const winnerTeamId = buzzerPress.winnerTeamId ?? (buzzerPress.rank === 1 ? team.id : undefined);
+      const winnerTeamName =
+        winnerTeamId && winnerTeamId === team.id
+          ? team.name
+          : winnerTeamId
+          ? (await this.teamsService.findOne(winnerTeamId)).name
+          : undefined;
+
+      return {
+        success: true,
+        winner: buzzerPress.rank === 1,
+        actualWinner: winnerTeamName ? { name: winnerTeamName } : undefined,
+      };
     } catch (error) {
       this.logger.error('Error pressing buzzer:', error);
       client.emit('error', { message: error.message });
@@ -190,12 +253,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Start a question
    */
+  @UseGuards(WsRateLimitGuard, WsGameMasterGuard)
   @SubscribeMessage('start_question')
   async handleStartQuestion(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { sessionId: string; questionId: string },
   ) {
     try {
+      const clientMeta = await this.roomsService.getClientMeta(client.id);
+
+      if (!clientMeta || clientMeta.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Invalid session context' });
+        return;
+      }
+
       const result = await this.gameService.startQuestion(payload.sessionId, payload.questionId);
 
       // Broadcast to all in session
@@ -212,12 +283,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: End a question
    */
+  @UseGuards(WsRateLimitGuard, WsGameMasterGuard)
   @SubscribeMessage('end_question')
   async handleEndQuestion(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { sessionId: string; questionId: string },
   ) {
     try {
+      const clientMeta = await this.roomsService.getClientMeta(client.id);
+
+      if (!clientMeta || clientMeta.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Invalid session context' });
+        return;
+      }
+
       await this.gameService.endQuestion(payload.sessionId, payload.questionId);
 
       // Broadcast to all in session
@@ -233,12 +312,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Show leaderboard
    */
+  @UseGuards(WsRateLimitGuard, WsGameMasterGuard)
   @SubscribeMessage('show_leaderboard')
   async handleShowLeaderboard(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { sessionId: string },
   ) {
     try {
+      const clientMeta = await this.roomsService.getClientMeta(client.id);
+
+      if (!clientMeta || clientMeta.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Invalid session context' });
+        return;
+      }
+
       const leaderboard = await this.gameService.getLeaderboard(payload.sessionId);
 
       this.server.to(`session:${payload.sessionId}`).emit('leaderboard_shown', {
@@ -254,18 +341,33 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Update score manually
    */
+  @UseGuards(WsRateLimitGuard, WsGameMasterGuard)
   @SubscribeMessage('update_score')
   async handleUpdateScore(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { sessionId: string; teamId: string; delta: number; reason?: string },
   ) {
     try {
-      const team = await this.teamsService.updateScore(payload.teamId, payload.delta);
+      const clientMeta = await this.roomsService.getClientMeta(client.id);
+
+      if (!clientMeta || clientMeta.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Invalid session context' });
+        return;
+      }
+
+      const team = await this.teamsService.findOne(payload.teamId);
+
+      if (team.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Team does not belong to this session' });
+        return;
+      }
+
+      const updatedTeam = await this.teamsService.updateScore(payload.teamId, payload.delta);
 
       this.server.to(`session:${payload.sessionId}`).emit('score_updated', {
-        teamId: team.id,
-        teamName: team.name,
-        newScore: team.score,
+        teamId: updatedTeam.id,
+        teamName: updatedTeam.name,
+        newScore: updatedTeam.score,
         delta: payload.delta,
         reason: payload.reason,
       });
@@ -278,12 +380,20 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Reset buzzer
    */
+  @UseGuards(WsRateLimitGuard, WsGameMasterGuard)
   @SubscribeMessage('reset_buzzer')
   async handleResetBuzzer(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { sessionId: string; questionId: string },
   ) {
     try {
+      const clientMeta = await this.roomsService.getClientMeta(client.id);
+
+      if (!clientMeta || clientMeta.sessionId !== payload.sessionId) {
+        client.emit('error', { message: 'Invalid session context' });
+        return;
+      }
+
       await this.gameService.resetBuzzer(payload.sessionId, payload.questionId);
 
       this.server.to(`session:${payload.sessionId}`).emit('buzzer_reset', {

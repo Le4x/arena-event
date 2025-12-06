@@ -21,6 +21,7 @@ class SubmitAnswerDto {
 }
 
 class BuzzerPressDto {
+  sessionId: string;
   questionId: string;
   teamId: string;
 }

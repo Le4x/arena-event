@@ -274,7 +274,7 @@ export default function PlayerHome() {
       setConnectionError(null);
       setShowConnectionOverlay(false);
       setRetryCount(0);
-      socket.emit('join-session', {
+      socket.emit('join_session', {
         sessionId,
         teamId,
         role: 'player',
@@ -540,11 +540,11 @@ export default function PlayerHome() {
     const responseTime = Date.now() - questionStartTime.current;
 
     // Send via socket only (server handles persistence)
-    socketRef.current?.emit('submit-answer', {
+    socketRef.current?.emit('submit_answer', {
       sessionId: session.id,
       teamId: team.id,
       questionId: currentQuestion.id,
-      answer,
+      content: answer,
       responseTime,
     });
   };
@@ -563,27 +563,28 @@ export default function PlayerHome() {
     setBuzzerPressed(true);
 
     // Emit with acknowledgment callback
-    socketRef.current?.emit('buzzer-press', {
-      sessionId: session.id,
-      teamId: team.id,
-      teamName: team.name,
-      team: team,
-      timestamp: Date.now(),
-    }, (response: { success: boolean; winner: boolean; actualWinner?: { name: string } }) => {
-      // Handle acknowledgment from server
-      if (response) {
-        if (response.success && response.winner) {
-          // We won the buzzer!
-          console.log('Buzzer press confirmed - we won!');
-        } else if (!response.success && response.actualWinner) {
-          // Someone else was faster
-          console.log(`Buzzer press rejected - ${response.actualWinner.name} was faster`);
-          setBuzzerPressed(false);
-          // Keep buzzer locked since someone else won
-          setBuzzerOpen(false);
+    socketRef.current?.emit(
+      'buzzer_press',
+      {
+        questionId: currentQuestion.id,
+        teamId: team.id,
+      },
+      (response: { success: boolean; winner: boolean; actualWinner?: { name: string } }) => {
+        // Handle acknowledgment from server
+        if (response) {
+          if (response.success && response.winner) {
+            // We won the buzzer!
+            console.log('Buzzer press confirmed - we won!');
+          } else if (!response.success && response.actualWinner) {
+            // Someone else was faster
+            console.log(`Buzzer press rejected - ${response.actualWinner.name} was faster`);
+            setBuzzerPressed(false);
+            // Keep buzzer locked since someone else won
+            setBuzzerOpen(false);
+          }
         }
-      }
-    });
+      },
+    );
   };
 
   // Use joker (finale mode only)
@@ -592,11 +593,10 @@ export default function PlayerHome() {
     if (!myJokers[jokerType] || myJokers[jokerType] <= 0) return;
     if (activeJoker) return; // Already using a joker this question
 
-    socketRef.current?.emit('joker-use', {
+    socketRef.current?.emit('use_joker', {
       sessionId: session.id,
       teamId: team.id,
-      teamName: team.name,
-      jokerType
+      jokerType,
     });
   };
 
