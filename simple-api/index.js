@@ -92,6 +92,64 @@ const getTimerRemaining = (sessionId) => {
 };
 
 // ============================================
+// CONNECTION TRACKING (for real-time status)
+// ============================================
+const connectedTeams = new Map(); // sessionId -> Set<teamId>
+const disconnectTimers = new Map(); // teamId -> setTimeout reference (grace period)
+
+const trackTeamConnection = (sessionId, teamId) => {
+  // Cancel any pending disconnect for this team (they reconnected!)
+  const disconnectTimer = disconnectTimers.get(teamId);
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimers.delete(teamId);
+    console.log(`Team ${teamId} reconnected (disconnect cancelled)`);
+  }
+
+  if (!connectedTeams.has(sessionId)) {
+    connectedTeams.set(sessionId, new Set());
+  }
+
+  const wasAlreadyConnected = connectedTeams.get(sessionId).has(teamId);
+  connectedTeams.get(sessionId).add(teamId);
+
+  if (!wasAlreadyConnected) {
+    console.log(`Team ${teamId} marked as connected in session ${sessionId}`);
+  }
+};
+
+const untrackTeamConnection = (sessionId, teamId) => {
+  // Don't immediately disconnect - give them a grace period (5 seconds)
+  // This handles page refreshes and mobile app switching where they reconnect quickly
+  const disconnectTimer = setTimeout(() => {
+    const teams = connectedTeams.get(sessionId);
+    if (teams && teams.has(teamId)) {
+      teams.delete(teamId);
+      console.log(`Team ${teamId} marked as disconnected from session ${sessionId} (after grace period)`);
+
+      // Emit team-left for backward compatibility
+      io.to(`session:${sessionId}`).emit('team-left', { teamId });
+
+      // Emit team-disconnected after grace period
+      io.to(`session:${sessionId}`).emit('team-disconnected', {
+        teamId,
+        sessionId,
+        timestamp: Date.now()
+      });
+    }
+    disconnectTimers.delete(teamId);
+  }, 5000); // 5 second grace period for mobile app switching
+
+  disconnectTimers.set(teamId, disconnectTimer);
+  console.log(`Team ${teamId} disconnect scheduled (5s grace period)`);
+};
+
+const getConnectedTeams = (sessionId) => {
+  const teams = connectedTeams.get(sessionId);
+  return teams ? Array.from(teams) : [];
+};
+
+// ============================================
 // BUZZER LOCK MANAGER (first-press wins) - WITH PERSISTENCE
 // ============================================
 const buzzerState = new Map(); // sessionId -> { locked: boolean, winner: team, timestamp, questionId, queue: [] }
@@ -507,6 +565,102 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     });
     res.json({ user });
   } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// USERS ROUTES
+// ============================================
+
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can list all users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(users);
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can update users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const { firstName, lastName, role } = req.body;
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...(firstName !== undefined && { firstName }),
+        ...(lastName !== undefined && { lastName }),
+        ...(role !== undefined && { role })
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    res.json(user);
+  } catch (error) {
+    console.error('Update user error:', error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can delete users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+
+    // Prevent deleting yourself
+    if (id === req.user.userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    await prisma.user.delete({
+      where: { id }
+    });
+
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'User not found' });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1368,6 +1522,29 @@ io.on('connection', (socket) => {
 
     if (teamId) {
       socket.teamId = teamId;
+
+      // Track this team as connected
+      trackTeamConnection(sessionId, teamId);
+
+      // Notify studio and other clients that this team is now connected
+      io.to(`session:${sessionId}`).emit('team-connected', {
+        teamId,
+        sessionId,
+        role,
+        timestamp: Date.now()
+      });
+
+      console.log(`Team ${teamId} connected to session ${sessionId}`);
+    }
+
+    // If this is a studio connection, send the current list of connected teams
+    if (role === 'studio') {
+      const connected = getConnectedTeams(sessionId);
+      socket.emit('session-state', {
+        connectedTeams: connected,
+        timestamp: Date.now()
+      });
+      console.log(`Sent session state to studio: ${connected.length} teams connected`);
     }
   };
   socket.on('join-session', joinSession);
@@ -1657,7 +1834,41 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const isCorrect = answer === question.correctAnswer;
+      // Normalize answer based on question type
+      let normalizedAnswer = answer;
+      let normalizedCorrect = question.correctAnswer;
+
+      if (question.type === 'OPEN' || question.type === 'BLIND_TEST') {
+        // For open questions and blindtest, normalize: trim, lowercase, remove accents
+        normalizedAnswer = answer.toString().trim().toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Remove accents
+        normalizedCorrect = question.correctAnswer.toString().trim().toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      } else if (question.type === 'MCQ' || question.type === 'TRUE_FALSE') {
+        // For MCQ and TRUE_FALSE, strict comparison (uppercase already)
+        normalizedAnswer = answer.toString().trim().toUpperCase();
+        normalizedCorrect = question.correctAnswer.toString().trim().toUpperCase();
+      } else if (question.type === 'BUZZER') {
+        // For buzzer, we don't validate here - validation happens in buzzer-correct/wrong events
+        // But we still store the answer
+        normalizedAnswer = answer.toString().trim();
+        normalizedCorrect = question.correctAnswer ? question.correctAnswer.toString().trim() : '';
+      }
+
+      const isCorrect = normalizedAnswer === normalizedCorrect;
+
+      // Debug logging for TRUE_FALSE questions
+      if (question.type === 'TRUE_FALSE') {
+        console.log(`🔍 TRUE_FALSE Debug:`, {
+          originalAnswer: answer,
+          normalizedAnswer,
+          originalCorrect: question.correctAnswer,
+          normalizedCorrect,
+          isCorrect,
+          match: normalizedAnswer === normalizedCorrect
+        });
+      }
+
       const timeVal = responseTime ? (question.timeLimit * 1000 - responseTime) / 1000 : (timeRemaining || 0);
       let points = calculateScore(isCorrect, timeVal, question.timeLimit, question.points);
 
@@ -1690,8 +1901,20 @@ io.on('connection', (socket) => {
         });
       }
 
-      await prisma.answer.create({
-        data: {
+      // Use upsert to allow updating answer if team answers multiple times
+      await prisma.answer.upsert({
+        where: {
+          questionId_teamId: {
+            questionId,
+            teamId
+          }
+        },
+        update: {
+          content: answer,
+          isCorrect,
+          points: isCorrect ? points : 0
+        },
+        create: {
           teamId,
           questionId,
           content: answer,
@@ -1899,7 +2122,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     if (socket.sessionId && socket.teamId) {
-      io.to(`session:${socket.sessionId}`).emit('team-left', { teamId: socket.teamId });
+      // Untrack this team from connected teams (with grace period)
+      // The grace period will emit team-disconnected/team-left after 5 seconds if no reconnection
+      untrackTeamConnection(socket.sessionId, socket.teamId);
+      console.log(`Team ${socket.teamId} disconnect initiated from session ${socket.sessionId} (grace period active)`);
     }
   });
 });

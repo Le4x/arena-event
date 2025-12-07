@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// API URL - configurable via environment variable with HTTPS default
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
 
 type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
 
@@ -53,6 +53,51 @@ export default function PlayerHome() {
   const [session, setSession] = useState<Session | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [existingTeams, setExistingTeams] = useState<Team[]>([]);
+
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    const savedSession = localStorage.getItem('arena-session');
+    const savedTeam = localStorage.getItem('arena-team');
+    if (savedSession && savedTeam) {
+      try {
+        const parsedSession = JSON.parse(savedSession);
+        const parsedTeam = JSON.parse(savedTeam);
+        setSession(parsedSession);
+        setTeam(parsedTeam);
+        setGameState('LOBBY');
+        connectSocket(parsedSession.id, parsedTeam.id);
+      } catch (e) {
+        console.error('Failed to restore session:', e);
+        localStorage.removeItem('arena-session');
+        localStorage.removeItem('arena-team');
+      }
+    }
+  }, []);
+
+  // Handle page visibility changes (mobile app switching)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is now hidden (user switched apps/tabs)
+        console.log('📱 Page hidden - connection will pause');
+        // Socket.IO will handle disconnect automatically
+      } else {
+        // Page is now visible (user came back)
+        console.log('📱 Page visible - checking connection');
+        // Force reconnect if disconnected
+        if (socketRef.current && !socketRef.current.connected && session && team) {
+          console.log('🔄 Forcing reconnection...');
+          socketRef.current.connect();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [session, team]);
 
   // Game state
   const [gameState, setGameState] = useState<GameState>('JOIN');
@@ -120,11 +165,14 @@ export default function PlayerHome() {
       }
 
       const data = await res.json();
-      setSession({
+      const newSession = {
         id: data.session.id,
         code: data.session.code,
         eventName: data.session.event?.name || 'Arena Event',
-      });
+      };
+      setSession(newSession);
+      // Save to localStorage
+      localStorage.setItem('arena-session', JSON.stringify(newSession));
       setExistingTeams(data.session.teams || []);
       setGameState('TEAM_SELECT');
     } catch (err) {
@@ -168,6 +216,8 @@ export default function PlayerHome() {
 
       const data = await res.json();
       setTeam(data);
+      // Save to localStorage
+      localStorage.setItem('arena-team', JSON.stringify(data));
       setGameState('LOBBY');
 
       // Connect socket
@@ -184,6 +234,8 @@ export default function PlayerHome() {
     if (!session) return;
 
     setTeam(existingTeam);
+    // Save to localStorage
+    localStorage.setItem('arena-team', JSON.stringify(existingTeam));
     setTeamName(existingTeam.name);
     setGameState('LOBBY');
     connectSocket(session.id, existingTeam.id);
@@ -1278,6 +1330,9 @@ export default function PlayerHome() {
           <button
             onClick={() => {
               socketRef.current?.disconnect();
+              // Clear localStorage
+              localStorage.removeItem('arena-session');
+              localStorage.removeItem('arena-team');
               setGameState('JOIN');
               setSessionCode('');
               setTeamName('');
@@ -1332,6 +1387,9 @@ export default function PlayerHome() {
           <button
             onClick={() => {
               socketRef.current?.disconnect();
+              // Clear localStorage
+              localStorage.removeItem('arena-session');
+              localStorage.removeItem('arena-team');
               setShowConnectionOverlay(false);
               setConnectionError(null);
               setGameState('JOIN');
