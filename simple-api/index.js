@@ -22,8 +22,15 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: [
+      'https://player.arena-event.fr',
+      'https://admin.arena-event.fr',
+      'https://screen.arena-event.fr',
+      'https://studio.arena-event.fr',
+      'https://arena-event.fr'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   },
   // Optimized for low latency
   transports: ['websocket', 'polling'],

@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// API URL - configurable via environment variable
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
 
 interface User {
   id: string;
