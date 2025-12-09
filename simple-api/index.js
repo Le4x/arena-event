@@ -303,6 +303,37 @@ if (!existsSync(audioDir)) {
 }
 
 // ============================================
+// CONFIGURATION (Environment Variables)
+// ============================================
+const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
+
+// Warn if using default JWT_SECRET (but don't crash)
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  WARNING: Using default JWT_SECRET. Set JWT_SECRET environment variable for better security.');
+}
+
+// ============================================
+// MIDDLEWARE
+// ============================================
+
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+};
+
+// ============================================
 // FILE UPLOAD ENDPOINT
 // ============================================
 
@@ -356,18 +387,6 @@ app.post('/api/upload', authenticateToken, async (req, res) => {
 });
 
 // ============================================
-// CONFIGURATION (Environment Variables)
-// ============================================
-const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
-
-// Warn if using default JWT_SECRET (but don't crash)
-if (!process.env.JWT_SECRET) {
-  console.warn('⚠️  WARNING: Using default JWT_SECRET. Set JWT_SECRET environment variable for better security.');
-}
-
-// ============================================
 // RATE LIMITING (Anti-spam protection)
 // ============================================
 const rateLimitMap = new Map(); // key -> { count, resetTime }
@@ -398,25 +417,6 @@ setInterval(() => {
     }
   }
 }, 60000);
-
-// ============================================
-// MIDDLEWARE
-// ============================================
-
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
-    req.user = user;
-    next();
-  });
-};
 
 // ============================================
 // UTILITY FUNCTIONS
