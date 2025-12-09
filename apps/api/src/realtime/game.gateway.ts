@@ -8,11 +8,12 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, UseGuards } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { GameService } from '../game/game.service';
 import { TeamsService } from '../teams/teams.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { WsSessionGuard, WsGameMasterGuard } from './ws-auth.guard';
 
 interface JoinSessionPayload {
   sessionId: string;
@@ -33,7 +34,12 @@ interface BuzzerPayload {
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: process.env.CORS_ORIGINS?.split(',') || [
+      'http://localhost:3000',
+      'http://localhost:3002',
+      'http://localhost:3003',
+      'http://localhost:3004',
+    ],
     credentials: true,
   },
 })
@@ -123,6 +129,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Submit an answer
    */
+  @UseGuards(WsSessionGuard)
   @SubscribeMessage('submit_answer')
   async handleSubmitAnswer(
     @ConnectedSocket() client: Socket,
@@ -156,6 +163,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Press buzzer
    */
+  @UseGuards(WsSessionGuard)
   @SubscribeMessage('buzzer_press')
   async handleBuzzerPress(
     @ConnectedSocket() client: Socket,
@@ -190,6 +198,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Start a question
    */
+  @UseGuards(WsGameMasterGuard)
   @SubscribeMessage('start_question')
   async handleStartQuestion(
     @ConnectedSocket() client: Socket,
@@ -212,6 +221,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: End a question
    */
+  @UseGuards(WsGameMasterGuard)
   @SubscribeMessage('end_question')
   async handleEndQuestion(
     @ConnectedSocket() client: Socket,
@@ -233,6 +243,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Show leaderboard
    */
+  @UseGuards(WsGameMasterGuard)
   @SubscribeMessage('show_leaderboard')
   async handleShowLeaderboard(
     @ConnectedSocket() client: Socket,
@@ -254,6 +265,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Update score manually
    */
+  @UseGuards(WsGameMasterGuard)
   @SubscribeMessage('update_score')
   async handleUpdateScore(
     @ConnectedSocket() client: Socket,
@@ -278,6 +290,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Reset buzzer
    */
+  @UseGuards(WsGameMasterGuard)
   @SubscribeMessage('reset_buzzer')
   async handleResetBuzzer(
     @ConnectedSocket() client: Socket,

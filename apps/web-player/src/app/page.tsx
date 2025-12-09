@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// API URL - MUST be configured via environment variable
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
 
@@ -222,7 +222,7 @@ export default function PlayerHome() {
       setConnectionError(null);
       setShowConnectionOverlay(false);
       setRetryCount(0);
-      socket.emit('join-session', {
+      socket.emit('join_session', {
         sessionId,
         teamId,
         role: 'player',
@@ -488,11 +488,11 @@ export default function PlayerHome() {
     const responseTime = Date.now() - questionStartTime.current;
 
     // Send via socket only (server handles persistence)
-    socketRef.current?.emit('submit-answer', {
+    socketRef.current?.emit('submit_answer', {
       sessionId: session.id,
       teamId: team.id,
       questionId: currentQuestion.id,
-      answer,
+      content: answer,
       responseTime,
     });
   };
@@ -511,12 +511,9 @@ export default function PlayerHome() {
     setBuzzerPressed(true);
 
     // Emit with acknowledgment callback
-    socketRef.current?.emit('buzzer-press', {
-      sessionId: session.id,
+    socketRef.current?.emit('buzzer_press', {
+      questionId: currentQuestion?.id,
       teamId: team.id,
-      teamName: team.name,
-      team: team,
-      timestamp: Date.now(),
     }, (response: { success: boolean; winner: boolean; actualWinner?: { name: string } }) => {
       // Handle acknowledgment from server
       if (response) {
@@ -540,10 +537,9 @@ export default function PlayerHome() {
     if (!myJokers[jokerType] || myJokers[jokerType] <= 0) return;
     if (activeJoker) return; // Already using a joker this question
 
-    socketRef.current?.emit('joker-use', {
+    socketRef.current?.emit('use_joker', {
       sessionId: session.id,
       teamId: team.id,
-      teamName: team.name,
       jokerType
     });
   };

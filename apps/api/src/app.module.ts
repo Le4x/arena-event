@@ -10,6 +10,7 @@ import { QuestionsModule } from './questions/questions.module';
 import { TeamsModule } from './teams/teams.module';
 import { GameModule } from './game/game.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
@@ -28,5 +29,6 @@ import { RealtimeModule } from './realtime/realtime.module';
     GameModule,
     RealtimeModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}
