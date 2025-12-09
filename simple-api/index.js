@@ -519,6 +519,154 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// USERS ROUTES
+// ============================================
+
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can list all users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: Only super admins can list users' });
+    }
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({ users });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/users', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can create users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: Only super admins can create users' });
+    }
+
+    const { email, password, firstName, lastName, role = 'ORGANIZER' } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Validate role
+    const validRoles = ['SUPER_ADMIN', 'ORGANIZER', 'GAME_MASTER'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'User with this email already exists' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        firstName: firstName || '',
+        lastName: lastName || '',
+        role
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        createdAt: true
+      }
+    });
+
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN or the user themselves can update
+    if (req.user.role !== 'SUPER_ADMIN' && req.user.userId !== req.params.id) {
+      return res.status(403).json({ error: 'Forbidden: You can only update your own profile' });
+    }
+
+    const { email, firstName, lastName, role, password } = req.body;
+
+    // Only SUPER_ADMIN can change roles
+    if (role && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: Only super admins can change roles' });
+    }
+
+    const updateData = {};
+    if (email) updateData.email = email;
+    if (firstName !== undefined) updateData.firstName = firstName;
+    if (lastName !== undefined) updateData.lastName = lastName;
+    if (role && req.user.role === 'SUPER_ADMIN') updateData.role = role;
+    if (password) {
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        updatedAt: true
+      }
+    });
+
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only SUPER_ADMIN can delete users
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: Only super admins can delete users' });
+    }
+
+    // Prevent deleting yourself
+    if (req.user.userId === req.params.id) {
+      return res.status(400).json({ error: 'You cannot delete your own account' });
+    }
+
+    await prisma.user.delete({ where: { id: req.params.id } });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
 // EVENTS ROUTES
 // ============================================
 
