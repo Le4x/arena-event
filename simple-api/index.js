@@ -37,6 +37,63 @@ const io = new Server(httpServer, {
 });
 
 // ============================================
+// CENTRALIZED LOGGING SYSTEM
+// ============================================
+const logBuffer = []; // Store last 1000 logs
+const MAX_LOGS = 1000;
+
+const logLevels = {
+  INFO: { emoji: 'ℹ️', color: 'blue', label: 'INFO' },
+  SUCCESS: { emoji: '✅', color: 'green', label: 'SUCCESS' },
+  WARNING: { emoji: '⚠️', color: 'yellow', label: 'WARNING' },
+  ERROR: { emoji: '❌', color: 'red', label: 'ERROR' },
+  DEBUG: { emoji: '🔍', color: 'gray', label: 'DEBUG' },
+  WEBSOCKET: { emoji: '🔌', color: 'purple', label: 'WEBSOCKET' },
+  TEAM: { emoji: '👥', color: 'cyan', label: 'TEAM' },
+  SESSION: { emoji: '🎮', color: 'magenta', label: 'SESSION' },
+};
+
+const logToSystem = (level, category, message, data = null) => {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    level,
+    category,
+    message,
+    data,
+    ...logLevels[level]
+  };
+
+  // Add to buffer
+  logBuffer.push(logEntry);
+  if (logBuffer.length > MAX_LOGS) {
+    logBuffer.shift(); // Remove oldest
+  }
+
+  // Console output with emoji
+  const prefix = `${logLevels[level].emoji} [${level}]`;
+  const dataStr = data ? ` | Data: ${JSON.stringify(data)}` : '';
+  console.log(`${prefix} ${message}${dataStr}`);
+
+  // Emit to monitoring clients via WebSocket
+  io.to('monitoring').emit('log-entry', logEntry);
+
+  return logEntry;
+};
+
+// Helper functions for common log types
+const log = {
+  info: (message, data) => logToSystem('INFO', 'GENERAL', message, data),
+  success: (message, data) => logToSystem('SUCCESS', 'GENERAL', message, data),
+  warn: (message, data) => logToSystem('WARNING', 'GENERAL', message, data),
+  error: (message, data) => logToSystem('ERROR', 'GENERAL', message, data),
+  debug: (message, data) => logToSystem('DEBUG', 'GENERAL', message, data),
+  websocket: (message, data) => logToSystem('WEBSOCKET', 'REALTIME', message, data),
+  team: (message, data) => logToSystem('TEAM', 'GAME', message, data),
+  session: (message, data) => logToSystem('SESSION', 'GAME', message, data),
+};
+
+// ============================================
 // SERVER-SIDE TIMER MANAGER (for sync across all clients)
 // ============================================
 const activeTimers = new Map(); // sessionId -> { interval, startTime, duration, remaining }
@@ -478,6 +535,82 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '2.1.0'
   });
+});
+
+// ============================================
+// MONITORING ROUTES (SUPER_ADMIN ONLY)
+// ============================================
+
+// Get system logs
+app.get('/api/monitoring/logs', authenticateToken, (req, res) => {
+  try {
+    // Only SUPER_ADMIN can access logs
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. SUPER_ADMIN only.' });
+    }
+
+    const { limit = 100, level, category } = req.query;
+    let logs = [...logBuffer];
+
+    // Filter by level
+    if (level) {
+      logs = logs.filter(l => l.level === level.toUpperCase());
+    }
+
+    // Filter by category
+    if (category) {
+      logs = logs.filter(l => l.category === category.toUpperCase());
+    }
+
+    // Limit results
+    logs = logs.slice(-parseInt(limit));
+
+    res.json({
+      logs,
+      total: logBuffer.length,
+      filtered: logs.length
+    });
+  } catch (error) {
+    console.error('Get logs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get monitoring stats
+app.get('/api/monitoring/stats', authenticateToken, (req, res) => {
+  try {
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. SUPER_ADMIN only.' });
+    }
+
+    // Collect real-time stats
+    const allSessions = [];
+    connectedTeams.forEach((teams, sessionId) => {
+      allSessions.push({
+        sessionId,
+        connectedTeams: Array.from(teams),
+        teamCount: teams.size
+      });
+    });
+
+    const stats = {
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      activeSessions: allSessions.length,
+      totalConnectedTeams: Array.from(connectedTeams.values()).reduce((sum, teams) => sum + teams.size, 0),
+      activeTimers: activeTimers.size,
+      buzzerStates: buzzerState.size,
+      finaleStates: finaleState.size,
+      logCount: logBuffer.length,
+      sessions: allSessions,
+      timestamp: new Date().toISOString()
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ============================================
@@ -1512,7 +1645,51 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
 // ============================================
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  log.websocket(`Client connected: ${socket.id}`);
+
+  // ========== MONITORING EVENTS (for SUPER_ADMIN) ==========
+  socket.on('join-monitoring', ({ userId, role }) => {
+    if (role === 'SUPER_ADMIN') {
+      socket.join('monitoring');
+      log.success(`SUPER_ADMIN ${userId} joined monitoring room (socket: ${socket.id})`);
+
+      // Send initial log buffer
+      socket.emit('monitoring-logs', {
+        logs: logBuffer.slice(-200), // Last 200 logs
+        timestamp: Date.now()
+      });
+
+      // Send initial stats
+      const allSessions = [];
+      connectedTeams.forEach((teams, sessionId) => {
+        allSessions.push({
+          sessionId,
+          connectedTeams: Array.from(teams),
+          teamCount: teams.size
+        });
+      });
+
+      socket.emit('monitoring-stats', {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        activeSessions: allSessions.length,
+        totalConnectedTeams: Array.from(connectedTeams.values()).reduce((sum, teams) => sum + teams.size, 0),
+        activeTimers: activeTimers.size,
+        buzzerStates: buzzerState.size,
+        finaleStates: finaleState.size,
+        sessions: allSessions,
+        timestamp: Date.now()
+      });
+    } else {
+      log.warn(`Non-admin user ${userId} attempted to join monitoring room`);
+      socket.emit('monitoring-error', { error: 'Access denied. SUPER_ADMIN only.' });
+    }
+  });
+
+  socket.on('leave-monitoring', () => {
+    socket.leave('monitoring');
+    log.info(`User left monitoring room (socket: ${socket.id})`);
+  });
 
   // ========== SESSION EVENTS ==========
   // Support both hyphen and colon notation
@@ -1520,7 +1697,7 @@ io.on('connection', (socket) => {
     socket.join(`session:${sessionId}`);
     socket.sessionId = sessionId;
     socket.role = role;
-    console.log(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
+    log.session(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
 
     if (teamId) {
       socket.teamId = teamId;
@@ -1536,7 +1713,7 @@ io.on('connection', (socket) => {
         timestamp: Date.now()
       });
 
-      console.log(`✅ Team ${teamId} connected to session ${sessionId} (socket: ${socket.id})`);
+      log.team(`Team ${teamId} connected to session ${sessionId}`, { socketId: socket.id, role });
     }
 
     // If this is a studio connection, send the current list of connected teams
@@ -1549,7 +1726,11 @@ io.on('connection', (socket) => {
           connectedTeams: connected,
           timestamp: Date.now()
         });
-        console.log(`📊 Sent session state to studio (${socket.id}): ${connected.length} teams connected - IDs: [${connected.join(', ')}]`);
+        log.info(`Sent session state to studio (${socket.id})`, {
+          sessionId,
+          connectedTeamsCount: connected.length,
+          teamIds: connected
+        });
       }, 100); // Small delay to ensure socket is fully initialized
     }
   };

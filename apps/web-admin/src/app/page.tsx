@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import MonitoringPage from '../components/MonitoringPage';
 
 // URLs - configurable via environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
@@ -59,7 +60,7 @@ interface Session {
   createdAt: string;
 }
 
-type Tab = 'dashboard' | 'events' | 'sessions' | 'users';
+type Tab = 'dashboard' | 'events' | 'sessions' | 'users' | 'monitoring';
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -619,6 +620,13 @@ export default function Home() {
               <span className="capitalize">{tab}</span>
             </button>
           ))}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button onClick={() => { setActiveTab('monitoring'); setSelectedEvent(null); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition mt-1 ${activeTab === 'monitoring' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+              <span>🖥️</span>
+              <span className="capitalize">Monitoring</span>
+            </button>
+          )}
         </nav>
         <div className="p-4 border-t border-gray-700">
           <div className="flex items-center space-x-3">
@@ -891,6 +899,11 @@ export default function Home() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Monitoring Tab */}
+        {activeTab === 'monitoring' && token && user && (
+          <MonitoringPage token={token} user={user} />
         )}
       </main>
 
