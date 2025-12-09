@@ -235,6 +235,83 @@ export default function Home() {
     setUser(null);
   };
 
+  const createUser = async () => {
+    if (!userForm.email.trim() || !userForm.password.trim()) {
+      setModalError('Email and password are required');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
+    try {
+      const res = await apiCall('/api/users', {
+        method: 'POST',
+        body: JSON.stringify(userForm),
+      });
+      if (res.ok) {
+        await loadUsers();
+        setShowUserModal(false);
+        setUserForm({ email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' });
+      } else {
+        const data = await res.json();
+        setModalError(data.error || 'Failed to create user');
+      }
+    } catch (err) {
+      setModalError('Network error');
+    }
+    setModalLoading(false);
+  };
+
+  const updateUser = async () => {
+    if (!editingUser) return;
+    if (!userForm.email.trim()) {
+      setModalError('Email is required');
+      return;
+    }
+    setModalError('');
+    setModalLoading(true);
+    try {
+      const body = {
+        email: userForm.email,
+        firstName: userForm.firstName,
+        lastName: userForm.lastName,
+        role: userForm.role,
+        ...(userForm.password.trim() && { password: userForm.password }),
+      };
+      const res = await apiCall(`/api/users/${editingUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        await loadUsers();
+        setShowUserModal(false);
+        setEditingUser(null);
+        setUserForm({ email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' });
+      } else {
+        const data = await res.json();
+        setModalError(data.error || 'Failed to update user');
+      }
+    } catch (err) {
+      setModalError('Network error');
+    }
+    setModalLoading(false);
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      const res = await apiCall(`/api/users/${userId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await loadUsers();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete user');
+      }
+    } catch (err) {
+      alert('Network error');
+    }
+  };
+
   const createEvent = async () => {
     if (!eventForm.name.trim()) {
       setModalError('Event name is required');
@@ -753,7 +830,13 @@ export default function Home() {
         {/* Users Tab */}
         {activeTab === 'users' && (
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white">Users</h2>
+            <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-bold text-white">Users</h2>
+              <button onClick={() => { setEditingUser(null); setUserForm({ email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' }); setShowUserModal(true); }}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg transition">
+                + Add User
+              </button>
+            </div>
             <div className="bg-gray-800 rounded-xl p-6 space-y-3">
               {users.length === 0 ? (
                 <p className="text-gray-400 text-center py-8">No users found</p>
@@ -773,13 +856,24 @@ export default function Home() {
                         <p className="text-gray-400 text-sm">{u.email}</p>
                       </div>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-sm ${
-                      u.role === 'SUPER_ADMIN' ? 'bg-purple-500/20 text-purple-400' :
-                      u.role === 'ORGANIZER' ? 'bg-green-500/20 text-green-400' :
-                      'bg-blue-500/20 text-blue-400'
-                    }`}>
-                      {u.role}
-                    </span>
+                    <div className="flex items-center space-x-3">
+                      <span className={`px-3 py-1 rounded-full text-sm ${
+                        u.role === 'SUPER_ADMIN' ? 'bg-purple-500/20 text-purple-400' :
+                        u.role === 'ORGANIZER' ? 'bg-green-500/20 text-green-400' :
+                        'bg-blue-500/20 text-blue-400'
+                      }`}>
+                        {u.role}
+                      </span>
+                      <button onClick={() => { setEditingUser(u); setUserForm({ email: u.email, password: '', firstName: u.firstName || '', lastName: u.lastName || '', role: u.role }); setShowUserModal(true); }}
+                        className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 rounded transition">
+                        Edit
+                      </button>
+                      <button onClick={() => { if (confirm(`Delete user ${u.email}?`)) deleteUser(u.id); }}
+                        className="text-red-400 hover:text-red-300 text-sm px-3 py-1 rounded transition"
+                        disabled={u.id === user?.id}>
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -1225,6 +1319,64 @@ export default function Home() {
                 className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition">Cancel</button>
               <button onClick={() => createSession(selectedEvent.id)}
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl transition">Start Session</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Modal */}
+      {showUserModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md">
+            <h3 className="text-2xl font-bold text-white mb-6">{editingUser ? 'Edit User' : 'Create User'}</h3>
+            {modalError && (
+              <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
+                <p className="text-red-200 text-sm">{modalError}</p>
+              </div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
+                <input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Password {editingUser && <span className="text-gray-500 text-xs">(leave empty to keep current)</span>}
+                </label>
+                <input type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
+                  placeholder={editingUser ? 'Leave empty to keep current password' : 'Enter password'} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">First Name</label>
+                <input type="text" value={userForm.firstName} onChange={(e) => setUserForm({ ...userForm, firstName: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Last Name</label>
+                <input type="text" value={userForm.lastName} onChange={(e) => setUserForm({ ...userForm, lastName: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Role</label>
+                <select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500">
+                  <option value="ORGANIZER">Organizer</option>
+                  <option value="GAME_MASTER">Game Master</option>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex space-x-4 mt-6">
+              <button onClick={() => { setShowUserModal(false); setEditingUser(null); setModalError(''); }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition" disabled={modalLoading}>
+                Cancel
+              </button>
+              <button onClick={editingUser ? updateUser : createUser}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl transition" disabled={modalLoading}>
+                {modalLoading ? 'Saving...' : editingUser ? 'Save Changes' : 'Create User'}
+              </button>
             </div>
           </div>
         </div>
