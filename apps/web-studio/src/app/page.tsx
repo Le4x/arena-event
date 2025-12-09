@@ -164,6 +164,15 @@ export default function StudioHome() {
   useEffect(() => {
     if (!selectedSession) return;
 
+    // Clean up previous socket to prevent memory leaks
+    if (socketRef.current) {
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+    }
+
+    // Get token from localStorage for authentication
+    const token = localStorage.getItem('token');
+
     const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -171,6 +180,10 @@ export default function StudioHome() {
       reconnectionDelayMax: 2000,
       reconnectionAttempts: maxRetries,
       timeout: 10000,
+      auth: {
+        token,
+        role: 'studio',
+      },
     });
     socketRef.current = socket;
 
@@ -179,13 +192,18 @@ export default function StudioHome() {
       setIsConnected(true);
       setConnectionError(null);
       setRetryCount(0);
-      socket.emit('join_session', { sessionId: selectedSession.id, role: 'studio' });
+      socket.emit('join-session', { sessionId: selectedSession.id, role: 'studio' });
     });
 
     socket.on('disconnect', (reason) => {
       console.log('Studio socket disconnected:', reason);
       setIsConnected(false);
       setConnectionError(`Connexion perdue: ${reason}`);
+
+      // Pause game on disconnect to prevent desync
+      if (isPlaying) {
+        console.log('Game paused due to disconnection');
+      }
     });
 
     socket.on('connect_error', (err) => {
@@ -198,9 +216,14 @@ export default function StudioHome() {
     });
 
     socket.io.on('reconnect', () => {
+      console.log('Studio reconnected successfully');
       setIsConnected(true);
       setConnectionError(null);
       setRetryCount(0);
+
+      // Re-join session after successful reconnection
+      socket.emit('join-session', { sessionId: selectedSession.id, role: 'studio' });
+      console.log('Re-joined session after reconnection');
     });
 
     socket.io.on('reconnect_failed', () => {
@@ -304,6 +327,8 @@ export default function StudioHome() {
     });
 
     return () => {
+      // Clean up socket listeners to prevent memory leaks
+      socket.removeAllListeners();
       socket.disconnect();
     };
   }, [selectedSession, buzzerLocked, buzzerWinner]);

@@ -118,8 +118,14 @@ export default function ScreenHome() {
 
   // Socket connection (optimized for low latency)
   const connectSocket = (sessionId: string) => {
-    // Disconnect existing socket if any
+    // Disconnect existing socket if any and clean up to prevent memory leaks
     if (socketRef.current) {
+      // Clear any pending cueEndTimer
+      if (cueEndTimerRef.current) {
+        clearTimeout(cueEndTimerRef.current);
+        cueEndTimerRef.current = null;
+      }
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
     }
 
@@ -130,6 +136,9 @@ export default function ScreenHome() {
       reconnectionDelayMax: 2000,
       reconnectionAttempts: maxRetries,
       timeout: 10000,
+      auth: {
+        role: 'screen',
+      },
     });
     socketRef.current = socket;
 
@@ -157,9 +166,14 @@ export default function ScreenHome() {
     });
 
     socket.io.on('reconnect', () => {
+      console.log('Screen reconnected successfully');
       setIsConnected(true);
       setConnectionError(null);
       setRetryCount(0);
+
+      // Re-join session after successful reconnection
+      socket.emit('join-session', { sessionId, role: 'screen' });
+      console.log('Re-joined session after reconnection');
     });
 
     socket.io.on('reconnect_failed', () => {
@@ -181,13 +195,20 @@ export default function ScreenHome() {
 
     // Game events
     socket.on('question-start', (data) => {
-      setCurrentQuestion(data.question);
-      setTimeRemaining(data.timeLimit || data.question.timeLimit || 30);
-      setCorrectAnswer(null);
-      setBuzzerWinner(null);
-      setAnswers({});
-      setTeams(prev => prev.map(t => ({ ...t, hasAnswered: false, lastAnswer: undefined })));
-      setDisplayMode('QUESTION');
+      // Only update if question actually changed (prevent loss of data on reconnect)
+      if (!currentQuestion || currentQuestion.id !== data.question.id) {
+        setCurrentQuestion(data.question);
+        setTimeRemaining(data.timeLimit || data.question.timeLimit || 30);
+        setCorrectAnswer(null);
+        setBuzzerWinner(null);
+        // Clear answers ONLY for new question (preserve old answers on reconnect)
+        setAnswers({});
+        setTeams(prev => prev.map(t => ({ ...t, hasAnswered: false, lastAnswer: undefined })));
+        setDisplayMode('QUESTION');
+      } else {
+        // Same question - just sync time (reconnection scenario)
+        setTimeRemaining(data.timeLimit || data.question.timeLimit || 30);
+      }
     });
 
     // Server-side timer sync (authoritative)
@@ -245,8 +266,16 @@ export default function ScreenHome() {
 
     // Leaderboard
     socket.on('show-leaderboard', (data) => {
-      if (data.teams) {
-        setTeams(data.teams);
+      // Validation: Only update if teams data is valid
+      if (data.teams && Array.isArray(data.teams) && data.teams.length > 0) {
+        // Merge with existing teams to preserve connection status
+        setTeams(prev => {
+          const updatedTeams = data.teams.map((newTeam: any) => {
+            const existing = prev.find(t => t.id === newTeam.id);
+            return existing ? { ...existing, ...newTeam } : newTeam;
+          });
+          return updatedTeams;
+        });
       }
       setDisplayMode('LEADERBOARD');
     });
