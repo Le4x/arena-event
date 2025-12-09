@@ -72,6 +72,7 @@ export default function Home() {
   // Data state
   const [events, setEvents] = useState<Event[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
 
   // Modal state
@@ -109,6 +110,7 @@ export default function Home() {
     if (token) {
       loadEvents();
       loadSessions();
+      loadUsers();
     }
   }, [token]);
 
@@ -159,6 +161,25 @@ export default function Home() {
     } catch (err) {
       console.error('Load sessions error:', err);
       setSessions([]);
+    }
+  };
+
+  const loadUsers = async () => {
+    try {
+      const res = await apiCall('/api/users');
+      if (res.ok) {
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setUsers(data.users || []);
+        } catch (parseError) {
+          console.error('Failed to parse users response:', text);
+          setUsers([]);
+        }
+      }
+    } catch (err) {
+      console.error('Load users error:', err);
+      setUsers([]);
     }
   };
 
@@ -731,26 +752,34 @@ export default function Home() {
           <div className="space-y-6">
             <h2 className="text-3xl font-bold text-white">Users</h2>
             <div className="bg-gray-800 rounded-xl p-6 space-y-3">
-              <div className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold">AU</div>
-                  <div>
-                    <p className="text-white font-medium">Admin User</p>
-                    <p className="text-gray-400 text-sm">admin@arena-event.com</p>
+              {users.length === 0 ? (
+                <p className="text-gray-400 text-center py-8">No users found</p>
+              ) : (
+                users.map((u) => (
+                  <div key={u.id} className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                      <div className={`w-12 h-12 bg-gradient-to-br ${
+                        u.role === 'SUPER_ADMIN' ? 'from-purple-500 to-pink-500' :
+                        u.role === 'ORGANIZER' ? 'from-green-500 to-teal-500' :
+                        'from-blue-500 to-cyan-500'
+                      } rounded-full flex items-center justify-center text-white font-bold`}>
+                        {u.firstName?.[0] || 'U'}{u.lastName?.[0] || 'U'}
+                      </div>
+                      <div>
+                        <p className="text-white font-medium">{u.firstName} {u.lastName}</p>
+                        <p className="text-gray-400 text-sm">{u.email}</p>
+                      </div>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-sm ${
+                      u.role === 'SUPER_ADMIN' ? 'bg-purple-500/20 text-purple-400' :
+                      u.role === 'ORGANIZER' ? 'bg-green-500/20 text-green-400' :
+                      'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {u.role}
+                    </span>
                   </div>
-                </div>
-                <span className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm">SUPER_ADMIN</span>
-              </div>
-              <div className="bg-gray-700/50 rounded-lg p-4 flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-teal-500 rounded-full flex items-center justify-center text-white font-bold">OU</div>
-                  <div>
-                    <p className="text-white font-medium">Organizer User</p>
-                    <p className="text-gray-400 text-sm">organizer@arena-event.com</p>
-                  </div>
-                </div>
-                <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">ORGANIZER</span>
-              </div>
+                ))
+              )}
             </div>
           </div>
         )}
