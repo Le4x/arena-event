@@ -710,18 +710,26 @@ export default function Home() {
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6">
                 <p className="text-blue-100 text-sm">Total Events</p>
                 <p className="text-4xl font-bold text-white">{events.length}</p>
+                {user?.role === 'SUPER_ADMIN' && (
+                  <p className="text-blue-200 text-xs mt-2">Tous les utilisateurs</p>
+                )}
               </div>
               <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6">
-                <p className="text-green-100 text-sm">Active Sessions</p>
-                <p className="text-4xl font-bold text-white">{sessions.filter(s => s.status !== 'COMPLETED').length}</p>
+                <p className="text-green-100 text-sm">Sessions Actives</p>
+                <p className="text-4xl font-bold text-white">{sessions.filter(s => s.status === 'IN_PROGRESS' || s.status === 'WAITING').length}</p>
+                <p className="text-green-200 text-xs mt-2">En cours ou en attente</p>
               </div>
               <div className="bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl p-6">
                 <p className="text-yellow-100 text-sm">Total Sessions</p>
                 <p className="text-4xl font-bold text-white">{sessions.length}</p>
+                <p className="text-yellow-200 text-xs mt-2">
+                  {sessions.filter(s => s.status === 'COMPLETED').length} terminées
+                </p>
               </div>
               <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-6">
-                <p className="text-purple-100 text-sm">Total Questions</p>
+                <p className="text-purple-100 text-sm">Total Rounds</p>
                 <p className="text-4xl font-bold text-white">{events.reduce((acc, e) => acc + (e._count?.rounds || 0), 0)}</p>
+                <p className="text-purple-200 text-xs mt-2">Dans tous les events</p>
               </div>
             </div>
             <div className="bg-gray-800 rounded-xl p-6">
@@ -761,6 +769,14 @@ export default function Home() {
                       </span>
                     </div>
                     <p className="text-gray-400 text-sm mb-4 line-clamp-2">{event.description || 'No description'}</p>
+                    {user?.role === 'SUPER_ADMIN' && event.owner && (
+                      <div className="mb-3 flex items-center space-x-2">
+                        <span className="text-xs text-gray-500">👤 Propriétaire:</span>
+                        <span className="text-xs text-purple-400 font-medium">
+                          {event.owner.firstName} {event.owner.lastName} ({event.owner.email})
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm text-gray-500 mb-4">
                       <span>{event._count?.rounds || 0} rounds</span>
                       <span>{event._count?.sessions || 0} sessions</span>
@@ -884,6 +900,11 @@ export default function Home() {
                       <div>
                         <p className="text-white font-semibold">{session.event?.name || 'Unknown Event'}</p>
                         <p className="text-gray-400 text-sm">{session._count?.teams || 0} teams</p>
+                        {user?.role === 'SUPER_ADMIN' && session.event?.owner && (
+                          <p className="text-xs text-purple-400 mt-1">
+                            👤 {session.event.owner.firstName} {session.event.owner.lastName}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center space-x-4">
