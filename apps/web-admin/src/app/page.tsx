@@ -108,20 +108,32 @@ export default function Home() {
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
+    console.log('Checking saved auth:', { hasToken: !!savedToken, hasUser: !!savedUser });
     if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
+      try {
+        const parsedUser = JSON.parse(savedUser);
+        console.log('Restored user from localStorage:', parsedUser);
+        setToken(savedToken);
+        setUser(parsedUser);
+      } catch (e) {
+        console.error('Failed to parse saved user:', e);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
     }
   }, []);
 
   // Load data when authenticated
   useEffect(() => {
-    if (token) {
+    if (token && user) {
+      console.log('Loading data for user:', user);
       loadEvents();
       loadSessions();
-      loadUsers();
+      if (user.role === 'SUPER_ADMIN') {
+        loadUsers();
+      }
     }
-  }, [token]);
+  }, [token, user]);
 
   const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -137,16 +149,27 @@ export default function Home() {
 
   const loadEvents = async () => {
     try {
+      console.log('Loading events with token:', token?.substring(0, 20) + '...');
       const res = await apiCall('/api/events');
+      console.log('Events response status:', res.status);
+      if (res.status === 401 || res.status === 403) {
+        console.error('Token invalid or expired');
+        handleLogout();
+        return;
+      }
       if (res.ok) {
         const text = await res.text();
         try {
           const data = JSON.parse(text);
+          console.log('Events loaded:', data.events?.length || 0);
           setEvents(data.events || []);
         } catch (parseError) {
           console.error('Failed to parse events response:', text);
           setEvents([]);
         }
+      } else {
+        console.error('Failed to load events:', res.status, await res.text());
+        setEvents([]);
       }
     } catch (err) {
       console.error('Load events error:', err);
@@ -156,16 +179,27 @@ export default function Home() {
 
   const loadSessions = async () => {
     try {
+      console.log('Loading sessions...');
       const res = await apiCall('/api/sessions');
+      console.log('Sessions response status:', res.status);
+      if (res.status === 401 || res.status === 403) {
+        console.error('Token invalid or expired');
+        handleLogout();
+        return;
+      }
       if (res.ok) {
         const text = await res.text();
         try {
           const data = JSON.parse(text);
+          console.log('Sessions loaded:', data.sessions?.length || 0);
           setSessions(data.sessions || []);
         } catch (parseError) {
           console.error('Failed to parse sessions response:', text);
           setSessions([]);
         }
+      } else {
+        console.error('Failed to load sessions:', res.status, await res.text());
+        setSessions([]);
       }
     } catch (err) {
       console.error('Load sessions error:', err);
@@ -175,10 +209,22 @@ export default function Home() {
 
   const loadUsers = async () => {
     try {
+      console.log('Loading users...');
       const res = await apiCall('/api/users');
+      console.log('Users response status:', res.status);
+      if (res.status === 401 || res.status === 403) {
+        console.error('Token invalid or expired for users endpoint');
+        // Don't logout here, maybe user is not SUPER_ADMIN
+        setUsers([]);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
+        console.log('Users loaded:', data?.length || 0);
         setUsers(data || []);
+      } else {
+        console.error('Failed to load users:', res.status);
+        setUsers([]);
       }
     } catch (err) {
       console.error('Load users error:', err);
@@ -217,6 +263,7 @@ export default function Home() {
       if (!res.ok) {
         setError(data.error || 'Login failed');
       } else {
+        console.log('Login successful, user:', data.user);
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         setToken(data.token);
@@ -621,11 +668,22 @@ export default function Home() {
             </button>
           ))}
           {user?.role === 'SUPER_ADMIN' && (
-            <button onClick={() => { setActiveTab('monitoring'); setSelectedEvent(null); }}
+            <button
+              onClick={() => {
+                console.log('Monitoring tab clicked');
+                setActiveTab('monitoring');
+                setSelectedEvent(null);
+              }}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition mt-1 ${activeTab === 'monitoring' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
               <span>🖥️</span>
               <span className="capitalize">Monitoring</span>
             </button>
+          )}
+          {/* Debug: Show user role */}
+          {user && (
+            <div className="px-4 py-2 text-xs text-gray-500">
+              Role: {user.role}
+            </div>
           )}
         </nav>
         <div className="p-4 border-t border-gray-700">
