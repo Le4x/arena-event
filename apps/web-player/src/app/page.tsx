@@ -269,7 +269,11 @@ export default function PlayerHome() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Socket connected!');
+      console.log('✅ Socket connected!', {
+        sessionId,
+        teamId,
+        socketId: socket.id
+      });
       setIsConnected(true);
       setConnectionError(null);
       setShowConnectionOverlay(false);
@@ -279,16 +283,18 @@ export default function PlayerHome() {
         teamId,
         role: 'player',
       });
+      console.log('📤 Emitted join-session event');
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
+      console.log('❌ Socket disconnected:', reason);
       setIsConnected(false);
       // Show overlay only if not in JOIN state (user has joined a session)
       // Use ref to avoid stale closure bug
       if (gameStateRef.current !== 'JOIN' && gameStateRef.current !== 'TEAM_SELECT') {
         setShowConnectionOverlay(true);
         setConnectionError(`Connexion perdue: ${reason}`);
+        console.log('🔄 Will attempt to reconnect...');
       }
     });
 

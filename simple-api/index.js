@@ -136,6 +136,8 @@ const untrackTeamConnection = (sessionId, teamId) => {
         sessionId,
         timestamp: Date.now()
       });
+
+      console.log(`❌ Team ${teamId} officially disconnected from session ${sessionId} (emitted to studio)`);
     }
     disconnectTimers.delete(teamId);
   }, 5000); // 5 second grace period for mobile app switching
@@ -1534,17 +1536,21 @@ io.on('connection', (socket) => {
         timestamp: Date.now()
       });
 
-      console.log(`Team ${teamId} connected to session ${sessionId}`);
+      console.log(`✅ Team ${teamId} connected to session ${sessionId} (socket: ${socket.id})`);
     }
 
     // If this is a studio connection, send the current list of connected teams
     if (role === 'studio') {
       const connected = getConnectedTeams(sessionId);
-      socket.emit('session-state', {
-        connectedTeams: connected,
-        timestamp: Date.now()
-      });
-      console.log(`Sent session state to studio: ${connected.length} teams connected`);
+
+      // Send immediately and log with details
+      setTimeout(() => {
+        socket.emit('session-state', {
+          connectedTeams: connected,
+          timestamp: Date.now()
+        });
+        console.log(`📊 Sent session state to studio (${socket.id}): ${connected.length} teams connected - IDs: [${connected.join(', ')}]`);
+      }, 100); // Small delay to ensure socket is fully initialized
     }
   };
   socket.on('join-session', joinSession);
@@ -2155,15 +2161,19 @@ app.get('/sessions', async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    // Transform for frontend - add color to teams
-    const transformed = sessions.map(s => ({
-      ...s,
-      status: s.status === 'LOBBY' ? 'WAITING' : s.status,
-      teams: s.teams.map((t, i) => ({
-        ...t,
-        color: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i % 6]
-      }))
-    }));
+    // Transform for frontend - add color to teams and connection status
+    const transformed = sessions.map(s => {
+      const connectedTeamIds = getConnectedTeams(s.id);
+      return {
+        ...s,
+        status: s.status === 'LOBBY' ? 'WAITING' : s.status,
+        teams: s.teams.map((t, i) => ({
+          ...t,
+          color: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i % 6],
+          isConnected: connectedTeamIds.includes(t.id)
+        }))
+      };
+    });
 
     res.json(transformed);
   } catch (error) {
@@ -2196,13 +2206,17 @@ app.get('/sessions/:sessionId', async (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
+    // Get connected teams status from in-memory tracker
+    const connectedTeamIds = getConnectedTeams(req.params.sessionId);
+
     // Transform
     const transformed = {
       ...session,
       status: session.status === 'LOBBY' ? 'WAITING' : session.status,
       teams: session.teams.map((t, i) => ({
         ...t,
-        color: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i % 6]
+        color: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'][i % 6],
+        isConnected: connectedTeamIds.includes(t.id)
       })),
       event: {
         ...session.event,

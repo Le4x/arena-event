@@ -229,28 +229,40 @@ export default function StudioHome() {
 
     // Listen for session state (initial connected teams)
     socket.on('session-state', (data) => {
-      console.log('Received session state:', data);
+      console.log('📊 Received session state:', data);
       if (data.connectedTeams && Array.isArray(data.connectedTeams)) {
-        setTeams(prev => prev.map(t => ({
-          ...t,
-          isConnected: data.connectedTeams.includes(t.id)
-        })));
-        console.log(`Session state loaded: ${data.connectedTeams.length} teams connected`);
+        setTeams(prev => {
+          const updated = prev.map(t => ({
+            ...t,
+            isConnected: data.connectedTeams.includes(t.id)
+          }));
+          console.log(`📊 Session state loaded: ${data.connectedTeams.length} teams connected - Updated teams:`,
+            updated.map(t => `${t.name}:${t.isConnected ? '✅' : '❌'}`).join(', '));
+          return updated;
+        });
       }
     });
 
     socket.on('team-connected', (data) => {
-      setTeams(prev => prev.map(t =>
-        t.id === data.teamId ? { ...t, isConnected: true } : t
-      ));
-      console.log(`Team ${data.teamId} is now connected`);
+      setTeams(prev => {
+        const updated = prev.map(t =>
+          t.id === data.teamId ? { ...t, isConnected: true } : t
+        );
+        const team = updated.find(t => t.id === data.teamId);
+        console.log(`✅ Team ${team?.name || data.teamId} is now connected`);
+        return updated;
+      });
     });
 
     socket.on('team-disconnected', (data) => {
-      setTeams(prev => prev.map(t =>
-        t.id === data.teamId ? { ...t, isConnected: false } : t
-      ));
-      console.log(`Team ${data.teamId} is now disconnected`);
+      setTeams(prev => {
+        const updated = prev.map(t =>
+          t.id === data.teamId ? { ...t, isConnected: false } : t
+        );
+        const team = updated.find(t => t.id === data.teamId);
+        console.log(`❌ Team ${team?.name || data.teamId} is now disconnected`);
+        return updated;
+      });
     });
 
     // Listen for answers
@@ -340,7 +352,8 @@ export default function StudioHome() {
   // Load session data
   const loadSessionData = useCallback(async (session: Session) => {
     setSelectedSession(session);
-    setTeams(session.teams.map(t => ({ ...t, isConnected: false })));
+    // Keep isConnected status from session data (from HTTP response)
+    setTeams(session.teams.map(t => ({ ...t, isConnected: t.isConnected || false })));
 
     // Fetch rounds with questions
     try {
