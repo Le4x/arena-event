@@ -5,7 +5,8 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -109,7 +110,7 @@ const startServerTimer = (sessionId, duration) => {
     remaining: duration
   };
 
-  // Emit sync every 100ms for smooth countdown
+  // Emit sync every 250ms for smooth countdown (optimized for 100+ clients)
   const interval = setInterval(() => {
     const elapsed = Date.now() - startTime;
     const remaining = Math.max(0, Math.ceil((timerData.duration - elapsed) / 1000));
@@ -125,7 +126,7 @@ const startServerTimer = (sessionId, duration) => {
       stopServerTimer(sessionId);
       io.to(`session:${sessionId}`).emit('timer-end', { serverTime: Date.now() });
     }
-  }, 100); // 100ms for smooth updates
+  }, 250); // 250ms = 4Hz (reduced from 100ms for better scalability with 100+ clients)
 
   timerData.interval = interval;
   activeTimers.set(sessionId, timerData);
@@ -318,7 +319,8 @@ const initFinale = (sessionId, finalistCount, teams) => {
     jokers,
     activeJokers: {}, // teamId -> active joker for current question
     shieldedTeams: [], // teams protected by shield this round
-    currentRound: 1
+    currentRound: 1,
+    createdAt: Date.now() // For memory leak prevention
   };
 
   finaleState.set(sessionId, state);
@@ -390,7 +392,61 @@ const endFinale = (sessionId) => {
   console.log(`🏁 Finale ended for session ${sessionId}`);
 };
 
-const prisma = new PrismaClient();
+// ============================================
+// MEMORY LEAK PREVENTION - Periodic Cleanup
+// ============================================
+setInterval(() => {
+  const now = Date.now();
+  const ONE_HOUR = 3600000; // 1 hour in milliseconds
+
+  // Cleanup old finaleState (sessions > 1h old without activity)
+  finaleState.forEach((state, sessionId) => {
+    if (state.createdAt && now - state.createdAt > ONE_HOUR) {
+      finaleState.delete(sessionId);
+      logToSystem('INFO', 'GENERAL', `Cleaned up old finaleState for session ${sessionId}`);
+    }
+  });
+
+  // Cleanup orphaned disconnectTimers (timers > 10 minutes old)
+  const TEN_MINUTES = 600000;
+  disconnectTimers.forEach((timer, teamId) => {
+    // If timer has been waiting > 10 min, it's orphaned - clear it
+    if (timer._idleStart && now - timer._idleStart > TEN_MINUTES) {
+      clearTimeout(timer);
+      disconnectTimers.delete(teamId);
+      logToSystem('INFO', 'GENERAL', `Cleaned up orphaned disconnectTimer for team ${teamId}`);
+    }
+  });
+
+  // Cleanup old buzzerState (sessions > 2h without activity)
+  const TWO_HOURS = 7200000;
+  buzzerState.forEach((state, sessionId) => {
+    if (state.timestamp && now - state.timestamp > TWO_HOURS) {
+      buzzerState.delete(sessionId);
+      logToSystem('INFO', 'GENERAL', `Cleaned up old buzzerState for session ${sessionId}`);
+    }
+  });
+
+  // Log memory stats every cleanup
+  const memUsage = process.memoryUsage();
+  logToSystem('DEBUG', 'GENERAL', 'Memory cleanup completed', {
+    heapUsed: `${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+    finaleStates: finaleState.size,
+    disconnectTimers: disconnectTimers.size,
+    buzzerStates: buzzerState.size,
+    activeTimers: activeTimers.size,
+    connectedSessions: connectedTeams.size
+  });
+}, 300000); // Run every 5 minutes
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'connection_limit=30&pool_timeout=10'
+    }
+  },
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
+});
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -433,7 +489,7 @@ app.post('/api/upload', async (req, res) => {
     }
 
     const filepath = join(targetDir, uniqueFilename);
-    writeFileSync(filepath, buffer);
+    await writeFile(filepath, buffer); // Async non-blocking file write
 
     // Use environment variable or construct from request host
     const baseUrl = process.env.API_BASE_URL || `http://${req.headers.host}`;
