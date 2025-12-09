@@ -806,16 +806,29 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
 
 app.get('/api/events', authenticateToken, async (req, res) => {
   try {
+    // SUPER_ADMIN voit tous les events, les autres seulement les leurs
+    const whereClause = req.user.role === 'SUPER_ADMIN'
+      ? {}
+      : { ownerId: req.user.userId };
+
     const events = await prisma.event.findMany({
-      where: { ownerId: req.user.userId },
+      where: whereClause,
       include: {
-        _count: { select: { sessions: true, rounds: true } }
+        _count: { select: { sessions: true, rounds: true } },
+        owner: { select: { email: true, firstName: true, lastName: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
+
+    log.info(`Events loaded for ${req.user.role}`, {
+      userId: req.user.userId,
+      count: events.length,
+      isSuperAdmin: req.user.role === 'SUPER_ADMIN'
+    });
+
     res.json({ events });
   } catch (error) {
-    console.error('Get events error:', error);
+    log.error('Get events error', { error: error.message });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1146,10 +1159,19 @@ app.delete('/api/questions/:id', authenticateToken, async (req, res) => {
 
 app.get('/api/sessions', authenticateToken, async (req, res) => {
   try {
+    // SUPER_ADMIN voit toutes les sessions, les autres seulement celles de leurs events
+    const whereClause = req.user.role === 'SUPER_ADMIN'
+      ? {}
+      : { event: { ownerId: req.user.userId } };
+
     const sessions = await prisma.session.findMany({
-      where: { event: { ownerId: req.user.userId } },
+      where: whereClause,
       include: {
-        event: true,
+        event: {
+          include: {
+            owner: { select: { email: true, firstName: true, lastName: true } }
+          }
+        },
         _count: { select: { teams: true } }
       },
       orderBy: { createdAt: 'desc' }
@@ -1161,9 +1183,15 @@ app.get('/api/sessions', authenticateToken, async (req, res) => {
       status: s.status === 'ACTIVE' ? 'IN_PROGRESS' : s.status === 'FINISHED' ? 'COMPLETED' : s.status
     }));
 
+    log.info(`Sessions loaded for ${req.user.role}`, {
+      userId: req.user.userId,
+      count: transformed.length,
+      isSuperAdmin: req.user.role === 'SUPER_ADMIN'
+    });
+
     res.json({ sessions: transformed });
   } catch (error) {
-    console.error('Get sessions error:', error);
+    log.error('Get sessions error', { error: error.message });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
