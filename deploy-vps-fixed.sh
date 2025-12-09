@@ -45,9 +45,9 @@ fi
 
 # Mettre à jour ou ajouter CORS_ORIGINS
 if grep -q "^CORS_ORIGINS=" apps/api/.env; then
-    sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=http://91.134.135.247:3002,http://91.134.135.247:3003,http://91.134.135.247:3004|" apps/api/.env
+    sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=https://player.arena-event.fr,https://admin.arena-event.fr,https://screen.arena-event.fr,https://studio.arena-event.fr,https://arena-event.fr|" apps/api/.env
 else
-    echo "CORS_ORIGINS=http://91.134.135.247:3002,http://91.134.135.247:3003,http://91.134.135.247:3004" >> apps/api/.env
+    echo "CORS_ORIGINS=https://player.arena-event.fr,https://admin.arena-event.fr,https://screen.arena-event.fr,https://studio.arena-event.fr,https://arena-event.fr" >> apps/api/.env
 fi
 
 # Mettre à jour le JWT_SECRET
@@ -69,28 +69,28 @@ echo -e "${GREEN}✅ API .env configuré${NC}"
 # Configuration des variables d'environnement pour web-player
 echo -e "${YELLOW}⚙️  Configuration du web-player...${NC}"
 cat > apps/web-player/.env.local <<EOF
-NEXT_PUBLIC_API_URL=http://91.134.135.247:3001
+NEXT_PUBLIC_API_URL=https://api.arena-event.fr
 EOF
 echo -e "${GREEN}✅ Web-player .env.local configuré${NC}"
 
 # Configuration des variables d'environnement pour web-admin
 echo -e "${YELLOW}⚙️  Configuration du web-admin...${NC}"
 cat > apps/web-admin/.env.local <<EOF
-NEXT_PUBLIC_API_URL=http://91.134.135.247:3001
+NEXT_PUBLIC_API_URL=https://api.arena-event.fr
 EOF
 echo -e "${GREEN}✅ Web-admin .env.local configuré${NC}"
 
 # Configuration des variables d'environnement pour web-studio
 echo -e "${YELLOW}⚙️  Configuration du web-studio...${NC}"
 cat > apps/web-studio/.env.local <<EOF
-NEXT_PUBLIC_API_URL=http://91.134.135.247:3001
+NEXT_PUBLIC_API_URL=https://api.arena-event.fr
 EOF
 echo -e "${GREEN}✅ Web-studio .env.local configuré${NC}"
 
 # Configuration des variables d'environnement pour web-screen
 echo -e "${YELLOW}⚙️  Configuration du web-screen...${NC}"
 cat > apps/web-screen/.env.local <<EOF
-NEXT_PUBLIC_API_URL=http://91.134.135.247:3001
+NEXT_PUBLIC_API_URL=https://api.arena-event.fr
 EOF
 echo -e "${GREEN}✅ Web-screen .env.local configuré${NC}"
 
@@ -193,11 +193,12 @@ echo -e "${GREEN}✅ Déploiement terminé!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "${YELLOW}Services disponibles:${NC}"
-echo "  - API: http://91.134.135.247:3001"
-echo "  - Health: http://91.134.135.247:3001/health"
-echo "  - Player: http://91.134.135.247:3002"
-echo "  - Admin: http://91.134.135.247:3003"
-echo "  - Screen: http://91.134.135.247:3004"
+echo "  - API: https://api.arena-event.fr"
+echo "  - Health: https://api.arena-event.fr/health"
+echo "  - Player: https://player.arena-event.fr"
+echo "  - Admin: https://admin.arena-event.fr"
+echo "  - Screen: https://screen.arena-event.fr"
+echo "  - Studio: https://studio.arena-event.fr"
 echo ""
 echo -e "${YELLOW}Commandes utiles:${NC}"
 echo ""
