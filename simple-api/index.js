@@ -227,9 +227,14 @@ const useJoker = (sessionId, teamId, jokerType) => {
   const teamJokers = state.jokers[teamId];
   if (!teamJokers) return { success: false, error: 'Team not in finale' };
 
+  // Race condition protection: Check if joker already in use
+  if (state.activeJokers[teamId]?.includes(jokerType)) {
+    return { success: false, error: 'Joker already active for this question' };
+  }
+
   if (teamJokers[jokerType] <= 0) return { success: false, error: 'Joker already used' };
 
-  // Use the joker
+  // Atomic: Use the joker
   teamJokers[jokerType]--;
 
   // Set active joker for this question
@@ -240,7 +245,9 @@ const useJoker = (sessionId, teamId, jokerType) => {
 
   // Special handling for SHIELD
   if (jokerType === JOKER_TYPES.SHIELD) {
-    state.shieldedTeams.push(teamId);
+    if (!state.shieldedTeams.includes(teamId)) {
+      state.shieldedTeams.push(teamId);
+    }
   }
 
   finaleState.set(sessionId, state);
@@ -299,7 +306,7 @@ if (!existsSync(audioDir)) {
 // FILE UPLOAD ENDPOINT
 // ============================================
 
-app.post('/api/upload', async (req, res) => {
+app.post('/api/upload', authenticateToken, async (req, res) => {
   try {
     const { filename, data, type } = req.body;
 
@@ -307,8 +314,19 @@ app.post('/api/upload', async (req, res) => {
       return res.status(400).json({ error: 'Filename and data are required' });
     }
 
-    // Extract base64 data
+    // Security: Validate file size (max 10MB)
     const base64Data = data.replace(/^data:[^;]+;base64,/, '');
+    const sizeInBytes = (base64Data.length * 3) / 4;
+    if (sizeInBytes > 10 * 1024 * 1024) {
+      return res.status(400).json({ error: 'File too large (max 10MB)' });
+    }
+
+    // Security: Validate file type
+    const allowedTypes = ['audio', 'image'];
+    if (type && !allowedTypes.includes(type)) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+
     const buffer = Buffer.from(base64Data, 'base64');
 
     // Generate unique filename
@@ -340,9 +358,20 @@ app.post('/api/upload', async (req, res) => {
 // ============================================
 // CONFIGURATION (Environment Variables)
 // ============================================
+// SECURITY: Force JWT_SECRET to be set in production
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.error('❌ FATAL ERROR: JWT_SECRET environment variable must be set in production');
+  process.exit(1);
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
+
+// Warn if using default JWT_SECRET in development
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  WARNING: Using default JWT_SECRET. Set JWT_SECRET environment variable for security.');
+}
 
 // ============================================
 // RATE LIMITING (Anti-spam protection)
@@ -730,6 +759,11 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    // Security: Verify ownership
+    if (event.ownerId !== req.user.userId && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: You do not have access to this event' });
+    }
+
     // Transform questions to match frontend expectations
     const transformedEvent = {
       ...event,
@@ -764,6 +798,20 @@ app.put('/api/events/:id', authenticateToken, async (req, res) => {
   try {
     const { name, description } = req.body;
 
+    // Security: Verify ownership before update
+    const existingEvent = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { ownerId: true }
+    });
+
+    if (!existingEvent) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    if (existingEvent.ownerId !== req.user.userId && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: You do not have access to this event' });
+    }
+
     const event = await prisma.event.update({
       where: { id: req.params.id },
       data: { name, description }
@@ -778,6 +826,20 @@ app.put('/api/events/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/events/:id', authenticateToken, async (req, res) => {
   try {
+    // Security: Verify ownership before delete
+    const existingEvent = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { ownerId: true }
+    });
+
+    if (!existingEvent) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    if (existingEvent.ownerId !== req.user.userId && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Forbidden: You do not have access to this event' });
+    }
+
     await prisma.event.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (error) {
@@ -1510,16 +1572,46 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
 // SOCKET.IO
 // ============================================
 
+// WebSocket authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token || socket.handshake.headers['authorization']?.split(' ')[1];
+  const role = socket.handshake.auth.role;
+
+  // Allow players without token (they authenticate via teamId)
+  if (role === 'player' || role === 'screen') {
+    socket.isAuthenticated = false;
+    socket.role = role;
+    return next();
+  }
+
+  // Studio and admin require authentication
+  if (!token) {
+    console.log('⚠️  WebSocket connection rejected: No token provided for role', role);
+    return next(new Error('Authentication required'));
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      console.log('⚠️  WebSocket connection rejected: Invalid token');
+      return next(new Error('Invalid token'));
+    }
+    socket.user = user;
+    socket.isAuthenticated = true;
+    socket.role = role;
+    next();
+  });
+});
+
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  console.log('Client connected:', socket.id, 'role:', socket.role, 'authenticated:', socket.isAuthenticated);
 
   // ========== SESSION EVENTS ==========
   // Support both hyphen and colon notation
   const joinSession = ({ sessionId, teamId, role }) => {
     socket.join(`session:${sessionId}`);
     socket.sessionId = sessionId;
-    socket.role = role;
-    console.log(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
+    socket.role = role || socket.role;
+    console.log(`Socket ${socket.id} (${role || socket.role || 'unknown'}) joined session ${sessionId}`);
 
     if (teamId) {
       socket.teamId = teamId;

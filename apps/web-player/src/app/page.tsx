@@ -203,6 +203,8 @@ export default function PlayerHome() {
   const connectSocket = (sessionId: string, teamId: string) => {
     // Disconnect existing socket if any
     if (socketRef.current) {
+      // Clean up all existing listeners to prevent memory leaks
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
     }
 
@@ -213,6 +215,9 @@ export default function PlayerHome() {
       reconnectionDelayMax: 2000,
       reconnectionAttempts: maxRetries,
       timeout: 10000,
+      auth: {
+        role: 'player',
+      },
     });
     socketRef.current = socket;
 
@@ -222,7 +227,7 @@ export default function PlayerHome() {
       setConnectionError(null);
       setShowConnectionOverlay(false);
       setRetryCount(0);
-      socket.emit('join_session', {
+      socket.emit('join-session', {
         sessionId,
         teamId,
         role: 'player',
@@ -232,6 +237,12 @@ export default function PlayerHome() {
     socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
+
+      // Reset question state on disconnect to avoid stale data
+      if (gameStateRef.current === 'QUESTION') {
+        stopTimer();
+      }
+
       // Show overlay only if not in JOIN state (user has joined a session)
       // Use ref to avoid stale closure bug
       if (gameStateRef.current !== 'JOIN' && gameStateRef.current !== 'TEAM_SELECT') {
@@ -257,6 +268,14 @@ export default function PlayerHome() {
       setConnectionError(null);
       setShowConnectionOverlay(false);
       setRetryCount(0);
+
+      // Re-join session after successful reconnection
+      socket.emit('join-session', {
+        sessionId,
+        teamId,
+        role: 'player',
+      });
+      console.log('Re-joined session after reconnection');
     });
 
     socket.io.on('reconnect_failed', () => {
@@ -479,21 +498,24 @@ export default function PlayerHome() {
 
   // Submit answer (Socket only for lower latency - no duplicate REST call)
   const handleAnswer = async (answer: string) => {
+    // Protection against double-click exploit
     if (hasAnswered || !currentQuestion || !session || !team) return;
 
-    setSelectedAnswer(answer);
+    // Immediately set hasAnswered to prevent double submission
     setHasAnswered(true);
+    setSelectedAnswer(answer);
     setGameState('WAITING');
 
     const responseTime = Date.now() - questionStartTime.current;
 
     // Send via socket only (server handles persistence)
-    socketRef.current?.emit('submit_answer', {
+    socketRef.current?.emit('submit-answer', {
       sessionId: session.id,
       teamId: team.id,
       questionId: currentQuestion.id,
-      content: answer,
+      answer,
       responseTime,
+      timeRemaining: Math.max(0, timeRemaining),
     });
   };
 
@@ -506,26 +528,38 @@ export default function PlayerHome() {
 
   // Press buzzer (with server acknowledgment for reliability)
   const handleBuzzer = () => {
+    // Double-click protection: strict check
     if (buzzerPressed || !buzzerOpen || !session || !team) return;
 
+    // Immediately set buzzerPressed to prevent double-press exploit
     setBuzzerPressed(true);
+    setBuzzerOpen(false); // Lock locally immediately
+
+    const timestamp = Date.now();
 
     // Emit with acknowledgment callback
-    socketRef.current?.emit('buzzer_press', {
+    socketRef.current?.emit('buzzer-press', {
+      sessionId: session.id,
       questionId: currentQuestion?.id,
       teamId: team.id,
-    }, (response: { success: boolean; winner: boolean; actualWinner?: { name: string } }) => {
+      teamName: team.name,
+      timestamp,
+    }, (response: { success: boolean; winner: boolean; reason?: string; actualWinner?: { name: string } }) => {
       // Handle acknowledgment from server
       if (response) {
         if (response.success && response.winner) {
           // We won the buzzer!
           console.log('Buzzer press confirmed - we won!');
-        } else if (!response.success && response.actualWinner) {
-          // Someone else was faster
-          console.log(`Buzzer press rejected - ${response.actualWinner.name} was faster`);
-          setBuzzerPressed(false);
-          // Keep buzzer locked since someone else won
-          setBuzzerOpen(false);
+        } else if (!response.success) {
+          if (response.reason === 'already_buzzed') {
+            console.log('Already buzzed for this question');
+          } else if (response.actualWinner) {
+            // Someone else was faster
+            console.log(`Buzzer press rejected - ${response.actualWinner.name} was faster`);
+          } else {
+            console.log(`Buzzer press rejected: ${response.reason || 'unknown'}`);
+          }
+          // Server rejected, unlock locally only if buzzer was re-opened by server
         }
       }
     });
@@ -554,11 +588,14 @@ export default function PlayerHome() {
     return 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600';
   };
 
-  // Cleanup
+  // Cleanup - Clean up socket listeners and disconnect on unmount
   useEffect(() => {
     return () => {
       stopTimer();
-      socketRef.current?.disconnect();
+      if (socketRef.current) {
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+      }
     };
   }, []);
 
