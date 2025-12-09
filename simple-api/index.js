@@ -1577,29 +1577,40 @@ io.use((socket, next) => {
   const token = socket.handshake.auth.token || socket.handshake.headers['authorization']?.split(' ')[1];
   const role = socket.handshake.auth.role;
 
-  // Allow players without token (they authenticate via teamId)
+  console.log(`WebSocket connection attempt - Role: ${role}, Has Token: ${!!token}`);
+
+  // Allow players and screens without token (they authenticate via teamId)
   if (role === 'player' || role === 'screen') {
     socket.isAuthenticated = false;
     socket.role = role;
+    console.log(`✅ WebSocket ${role} connection allowed without token`);
     return next();
   }
 
   // Studio and admin require authentication
-  if (!token) {
-    console.log('⚠️  WebSocket connection rejected: No token provided for role', role);
-    return next(new Error('Authentication required'));
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      console.log('⚠️  WebSocket connection rejected: Invalid token');
-      return next(new Error('Invalid token'));
+  if (role === 'studio' || role === 'admin') {
+    if (!token) {
+      console.log(`⚠️  WebSocket connection rejected: No token provided for role ${role}`);
+      return next(new Error('Authentication required'));
     }
-    socket.user = user;
-    socket.isAuthenticated = true;
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        console.log('⚠️  WebSocket connection rejected: Invalid token');
+        return next(new Error('Invalid token'));
+      }
+      socket.user = user;
+      socket.isAuthenticated = true;
+      socket.role = role;
+      console.log(`✅ WebSocket ${role} authenticated successfully`);
+      next();
+    });
+  } else {
+    // Unknown role - allow but log
+    console.log(`⚠️  WebSocket connection with unknown role: ${role} - allowing`);
     socket.role = role;
     next();
-  });
+  }
 });
 
 io.on('connection', (socket) => {
