@@ -25,6 +25,12 @@ interface Event {
   createdAt: string;
   _count?: { sessions: number; rounds: number };
   rounds?: Round[];
+  ownerId?: string;
+  owner?: {
+    email: string;
+    firstName: string;
+    lastName: string;
+  };
 }
 
 interface Round {
@@ -55,7 +61,14 @@ interface Session {
   code: string;
   status: string;
   eventId: string;
-  event?: { name: string };
+  event?: {
+    name: string;
+    owner?: {
+      email: string;
+      firstName: string;
+      lastName: string;
+    };
+  };
   _count?: { teams: number };
   createdAt: string;
 }
