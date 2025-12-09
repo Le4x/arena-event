@@ -136,7 +136,7 @@ export default function Home() {
 
   const loadEvents = async () => {
     try {
-      const res = await apiCall('/api/events');
+      const res = await apiCall('/simple-api/events');
       if (res.ok) {
         const text = await res.text();
         try {
@@ -155,7 +155,7 @@ export default function Home() {
 
   const loadSessions = async () => {
     try {
-      const res = await apiCall('/api/sessions');
+      const res = await apiCall('/simple-api/sessions');
       if (res.ok) {
         const text = await res.text();
         try {
@@ -174,7 +174,7 @@ export default function Home() {
 
   const loadUsers = async () => {
     try {
-      const res = await apiCall('/api/users');
+      const res = await apiCall('/simple-api/users');
       if (res.ok) {
         const data = await res.json();
         setUsers(data || []);
@@ -187,7 +187,7 @@ export default function Home() {
 
   const loadEventDetails = async (eventId: string) => {
     try {
-      const res = await apiCall(`/api/events/${eventId}`);
+      const res = await apiCall(`/simple-api/events/${eventId}`);
       if (res.ok) {
         const text = await res.text();
         try {
@@ -207,7 +207,7 @@ export default function Home() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/auth/login`, {
+      const res = await fetch(`${API_URL}/simple-api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -242,7 +242,7 @@ export default function Home() {
     setModalError('');
     setModalLoading(true);
     try {
-      const res = await apiCall('/api/events', {
+      const res = await apiCall('/simple-api/events', {
         method: 'POST',
         body: JSON.stringify(eventForm),
       });
@@ -271,7 +271,7 @@ export default function Home() {
     setModalError('');
     setModalLoading(true);
     try {
-      const res = await apiCall(`/api/events/${editingEvent.id}`, {
+      const res = await apiCall(`/simple-api/events/${editingEvent.id}`, {
         method: 'PUT',
         body: JSON.stringify(eventForm),
       });
@@ -298,7 +298,7 @@ export default function Home() {
   const deleteEvent = async (eventId: string) => {
     if (!confirm('Delete this event?')) return;
     try {
-      const res = await apiCall(`/api/events/${eventId}`, { method: 'DELETE' });
+      const res = await apiCall(`/simple-api/events/${eventId}`, { method: 'DELETE' });
       if (res.ok) {
         loadEvents();
         if (selectedEvent?.id === eventId) {
@@ -312,7 +312,7 @@ export default function Home() {
 
   const createRound = async (eventId: string) => {
     try {
-      const res = await apiCall(`/api/events/${eventId}/rounds`, {
+      const res = await apiCall(`/simple-api/events/${eventId}/rounds`, {
         method: 'POST',
         body: JSON.stringify({ name: `Round ${(selectedEvent?.rounds?.length || 0) + 1}` }),
       });
@@ -327,7 +327,7 @@ export default function Home() {
   const createQuestion = async () => {
     if (!selectedRoundId) return;
     try {
-      const res = await apiCall(`/api/rounds/${selectedRoundId}/questions`, {
+      const res = await apiCall(`/simple-api/rounds/${selectedRoundId}/questions`, {
         method: 'POST',
         body: JSON.stringify({
           ...questionForm,
@@ -353,7 +353,7 @@ export default function Home() {
   const updateQuestion = async () => {
     if (!editingQuestion) return;
     try {
-      const res = await apiCall(`/api/questions/${editingQuestion.id}`, {
+      const res = await apiCall(`/simple-api/questions/${editingQuestion.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           ...questionForm,
@@ -379,7 +379,7 @@ export default function Home() {
   const deleteQuestion = async (questionId: string) => {
     if (!confirm('Delete this question?')) return;
     try {
-      const res = await apiCall(`/api/questions/${questionId}`, { method: 'DELETE' });
+      const res = await apiCall(`/simple-api/questions/${questionId}`, { method: 'DELETE' });
       if (res.ok && selectedEvent) {
         loadEventDetails(selectedEvent.id);
       }
@@ -390,7 +390,7 @@ export default function Home() {
 
   const createSession = async (eventId: string) => {
     try {
-      const res = await apiCall('/api/sessions', {
+      const res = await apiCall('/simple-api/sessions', {
         method: 'POST',
         body: JSON.stringify({ eventId }),
       });
@@ -411,7 +411,7 @@ export default function Home() {
     setModalError('');
     setModalLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/auth/register`, {
+      const res = await fetch(`${API_URL}/simple-api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -444,7 +444,7 @@ export default function Home() {
     setModalError('');
     setModalLoading(true);
     try {
-      const res = await apiCall(`/api/users/${editingUser.id}`, {
+      const res = await apiCall(`/simple-api/users/${editingUser.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           firstName: userForm.firstName,
@@ -472,7 +472,7 @@ export default function Home() {
   const deleteUser = async (userId: string) => {
     if (!confirm('Delete this user?')) return;
     try {
-      const res = await apiCall(`/api/users/${userId}`, { method: 'DELETE' });
+      const res = await apiCall(`/simple-api/users/${userId}`, { method: 'DELETE' });
       if (res.ok) {
         loadUsers();
       }
@@ -536,7 +536,7 @@ export default function Home() {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
-        const res = await fetch(`${API_URL}/api/upload`, {
+        const res = await fetch(`${API_URL}/simple-api/upload`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1272,7 +1272,7 @@ export default function Home() {
                           const reader = new FileReader();
                           reader.onloadend = async () => {
                             const base64 = reader.result as string;
-                            const res = await fetch(`${API_URL}/api/upload`, {
+                            const res = await fetch(`${API_URL}/simple-api/upload`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ filename: file.name, data: base64, type: 'images' }),
