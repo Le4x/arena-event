@@ -327,7 +327,7 @@ export default function Home() {
       if (res.ok) {
         setShowEventModal(false);
         setEditingEvent(null);
-        setEventForm({ name: '', description: '' });
+        setEventForm({ name: '', description: '', ownerId: '' });
         loadEvents();
         if (selectedEvent?.id === editingEvent.id) {
           loadEventDetails(editingEvent.id);
