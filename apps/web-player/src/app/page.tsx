@@ -95,6 +95,33 @@ export default function PlayerHome() {
   const gameStateRef = useRef<GameState>(gameState);
   gameStateRef.current = gameState;
 
+  // Restore session from localStorage on mount
+  useEffect(() => {
+    const savedSession = localStorage.getItem('arena_session');
+    const savedTeam = localStorage.getItem('arena_team');
+
+    if (savedSession && savedTeam) {
+      try {
+        const parsedSession = JSON.parse(savedSession);
+        const parsedTeam = JSON.parse(savedTeam);
+
+        setSession(parsedSession);
+        setTeam(parsedTeam);
+        setTeamName(parsedTeam.name);
+        setGameState('LOBBY');
+
+        // Reconnect socket
+        connectSocket(parsedSession.id, parsedTeam.id);
+
+        console.log('Session restored from localStorage');
+      } catch (e) {
+        console.error('Failed to restore session:', e);
+        localStorage.removeItem('arena_session');
+        localStorage.removeItem('arena_team');
+      }
+    }
+  }, []);
+
   // Join session via API
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,8 +197,15 @@ export default function PlayerHome() {
       setTeam(data);
       setGameState('LOBBY');
 
+      // Save to localStorage for persistence
+      localStorage.setItem('arena_session', JSON.stringify(session));
+      localStorage.setItem('arena_team', JSON.stringify(data));
+
       // Connect socket
       connectSocket(session.id, data.id);
+
+      // Enable fullscreen and wake lock on mobile
+      enableFullscreenAndWakeLock();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join team');
     } finally {
@@ -186,7 +220,44 @@ export default function PlayerHome() {
     setTeam(existingTeam);
     setTeamName(existingTeam.name);
     setGameState('LOBBY');
+
+    // Save to localStorage for persistence
+    localStorage.setItem('arena_session', JSON.stringify(session));
+    localStorage.setItem('arena_team', JSON.stringify(existingTeam));
+
     connectSocket(session.id, existingTeam.id);
+
+    // Enable fullscreen and wake lock on mobile
+    enableFullscreenAndWakeLock();
+  };
+
+  // Enable fullscreen and wake lock for mobile
+  const enableFullscreenAndWakeLock = async () => {
+    // Request fullscreen
+    try {
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen().catch(() => {});
+      }
+    } catch (e) {
+      console.log('Fullscreen not supported or denied');
+    }
+
+    // Request wake lock to prevent screen sleep
+    try {
+      if ('wakeLock' in navigator) {
+        const wakeLock = await (navigator as any).wakeLock.request('screen');
+        console.log('Wake Lock activated');
+
+        // Re-acquire wake lock when visibility changes
+        document.addEventListener('visibilitychange', async () => {
+          if (document.visibilityState === 'visible') {
+            await (navigator as any).wakeLock.request('screen');
+          }
+        });
+      }
+    } catch (e) {
+      console.log('Wake Lock not supported or denied');
+    }
   };
 
   // Manual retry function
