@@ -90,7 +90,7 @@ export default function Home() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
 
   // Form state
-  const [eventForm, setEventForm] = useState({ name: '', description: '' });
+  const [eventForm, setEventForm] = useState({ name: '', description: '', ownerId: '' });
   const [questionForm, setQuestionForm] = useState({
     text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
@@ -297,7 +297,7 @@ export default function Home() {
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setShowEventModal(false);
-        setEventForm({ name: '', description: '' });
+        setEventForm({ name: '', description: '', ownerId: '' });
         loadEvents();
       } else {
         setModalError(data.error || `Failed to create event (${res.status})`);
@@ -531,7 +531,11 @@ export default function Home() {
 
   const openEditEvent = (event: Event) => {
     setEditingEvent(event);
-    setEventForm({ name: event.name, description: event.description });
+    setEventForm({
+      name: event.name,
+      description: event.description,
+      ownerId: (event as any).ownerId || ''
+    });
     setShowEventModal(true);
   };
 
@@ -748,7 +752,7 @@ export default function Home() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-3xl font-bold text-white">Events</h2>
-              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '' }); setShowEventModal(true); }}
+              <button onClick={() => { setEditingEvent(null); setEventForm({ name: '', description: '', ownerId: '' }); setShowEventModal(true); }}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition">
                 + Create Event
               </button>
@@ -1009,6 +1013,30 @@ export default function Home() {
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500 h-24"
                   placeholder="Describe your event..." />
               </div>
+              {/* Owner selection - only for SUPER_ADMIN when editing */}
+              {user?.role === 'SUPER_ADMIN' && editingEvent && (
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">
+                    👤 Propriétaire
+                    <span className="ml-2 text-xs text-gray-500">(changez si nécessaire)</span>
+                  </label>
+                  <select
+                    value={eventForm.ownerId}
+                    onChange={(e) => setEventForm({ ...eventForm, ownerId: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">-- Sélectionner un propriétaire --</option>
+                    {users.filter(u => u.role === 'SUPER_ADMIN' || u.role === 'ORGANIZER').map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.firstName} {u.lastName} ({u.email}) - {u.role}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Seuls les SUPER_ADMIN et ORGANIZER peuvent être propriétaires
+                  </p>
+                </div>
+              )}
             </div>
             <div className="flex space-x-4 mt-6">
               <button onClick={() => { setShowEventModal(false); setEditingEvent(null); setModalError(''); }}

@@ -909,16 +909,34 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
 
 app.put('/api/events/:id', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, ownerId } = req.body;
+
+    // Préparer les données à mettre à jour
+    const updateData = { name, description };
+
+    // SUPER_ADMIN peut changer le propriétaire
+    if (req.user.role === 'SUPER_ADMIN' && ownerId) {
+      updateData.ownerId = ownerId;
+      log.info(`SUPER_ADMIN changing event owner`, {
+        eventId: req.params.id,
+        newOwnerId: ownerId,
+        changedBy: req.user.userId
+      });
+    }
 
     const event = await prisma.event.update({
       where: { id: req.params.id },
-      data: { name, description }
+      data: updateData
+    });
+
+    log.success(`Event updated: ${event.name}`, {
+      eventId: event.id,
+      updatedBy: req.user.userId
     });
 
     res.json({ success: true, event });
   } catch (error) {
-    console.error('Update event error:', error);
+    log.error('Update event error', { error: error.message });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
