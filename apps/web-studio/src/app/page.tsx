@@ -199,11 +199,6 @@ export default function StudioHome() {
       console.log('Studio socket disconnected:', reason);
       setIsConnected(false);
       setConnectionError(`Connexion perdue: ${reason}`);
-
-      // Pause game on disconnect to prevent desync
-      if (isPlaying) {
-        console.log('Game paused due to disconnection');
-      }
     });
 
     socket.on('connect_error', (err) => {
