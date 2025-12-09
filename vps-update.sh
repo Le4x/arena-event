@@ -42,13 +42,19 @@ npm run build -w @arena-event/web-admin
 echo -e "${GREEN}✅ Applications buildées${NC}"
 echo ""
 
-# 4. Restart simple-api only (other services will pick up new builds)
-echo -e "${YELLOW}4️⃣ Redémarrage de simple-api...${NC}"
-cd simple-api
-pm2 restart simple-api
-cd ..
+# 4. Restart all services with PM2 ecosystem config
+echo -e "${YELLOW}4️⃣ Redémarrage de tous les services en mode production...${NC}"
 
-echo -e "${GREEN}✅ simple-api redémarré${NC}"
+# Stop all running processes
+pm2 delete all 2>/dev/null || true
+
+# Start all services using ecosystem.config.js
+pm2 start ecosystem.config.js
+
+# Save PM2 configuration
+pm2 save
+
+echo -e "${GREEN}✅ Services redémarrés en mode production${NC}"
 echo ""
 
 # 5. Show status
