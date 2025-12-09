@@ -547,9 +547,9 @@ export default function Home() {
             <div className="bg-gray-800 rounded-xl p-6">
               <h3 className="text-xl font-semibold text-white mb-4">Quick Links</h3>
               <div className="grid grid-cols-3 gap-4">
-                <a href="http://91.134.135.247:3002" target="_blank" className="bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-xl text-center font-semibold transition">🎮 Studio</a>
-                <a href="http://91.134.135.247:3003" target="_blank" className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl text-center font-semibold transition">📱 Player</a>
-                <a href="http://91.134.135.247:3004" target="_blank" className="bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-center font-semibold transition">📺 Screen</a>
+                <a href="https://studio.arena-event.fr" target="_blank" className="bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-xl text-center font-semibold transition">🎮 Studio</a>
+                <a href="https://player.arena-event.fr" target="_blank" className="bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl text-center font-semibold transition">📱 Player</a>
+                <a href="https://screen.arena-event.fr" target="_blank" className="bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl text-center font-semibold transition">📺 Screen</a>
               </div>
             </div>
           </div>
@@ -714,7 +714,7 @@ export default function Home() {
                       }`}>
                         {session.status}
                       </span>
-                      <a href={`http://91.134.135.247:3002?session=${session.id}`} target="_blank"
+                      <a href={`https://studio.arena-event.fr?session=${session.id}`} target="_blank"
                         className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition">
                         Open Studio
                       </a>
