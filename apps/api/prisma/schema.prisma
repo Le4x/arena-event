@@ -191,6 +191,8 @@ model Team {
 
   @@unique([sessionId, name])
   @@index([sessionId])
+  @@index([score])
+  @@index([sessionId, score])
   @@map("teams")
 }
 

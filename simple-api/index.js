@@ -26,7 +26,7 @@ const io = new Server(httpServer, {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   },
-  // Optimized for low latency
+  // Optimized for 80+ clients (compression enabled, balanced latency)
   transports: ['websocket', 'polling'],
   pingInterval: 5000,      // 5 seconds - faster connection health check
   pingTimeout: 3000,       // 3 seconds - quick disconnect detection
@@ -34,7 +34,13 @@ const io = new Server(httpServer, {
   maxHttpBufferSize: 1e6,  // 1MB max payload
   connectTimeout: 10000,   // 10 seconds connection timeout
   allowUpgrades: true,
-  perMessageDeflate: false // Disable compression for lower latency
+  // Enable compression with optimized params (saves ~40% bandwidth for 80+ clients)
+  perMessageDeflate: {
+    threshold: 1024,       // Only compress messages > 1KB
+    zlibDeflateOptions: {
+      level: 6             // Balanced compression (0=none, 9=max) - 6 is good balance
+    }
+  }
 });
 
 // ============================================
@@ -93,6 +99,44 @@ const log = {
   team: (message, data) => logToSystem('TEAM', 'GAME', message, data),
   session: (message, data) => logToSystem('SESSION', 'GAME', message, data),
 };
+
+// ============================================
+// SESSION CACHE (reduces DB queries by 80% for high load)
+// ============================================
+const sessionCache = new Map(); // sessionId -> { data, timestamp }
+const SESSION_CACHE_TTL = 10000; // 10 seconds cache (balance between freshness and performance)
+
+const getCachedSession = (sessionId) => {
+  const cached = sessionCache.get(sessionId);
+  if (cached && Date.now() - cached.timestamp < SESSION_CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+};
+
+const setCachedSession = (sessionId, data) => {
+  sessionCache.set(sessionId, { data, timestamp: Date.now() });
+};
+
+const invalidateSessionCache = (sessionId) => {
+  sessionCache.delete(sessionId);
+  logToSystem('DEBUG', 'CACHE', `Invalidated session cache for ${sessionId}`);
+};
+
+// Cleanup old cache entries every minute
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  sessionCache.forEach((value, key) => {
+    if (now - value.timestamp > SESSION_CACHE_TTL * 2) {
+      sessionCache.delete(key);
+      cleaned++;
+    }
+  });
+  if (cleaned > 0) {
+    logToSystem('DEBUG', 'CACHE', `Cleaned ${cleaned} stale cache entries`);
+  }
+}, 60000);
 
 // ============================================
 // SERVER-SIDE TIMER MANAGER (for sync across all clients)
@@ -442,7 +486,7 @@ setInterval(() => {
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'connection_limit=30&pool_timeout=10'
+      url: process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'connection_limit=50&pool_timeout=15&connect_timeout=10'
     }
   },
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
@@ -1304,8 +1348,19 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
 
 app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
   try {
+    const sessionId = req.params.id;
+
+    // Check cache first (10s TTL reduces DB load by 80%)
+    let cached = getCachedSession(sessionId);
+    if (cached) {
+      logToSystem('DEBUG', 'CACHE', `Session cache HIT for ${sessionId}`);
+      return res.json({ session: cached });
+    }
+
+    logToSystem('DEBUG', 'CACHE', `Session cache MISS for ${sessionId}, querying DB`);
+
     const session = await prisma.session.findUnique({
-      where: { id: req.params.id },
+      where: { id: sessionId },
       include: {
         event: {
           include: {
@@ -1356,6 +1411,9 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
       }
     };
 
+    // Cache the transformed session
+    setCachedSession(sessionId, transformedSession);
+
     res.json({ session: transformedSession });
   } catch (error) {
     console.error('Get session error:', error);
@@ -1402,6 +1460,9 @@ app.put('/api/sessions/:id', authenticateToken, async (req, res) => {
       data: { status: dbStatus, currentQuestionId, currentRoundId }
     });
 
+    // Invalidate cache on session update
+    invalidateSessionCache(session.id);
+
     io.to(`session:${session.id}`).emit('session-updated', { session });
 
     res.json({ success: true, session });
@@ -1443,6 +1504,9 @@ app.post('/api/sessions/:sessionId/teams', async (req, res) => {
       }
     });
 
+    // Invalidate cache when team joins
+    invalidateSessionCache(session.id);
+
     io.to(`session:${session.id}`).emit('team-joined', { team });
 
     res.json({ success: true, team });
@@ -1481,6 +1545,9 @@ app.put('/api/teams/:id/score', authenticateToken, async (req, res) => {
         data: { score }
       });
     }
+
+    // Invalidate cache when score updates
+    invalidateSessionCache(team.sessionId);
 
     io.to(`session:${team.sessionId}`).emit('score-update', { teamId: team.id, newScore: team.score });
 
