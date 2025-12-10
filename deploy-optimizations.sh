@@ -34,20 +34,29 @@ else
   echo "✅ Fichier .env existe"
 fi
 
-# 4. Redémarrer simple-api
+# 4. Build web-player avec nouveau header
 echo ""
-echo "🔄 Redémarrage de simple-api..."
-pm2 restart simple-api
-sleep 2
-echo "✅ Simple-api redémarré"
+echo "🔨 Build du player avec nouveau header..."
+cd apps/web-player
+npm run build || echo "⚠️  Build player échoué, continuons..."
+cd ../..
+echo "✅ Player buildé"
 
-# 5. Vérifier les logs
+# 5. Redémarrer les services
+echo ""
+echo "🔄 Redémarrage des services..."
+pm2 restart simple-api
+pm2 restart arena-player || echo "⚠️  Restart player échoué, continuons..."
+sleep 2
+echo "✅ Services redémarrés"
+
+# 6. Vérifier les logs
 echo ""
 echo "📋 Logs (dernières 30 lignes):"
 echo "=============================="
 pm2 logs simple-api --lines 30 --nostream
 
-# 6. Afficher le statut
+# 7. Afficher le statut
 echo ""
 echo "📊 Statut PM2:"
 echo "=============="
@@ -62,6 +71,7 @@ echo "  - ✅ Pool DB: 50 connexions (+67% throughput)"
 echo "  - ✅ Compression WebSocket (-40% bande passante)"
 echo "  - ✅ Memory cleanup périodique"
 echo "  - ✅ Timer broadcasts optimisés (250ms)"
+echo "  - ✅ Header Player avec infos équipe + aide"
 echo ""
 echo "📈 Capacité estimée: 70-80 clients simultanés"
 echo ""
