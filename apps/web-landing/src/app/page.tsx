@@ -24,7 +24,7 @@ export default function LandingPage() {
           </div>
 
           <a
-            href="http://91.134.135.247:3000"
+            href="https://admin.arena-event.fr"
             className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 transition"
           >
             Connexion
@@ -48,7 +48,7 @@ export default function LandingPage() {
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
               <a
-                href="http://91.134.135.247:3000"
+                href="https://admin.arena-event.fr"
                 className="px-8 py-4 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl font-semibold text-lg hover:shadow-2xl hover:shadow-purple-500/50 transition-all transform hover:scale-105"
               >
                 Commencer Gratuitement
@@ -183,13 +183,13 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a
-                href="http://91.134.135.247:3000"
+                href="https://admin.arena-event.fr"
                 className="px-8 py-4 bg-white text-purple-600 rounded-xl font-semibold text-lg hover:shadow-2xl transition-all transform hover:scale-105"
               >
                 Accéder à l'Admin
               </a>
               <a
-                href="http://91.134.135.247:3002"
+                href="https://studio.arena-event.fr"
                 className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white rounded-xl font-semibold text-lg border border-white/20 hover:bg-white/20 transition"
               >
                 Découvrir le Studio
@@ -208,16 +208,16 @@ export default function LandingPage() {
               <ul className="space-y-2">
                 <li><a href="#features" className="text-white/60 hover:text-white transition">Fonctionnalités</a></li>
                 <li><a href="#pricing" className="text-white/60 hover:text-white transition">Tarifs</a></li>
-                <li><a href="http://91.134.135.247:3000" className="text-white/60 hover:text-white transition">Admin</a></li>
-                <li><a href="http://91.134.135.247:3002" className="text-white/60 hover:text-white transition">Studio</a></li>
+                <li><a href="https://admin.arena-event.fr" className="text-white/60 hover:text-white transition">Admin</a></li>
+                <li><a href="https://studio.arena-event.fr" className="text-white/60 hover:text-white transition">Studio</a></li>
               </ul>
             </div>
             <div>
               <h4 className="text-white font-bold text-lg mb-4">Applications</h4>
               <ul className="space-y-2">
-                <li><a href="http://91.134.135.247:3003" className="text-white/60 hover:text-white transition">Player (Mobile)</a></li>
-                <li><a href="http://91.134.135.247:3004" className="text-white/60 hover:text-white transition">Screen (Affichage)</a></li>
-                <li><a href="http://91.134.135.247:3001/health" className="text-white/60 hover:text-white transition">API Status</a></li>
+                <li><a href="https://play.arena-event.fr" className="text-white/60 hover:text-white transition">Player (Mobile)</a></li>
+                <li><a href="https://screen.arena-event.fr" className="text-white/60 hover:text-white transition">Screen (Affichage)</a></li>
+                <li><a href="https://api.arena-event.fr/health" className="text-white/60 hover:text-white transition">API Status</a></li>
               </ul>
             </div>
             <div>
