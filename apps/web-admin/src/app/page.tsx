@@ -1,12 +1,24 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { saveAuthData } from '@arena-event/shared/src/auth';
 
 // URLs - configurable via environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
 const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL || 'https://studio.arena-event.fr';
 const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 const SCREEN_URL = process.env.NEXT_PUBLIC_SCREEN_URL || 'https://screen.arena-event.fr';
+
+// Cookie helpers (same as in auth.tsx)
+function setCookie(name: string, value: string, days = 7) {
+  const expires = new Date();
+  expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;domain=.arena-event.fr;SameSite=Lax`;
+}
+
+function deleteCookie(name: string) {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=.arena-event.fr`;
+}
 
 interface User {
   id: string;
@@ -216,8 +228,8 @@ export default function Home() {
       if (!res.ok) {
         setError(data.error || 'Login failed');
       } else {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        // Save to both localStorage and cookies for cross-domain sharing
+        saveAuthData(data.token, data.user);
         setToken(data.token);
         setUser(data.user);
       }
@@ -228,8 +240,11 @@ export default function Home() {
   };
 
   const handleLogout = () => {
+    // Clear both localStorage and cookies
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    deleteCookie('token');
+    deleteCookie('user');
     setToken(null);
     setUser(null);
   };
