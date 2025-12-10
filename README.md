@@ -70,6 +70,7 @@ A complete, production-ready event management platform for hosting interactive q
 │    └─ Socket.IO (WebSocket)            │
 │                                         │
 │  📦 Frontends (Next.js 14)             │
+│    ├─ Landing Page                     │
 │    ├─ Admin Dashboard                  │
 │    ├─ Studio (Game Master)             │
 │    ├─ Player (PWA)                     │
@@ -106,6 +107,7 @@ arena-event/
 │   │       ├── schema.prisma  # Database Schema
 │   │       └── seed.ts        # Demo Data
 │   │
+│   ├── web-landing/           # Landing Page (Next.js)
 │   ├── web-admin/             # Admin Dashboard (Next.js)
 │   ├── web-studio/            # Game Master Studio (Next.js)
 │   ├── web-player/            # Player PWA (Next.js)
@@ -204,6 +206,7 @@ npm run dev
 ```
 
 This starts:
+- **Landing**: http://localhost:3005
 - **API** (Backend): http://localhost:3001
 - **Admin**: http://localhost:3000
 - **Studio**: http://localhost:3002
@@ -217,6 +220,9 @@ Start services separately:
 ```bash
 # Backend only
 cd apps/api && npm run dev
+
+# Landing only
+cd apps/web-landing && npm run dev
 
 # Admin only
 cd apps/web-admin && npm run dev
@@ -415,6 +421,7 @@ npm run build
 
 ```bash
 cd apps/api && npm run build
+cd apps/web-landing && npm run build
 cd apps/web-admin && npm run build
 cd apps/web-studio && npm run build
 cd apps/web-player && npm run build
@@ -428,6 +435,7 @@ cd apps/web-screen && npm run build
 cd apps/api && npm run start:prod
 
 # Frontends
+cd apps/web-landing && npm run start
 cd apps/web-admin && npm run start
 cd apps/web-studio && npm run start
 cd apps/web-player && npm run start

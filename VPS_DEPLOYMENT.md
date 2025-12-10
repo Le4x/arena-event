@@ -17,6 +17,7 @@
 
 | Application | URL | Port |
 |-------------|-----|------|
+| **Landing Page** | http://91.134.135.247:3005 | 3005 |
 | **Admin Dashboard** | http://91.134.135.247:3000 | 3000 |
 | **API Backend** | http://91.134.135.247:3001 | 3001 |
 | **Studio (Regie)** | http://91.134.135.247:3002 | 3002 |
@@ -60,6 +61,7 @@
 /root/arena-event/
 ├── apps/
 │   ├── api/                 # API NestJS (port 3001)
+│   ├── web-landing/         # Landing Page (port 3005)
 │   ├── web-admin/           # Admin Dashboard (port 3000)
 │   ├── web-studio/          # Regie/Studio (port 3002)
 │   ├── web-player/          # Application joueur (port 3003)
@@ -88,6 +90,7 @@ cd ~/arena-event && docker-compose up -d
 cd ~/arena-event/simple-api && node index.js &
 
 # 3. Demarrer les frontends (dans des terminaux separes ou avec &)
+cd ~/arena-event/apps/web-landing && npm run dev &
 cd ~/arena-event/apps/web-admin && npm run dev &
 cd ~/arena-event/apps/web-studio && npm run dev &
 cd ~/arena-event/apps/web-player && npm run dev &
@@ -164,6 +167,7 @@ sudo ufw status
 # 3002/tcp   - Studio
 # 3003/tcp   - Player
 # 3004/tcp   - Screen
+# 3005/tcp   - Landing Page
 ```
 
 Pour ajouter un nouveau port :
@@ -345,6 +349,9 @@ cd ~/arena-event/simple-api
 nohup node index.js > ~/logs/api.log 2>&1 &
 
 # Start frontends
+cd ~/arena-event/apps/web-landing
+nohup npm run dev > ~/logs/landing.log 2>&1 &
+
 cd ~/arena-event/apps/web-admin
 nohup npm run dev > ~/logs/admin.log 2>&1 &
 
@@ -358,6 +365,7 @@ cd ~/arena-event/apps/web-screen
 nohup npm run dev > ~/logs/screen.log 2>&1 &
 
 echo "All services started!"
+echo "Landing: http://91.134.135.247:3005"
 echo "Admin: http://91.134.135.247:3000"
 echo "API: http://91.134.135.247:3001"
 echo "Studio: http://91.134.135.247:3002"

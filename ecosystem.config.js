@@ -69,6 +69,20 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3004
       }
+    },
+    {
+      name: 'arena-landing',
+      cwd: '/arena-event/apps/web-landing',
+      script: 'node_modules/next/dist/bin/next',
+      args: 'start',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3005
+      }
     }
   ]
 };
