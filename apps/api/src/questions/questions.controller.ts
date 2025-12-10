@@ -10,9 +10,16 @@ class CreateQuestionDto {
   mediaUrl?: string;
   timeLimit?: number;
   points?: number;
+  negativePoints?: number;
   order: number;
   choices?: string[];
   correctAnswer?: string;
+  explanation?: string;
+  tolerance?: number;
+  questionCueStart?: number;
+  questionCueEnd?: number;
+  revealCueStart?: number;
+  revealCueEnd?: number;
 }
 
 class UpdateQuestionDto {
@@ -21,9 +28,16 @@ class UpdateQuestionDto {
   mediaUrl?: string;
   timeLimit?: number;
   points?: number;
+  negativePoints?: number;
   order?: number;
   choices?: string[];
   correctAnswer?: string;
+  explanation?: string;
+  tolerance?: number;
+  questionCueStart?: number;
+  questionCueEnd?: number;
+  revealCueStart?: number;
+  revealCueEnd?: number;
 }
 
 @Controller('questions')

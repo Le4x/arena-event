@@ -294,4 +294,145 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: error.message });
     }
   }
+
+  /**
+   * GameMaster: Validate buzzer answer (correct or wrong)
+   */
+  @SubscribeMessage('buzzer-validate')
+  async handleBuzzerValidate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string; teamId: string; isCorrect: boolean; points?: number },
+  ) {
+    try {
+      const team = await this.teamsService.findOne(payload.teamId);
+
+      if (payload.isCorrect) {
+        // Update team score
+        if (payload.points && payload.points > 0) {
+          await this.teamsService.updateScore(payload.teamId, payload.points);
+        }
+
+        this.server.to(`session:${payload.sessionId}`).emit('buzzer-correct', {
+          teamId: payload.teamId,
+          teamName: team.name,
+          points: payload.points || 0,
+        });
+      } else {
+        this.server.to(`session:${payload.sessionId}`).emit('buzzer-wrong', {
+          teamId: payload.teamId,
+          teamName: team.name,
+        });
+
+        // Reset buzzer so others can try
+        this.server.to(`session:${payload.sessionId}`).emit('buzzer-reset', {});
+      }
+    } catch (error) {
+      this.logger.error('Error validating buzzer:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: Show transition screen
+   */
+  @SubscribeMessage('show-transition')
+  async handleShowTransition(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string },
+  ) {
+    this.server.to(`session:${payload.sessionId}`).emit('show-transition', {});
+  }
+
+  /**
+   * GameMaster: Start finale mode
+   */
+  @SubscribeMessage('finale-start')
+  async handleFinaleStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string; finalistTeams: string[] },
+  ) {
+    try {
+      // Initialize jokers for each finalist team
+      const jokers: Record<string, Record<string, number>> = {};
+      for (const teamId of payload.finalistTeams) {
+        jokers[teamId] = {
+          DOUBLE: 1,
+          TIME_PLUS: 1,
+          FIFTY_FIFTY: 1,
+          SHIELD: 1,
+        };
+      }
+
+      this.server.to(`session:${payload.sessionId}`).emit('finale-started', {
+        finalistTeams: payload.finalistTeams,
+        jokers,
+      });
+    } catch (error) {
+      this.logger.error('Error starting finale:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * Player: Use a joker
+   */
+  @SubscribeMessage('joker-use')
+  async handleJokerUse(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string; teamId: string; teamName: string; jokerType: string },
+  ) {
+    try {
+      // Broadcast joker usage to all clients
+      this.server.to(`session:${payload.sessionId}`).emit('joker-used', {
+        teamId: payload.teamId,
+        teamName: payload.teamName,
+        jokerType: payload.jokerType,
+        // Clients maintain their own joker counts
+      });
+
+      // Handle special joker effects
+      if (payload.jokerType === 'TIME_PLUS') {
+        this.server.to(`session:${payload.sessionId}`).emit('time-plus-activated', {
+          teamId: payload.teamId,
+          additionalTime: 15,
+        });
+      }
+
+      if (payload.jokerType === 'FIFTY_FIFTY') {
+        // Server should send which options to eliminate
+        // This is typically handled by the studio which knows the correct answer
+        this.server.to(`session:${payload.sessionId}`).emit('fifty-fifty-requested', {
+          teamId: payload.teamId,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error using joker:', error);
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  /**
+   * GameMaster: Apply 50/50 joker (eliminate 2 wrong answers)
+   */
+  @SubscribeMessage('fifty-fifty-apply')
+  async handleFiftyFiftyApply(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string; teamId: string; eliminatedOptions: string[] },
+  ) {
+    this.server.to(`session:${payload.sessionId}`).emit('fifty-fifty-applied', {
+      teamId: payload.teamId,
+      eliminatedOptions: payload.eliminatedOptions,
+    });
+  }
+
+  /**
+   * GameMaster: End finale mode
+   */
+  @SubscribeMessage('finale-end')
+  async handleFinaleEnd(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { sessionId: string },
+  ) {
+    this.server.to(`session:${payload.sessionId}`).emit('finale-ended', {});
+  }
 }

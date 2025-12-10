@@ -25,12 +25,15 @@ interface Round {
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'IMAGE';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'IMAGE' | 'TEXT';
   options?: string[];
   correctAnswer?: string;
   points: number;
+  negativePoints?: number;
   timeLimit: number;
   mediaUrl?: string;
+  explanation?: string;
+  tolerance?: number;
   // Cue points for audio playback (in seconds)
   questionCueStart?: number;
   questionCueEnd?: number;
@@ -460,6 +463,23 @@ export default function StudioHome() {
     socketRef.current?.emit('show-leaderboard', {
       sessionId: selectedSession?.id,
       teams: [...teams].sort((a, b) => b.score - a.score),
+    });
+  };
+
+  const showTransition = () => {
+    socketRef.current?.emit('show-transition', {
+      sessionId: selectedSession?.id,
+    });
+  };
+
+  const validateBuzzer = (teamId: string, isCorrect: boolean) => {
+    if (!selectedSession || !currentQuestion) return;
+
+    socketRef.current?.emit('buzzer-validate', {
+      sessionId: selectedSession.id,
+      teamId,
+      isCorrect,
+      points: isCorrect ? currentQuestion.points : 0,
     });
   };
 
@@ -1283,6 +1303,14 @@ export default function StudioHome() {
                 >
                   <span className="text-2xl block mb-1">🏆</span>
                   Leaderboard
+                </button>
+
+                <button
+                  onClick={showTransition}
+                  className="bg-gradient-to-r from-indigo-500 to-blue-500 hover:from-indigo-600 hover:to-blue-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                >
+                  <span className="text-2xl block mb-1">⏳</span>
+                  Transition
                 </button>
 
                 {!isFinaleMode ? (
