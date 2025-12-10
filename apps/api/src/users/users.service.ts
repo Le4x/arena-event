@@ -6,7 +6,7 @@ import { Role, User } from '@prisma/client';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(): Promise<User[]> {
+  async findAll(): Promise<Omit<User, 'password'>[]> {
     return this.prisma.user.findMany({
       select: {
         id: true,
@@ -16,7 +16,6 @@ export class UsersService {
         lastName: true,
         createdAt: true,
         updatedAt: true,
-        password: false,
       },
     });
   }
