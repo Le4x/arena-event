@@ -1,8 +1,8 @@
 module.exports = {
   apps: [
     {
-      name: 'arena-api',
-      cwd: '/arena-event/simple-api',
+      name: 'simple-api',
+      cwd: '/root/arena-event/simple-api',
       script: 'index.js',
       instances: 1,
       autorestart: true,
@@ -14,8 +14,22 @@ module.exports = {
       }
     },
     {
+      name: 'arena-landing',
+      cwd: '/root/arena-event/apps/web-landing',
+      script: 'node_modules/next/dist/bin/next',
+      args: 'start',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '512M',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3005
+      }
+    },
+    {
       name: 'arena-admin',
-      cwd: '/arena-event/apps/web-admin',
+      cwd: '/root/arena-event/apps/web-admin',
       script: 'node_modules/next/dist/bin/next',
       args: 'start',
       instances: 1,
@@ -30,7 +44,7 @@ module.exports = {
     },
     {
       name: 'arena-studio',
-      cwd: '/arena-event/apps/web-studio',
+      cwd: '/root/arena-event/apps/web-studio',
       script: 'node_modules/next/dist/bin/next',
       args: 'start',
       instances: 1,
@@ -44,7 +58,7 @@ module.exports = {
     },
     {
       name: 'arena-player',
-      cwd: '/arena-event/apps/web-player',
+      cwd: '/root/arena-event/apps/web-player',
       script: 'node_modules/next/dist/bin/next',
       args: 'start',
       instances: 1,
@@ -58,7 +72,7 @@ module.exports = {
     },
     {
       name: 'arena-screen',
-      cwd: '/arena-event/apps/web-screen',
+      cwd: '/root/arena-event/apps/web-screen',
       script: 'node_modules/next/dist/bin/next',
       args: 'start',
       instances: 1,
