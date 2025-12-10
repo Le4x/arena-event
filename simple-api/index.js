@@ -671,8 +671,13 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
 
 app.get('/api/events', authenticateToken, async (req, res) => {
   try {
+    // SUPER_ADMIN can see all events, others only see their own
+    const whereClause = req.user.role === 'SUPER_ADMIN'
+      ? {}
+      : { ownerId: req.user.userId };
+
     const events = await prisma.event.findMany({
-      where: { ownerId: req.user.userId },
+      where: whereClause,
       include: {
         _count: { select: { sessions: true, rounds: true } }
       },
@@ -878,6 +883,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
       options: q.choices || [],
       correctAnswer: q.correctAnswer || '',
       points: q.points,
+      negativePoints: q.negativePoints || 0,
       timeLimit: q.timeLimit,
       order: q.order,
       mediaUrl: q.mediaUrl,
@@ -898,7 +904,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
 
 app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
+    const { text, type, options, correctAnswer, points, negativePoints, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
 
     // Get max order for this round
     const maxOrder = await prisma.question.aggregate({
@@ -913,6 +919,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         choices: options || [],
         correctAnswer: correctAnswer || '',
         points: points || 100,
+        negativePoints: negativePoints || 0,
         timeLimit: timeLimit || 30,
         mediaUrl: mediaUrl || null,
         questionCueStart: questionCueStart || null,
@@ -934,6 +941,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         options: question.choices || [],
         correctAnswer: question.correctAnswer,
         points: question.points,
+        negativePoints: question.negativePoints,
         timeLimit: question.timeLimit,
         order: question.order,
         mediaUrl: question.mediaUrl,
@@ -951,7 +959,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
 
 app.put('/api/questions/:id', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
+    const { text, type, options, correctAnswer, points, negativePoints, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
 
     const question = await prisma.question.update({
       where: { id: req.params.id },
@@ -961,6 +969,7 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         choices: options,
         correctAnswer,
         points,
+        negativePoints,
         timeLimit,
         mediaUrl,
         order,
@@ -980,6 +989,7 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         options: question.choices || [],
         correctAnswer: question.correctAnswer,
         points: question.points,
+        negativePoints: question.negativePoints,
         timeLimit: question.timeLimit,
         order: question.order,
         mediaUrl: question.mediaUrl,
@@ -1011,8 +1021,13 @@ app.delete('/api/questions/:id', authenticateToken, async (req, res) => {
 
 app.get('/api/sessions', authenticateToken, async (req, res) => {
   try {
+    // SUPER_ADMIN can see all sessions, others only see their own
+    const whereClause = req.user.role === 'SUPER_ADMIN'
+      ? {}
+      : { event: { ownerId: req.user.userId } };
+
     const sessions = await prisma.session.findMany({
-      where: { event: { ownerId: req.user.userId } },
+      where: whereClause,
       include: {
         event: true,
         _count: { select: { teams: true } }
