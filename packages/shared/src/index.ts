@@ -4,3 +4,4 @@ export * from './enums';
 export * from './dtos';
 export * from './constants';
 export * from './events';
+export * from './auth';
