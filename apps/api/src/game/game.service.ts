@@ -88,6 +88,46 @@ export class GameService {
   }
 
   /**
+   * Calculate similarity between two strings (Levenshtein-based)
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    const s1 = str1.toLowerCase().trim();
+    const s2 = str2.toLowerCase().trim();
+
+    if (s1 === s2) return 1.0;
+    if (s1.length === 0 || s2.length === 0) return 0.0;
+
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+
+    // Simple Levenshtein distance
+    const matrix: number[][] = [];
+    for (let i = 0; i <= shorter.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= longer.length; j++) {
+      matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= shorter.length; i++) {
+      for (let j = 1; j <= longer.length; j++) {
+        if (shorter[i - 1] === longer[j - 1]) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+
+    const distance = matrix[shorter.length][longer.length];
+    return 1 - distance / longer.length;
+  }
+
+  /**
    * Submit an answer
    */
   async submitAnswer(data: {
@@ -119,14 +159,26 @@ export class GameService {
       throw new BadRequestException('Answer already submitted');
     }
 
-    // Determine if answer is correct (auto-check for MCQ/TRUE_FALSE)
+    // Determine if answer is correct (auto-check for MCQ/TRUE_FALSE/TEXT)
     let isCorrect: boolean | null = null;
     let points = 0;
 
     if (question.correctAnswer) {
-      isCorrect = content.toLowerCase().trim() === question.correctAnswer.toLowerCase().trim();
+      // For TEXT (free-text) questions, use tolerance-based matching
+      if (question.type === 'TEXT') {
+        const tolerance = question.tolerance ?? 0.8;
+        const similarity = this.calculateSimilarity(content, question.correctAnswer);
+        isCorrect = similarity >= tolerance;
+      } else {
+        // Exact match for MCQ/TRUE_FALSE
+        isCorrect = content.toLowerCase().trim() === question.correctAnswer.toLowerCase().trim();
+      }
+
       if (isCorrect) {
         points = question.points;
+      } else if (question.negativePoints && question.negativePoints > 0) {
+        // Apply negative points for wrong answers
+        points = -question.negativePoints;
       }
     }
 
@@ -141,8 +193,8 @@ export class GameService {
       },
     });
 
-    // Update team score if auto-corrected
-    if (isCorrect && points > 0) {
+    // Update team score if auto-corrected (positive or negative)
+    if (points !== 0) {
       await this.prisma.team.update({
         where: { id: teamId },
         data: {

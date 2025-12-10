@@ -40,6 +40,7 @@ interface Question {
   options: string[];
   correctAnswer: string;
   points: number;
+  negativePoints: number;
   timeLimit: number;
   order: number;
   mediaUrl?: string;
@@ -47,6 +48,8 @@ interface Question {
   questionCueEnd?: number;
   revealCueStart?: number;
   revealCueEnd?: number;
+  explanation?: string;
+  tolerance?: number;
 }
 
 interface Session {
@@ -59,7 +62,7 @@ interface Session {
   createdAt: string;
 }
 
-type Tab = 'dashboard' | 'events' | 'sessions' | 'users';
+type Tab = 'dashboard' | 'events' | 'sessions' | 'users' | 'monitoring';
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -91,9 +94,10 @@ export default function Home() {
   // Form state
   const [eventForm, setEventForm] = useState({ name: '', description: '' });
   const [questionForm, setQuestionForm] = useState({
-    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '',
+    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
-    revealCueStart: null as number | null, revealCueEnd: null as number | null
+    revealCueStart: null as number | null, revealCueEnd: null as number | null,
+    explanation: '', tolerance: 0.8
   });
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' as string
@@ -337,11 +341,14 @@ export default function Home() {
           questionCueEnd: questionForm.questionCueEnd,
           revealCueStart: questionForm.revealCueStart,
           revealCueEnd: questionForm.revealCueEnd,
+          negativePoints: questionForm.negativePoints,
+          explanation: questionForm.explanation || null,
+          tolerance: questionForm.tolerance,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8 });
         setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
@@ -362,12 +369,15 @@ export default function Home() {
           questionCueEnd: questionForm.questionCueEnd,
           revealCueStart: questionForm.revealCueStart,
           revealCueEnd: questionForm.revealCueEnd,
+          negativePoints: questionForm.negativePoints,
+          explanation: questionForm.explanation || null,
+          tolerance: questionForm.tolerance,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
         setEditingQuestion(null);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8 });
         setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
@@ -503,12 +513,15 @@ export default function Home() {
       options: question.options || ['', '', '', ''],
       correctAnswer: question.correctAnswer,
       points: question.points,
+      negativePoints: question.negativePoints || 0,
       timeLimit: question.timeLimit,
       mediaUrl: question.mediaUrl || '',
       questionCueStart: question.questionCueStart ?? null,
       questionCueEnd: question.questionCueEnd ?? null,
       revealCueStart: question.revealCueStart ?? null,
       revealCueEnd: question.revealCueEnd ?? null,
+      explanation: question.explanation || '',
+      tolerance: question.tolerance ?? 0.8,
     });
     setAudioDuration(0);
     setShowQuestionModal(true);
@@ -612,10 +625,10 @@ export default function Home() {
           </div>
         </div>
         <nav className="flex-1 px-3">
-          {(['dashboard', 'events', 'sessions', 'users'] as Tab[]).map((tab) => (
+          {(['dashboard', 'events', 'sessions', 'users', 'monitoring'] as Tab[]).map((tab) => (
             <button key={tab} onClick={() => { setActiveTab(tab); setSelectedEvent(null); }}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition mt-1 ${activeTab === tab ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
-              <span>{tab === 'dashboard' ? '📊' : tab === 'events' ? '🎯' : tab === 'sessions' ? '📡' : '👥'}</span>
+              <span>{tab === 'dashboard' ? '📊' : tab === 'events' ? '🎯' : tab === 'sessions' ? '📡' : tab === 'users' ? '👥' : '🔍'}</span>
               <span className="capitalize">{tab}</span>
             </button>
           ))}
@@ -892,6 +905,65 @@ export default function Home() {
             )}
           </div>
         )}
+
+        {/* Monitoring Tab */}
+        {activeTab === 'monitoring' && (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold text-white">Monitoring</h2>
+            <p className="text-gray-400">Surveillance en temps réel des sessions actives</p>
+
+            {sessions.filter(s => s.status === 'ACTIVE' || s.status === 'WAITING').length === 0 ? (
+              <div className="bg-gray-800 rounded-xl p-12 text-center">
+                <p className="text-6xl mb-4">📡</p>
+                <p className="text-gray-400 text-lg">Aucune session active pour le moment.</p>
+                <p className="text-gray-500 text-sm mt-2">Créez une session depuis l'onglet Sessions pour commencer.</p>
+              </div>
+            ) : (
+              <div className="grid gap-6">
+                {sessions.filter(s => s.status === 'ACTIVE' || s.status === 'WAITING').map((session) => (
+                  <div key={session.id} className="bg-gray-800 rounded-xl p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-white">{session.event?.name || 'Session'}</h3>
+                        <p className="text-gray-400 text-sm">Code: <span className="font-mono text-purple-400">{session.code}</span></p>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        session.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                      }`}>
+                        {session.status}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <p className="text-3xl font-bold text-blue-400">{session._count?.teams || 0}</p>
+                        <p className="text-gray-400 text-sm">Équipes</p>
+                      </div>
+                      <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <p className="text-3xl font-bold text-green-400">-</p>
+                        <p className="text-gray-400 text-sm">Question actuelle</p>
+                      </div>
+                      <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                        <p className="text-3xl font-bold text-purple-400">-</p>
+                        <p className="text-gray-400 text-sm">Réponses</p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <p className="text-gray-400 text-sm">
+                        Créée le {new Date(session.createdAt).toLocaleDateString('fr-FR')} à {new Date(session.createdAt).toLocaleTimeString('fr-FR')}
+                      </p>
+                      <a href={`http://91.134.135.247:3002?session=${session.id}`} target="_blank" rel="noopener noreferrer"
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                        Ouvrir Studio →
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Event Modal */}
@@ -941,7 +1013,7 @@ export default function Home() {
                 <textarea value={questionForm.text} onChange={(e) => setQuestionForm({ ...questionForm, text: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500 h-24" />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Type</label>
                   <select value={questionForm.type} onChange={(e) => {
@@ -953,7 +1025,7 @@ export default function Home() {
                     } else if (newType === 'MCQ' || newType === 'IMAGE') {
                       newCorrectAnswer = 'A'; // Default to A for MCQ
                     } else {
-                      newCorrectAnswer = ''; // Empty for BUZZER and BLIND_TEST
+                      newCorrectAnswer = ''; // Empty for BUZZER, BLIND_TEST, TEXT
                     }
                     setQuestionForm({ ...questionForm, type: newType, correctAnswer: newCorrectAnswer });
                   }}
@@ -961,20 +1033,37 @@ export default function Home() {
                     <option value="MCQ">Multiple Choice</option>
                     <option value="TRUE_FALSE">True/False</option>
                     <option value="BUZZER">Buzzer</option>
+                    <option value="TEXT">Free Text (Open)</option>
                     <option value="BLIND_TEST">Blindtest Musical</option>
                     <option value="IMAGE">Image</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-300 mb-2">Points</label>
-                  <input type="number" value={questionForm.points} onChange={(e) => setQuestionForm({ ...questionForm, points: parseInt(e.target.value) || 100 })}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Time (sec)</label>
                   <input type="number" value={questionForm.timeLimit} onChange={(e) => setQuestionForm({ ...questionForm, timeLimit: parseInt(e.target.value) || 30 })}
                     className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
                 </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">Points (bonne réponse)</label>
+                  <input type="number" value={questionForm.points} onChange={(e) => setQuestionForm({ ...questionForm, points: parseInt(e.target.value) || 100 })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">Points négatifs</label>
+                  <input type="number" min="0" value={questionForm.negativePoints} onChange={(e) => setQuestionForm({ ...questionForm, negativePoints: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" placeholder="0" />
+                  <p className="text-xs text-gray-500 mt-1">Points perdus si mauvaise réponse</p>
+                </div>
+                {questionForm.type === 'TEXT' && (
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-2">Tolérance</label>
+                    <input type="number" step="0.1" min="0" max="1" value={questionForm.tolerance} onChange={(e) => setQuestionForm({ ...questionForm, tolerance: parseFloat(e.target.value) || 0.8 })}
+                      className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
+                    <p className="text-xs text-gray-500 mt-1">0.8 = 80% de similarité requise</p>
+                  </div>
+                )}
               </div>
 
               {/* Optional background music for non-blindtest questions */}
@@ -1319,6 +1408,17 @@ export default function Home() {
                   </div>
                 </div>
               )}
+
+              {/* Explanation / Anecdote field */}
+              <div className="p-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-xl border border-yellow-500/30">
+                <label className="block text-sm text-yellow-300 mb-2">💡 Explication / Anecdote (optionnel)</label>
+                <textarea
+                  value={questionForm.explanation}
+                  onChange={(e) => setQuestionForm({ ...questionForm, explanation: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 h-20"
+                  placeholder="Ajoutez une petite explication ou anecdote à afficher lors du reveal..." />
+                <p className="text-xs text-gray-400 mt-1">Ce texte sera affiché sur l'écran public lors de la révélation de la bonne réponse</p>
+              </div>
             </div>
             <div className="flex space-x-4 mt-6">
               <button onClick={() => { setShowQuestionModal(false); setEditingQuestion(null); }}

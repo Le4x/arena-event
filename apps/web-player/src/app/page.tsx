@@ -11,9 +11,10 @@ type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAI
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'TEXT' | 'IMAGE';
   options?: string[];
   points: number;
+  negativePoints?: number;
   timeLimit: number;
   mediaUrl?: string;
   artist?: string;
@@ -1071,7 +1072,7 @@ export default function PlayerHome() {
           )}
 
           {/* Open/Text Answer */}
-          {currentQuestion.type === 'OPEN' && (
+          {(currentQuestion.type === 'OPEN' || currentQuestion.type === 'TEXT') && (
             <div className="flex-1 flex flex-col justify-center">
               <input
                 type="text"

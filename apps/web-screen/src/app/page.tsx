@@ -6,7 +6,7 @@ import { io, Socket } from 'socket.io-client';
 // API URL - configurable via environment variable or defaults to the VPS
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
 
-type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST';
+type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION';
 
 interface Team {
   id: string;
@@ -20,14 +20,16 @@ interface Team {
 interface Question {
   id: string;
   text: string;
-  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'IMAGE';
+  type: 'MCQ' | 'TRUE_FALSE' | 'BUZZER' | 'OPEN' | 'BLIND_TEST' | 'IMAGE' | 'TEXT';
   options?: string[];
   correctAnswer?: string;
   points: number;
+  negativePoints?: number;
   timeLimit: number;
   mediaUrl?: string;
   artist?: string;
   songTitle?: string;
+  explanation?: string;
   // Cue points for audio playback (in seconds)
   questionCueStart?: number;
   questionCueEnd?: number;
@@ -249,6 +251,10 @@ export default function ScreenHome() {
         setTeams(data.teams);
       }
       setDisplayMode('LEADERBOARD');
+    });
+
+    socket.on('show-transition', () => {
+      setDisplayMode('TRANSITION');
     });
 
     // Game state
@@ -603,7 +609,7 @@ export default function ScreenHome() {
               {currentQuestion.text}
             </h2>
 
-            {/* MCQ Options */}
+            {/* MCQ Options - Hide individual answer counts, only show progress bar */}
             {currentQuestion.type === 'MCQ' && currentQuestion.options && (
               <div className="grid grid-cols-2 gap-6">
                 {currentQuestion.options.map((option, idx) => {
@@ -614,52 +620,30 @@ export default function ScreenHome() {
                     'from-yellow-500 to-yellow-600',
                     'from-green-500 to-green-600',
                   ];
-                  const answerCount = Object.values(answers).filter(a => a === letter).length;
 
                   return (
                     <div
                       key={idx}
-                      className={`bg-gradient-to-r ${colors[idx]} rounded-2xl p-6 flex items-center justify-between shadow-lg`}
+                      className={`bg-gradient-to-r ${colors[idx]} rounded-2xl p-6 flex items-center shadow-lg`}
                     >
-                      <div className="flex items-center">
-                        <span className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mr-6 text-3xl font-black text-white">
-                          {letter}
-                        </span>
-                        <span className="text-2xl font-bold text-white">{option}</span>
-                      </div>
-                      {answerCount > 0 && (
-                        <div className="bg-white/20 rounded-full px-4 py-2">
-                          <span className="text-2xl font-bold text-white">{answerCount}</span>
-                        </div>
-                      )}
+                      <span className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mr-6 text-3xl font-black text-white">
+                        {letter}
+                      </span>
+                      <span className="text-2xl font-bold text-white">{option}</span>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* True/False */}
+            {/* True/False - Hide individual answer counts */}
             {currentQuestion.type === 'TRUE_FALSE' && (
               <div className="grid grid-cols-2 gap-8">
-                <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-12 text-center relative">
+                <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-12 text-center">
                   <span className="text-5xl font-black text-white">VRAI</span>
-                  {Object.values(answers).filter(a => a === 'TRUE').length > 0 && (
-                    <div className="absolute top-4 right-4 bg-white/20 rounded-full px-4 py-2">
-                      <span className="text-xl font-bold text-white">
-                        {Object.values(answers).filter(a => a === 'TRUE').length}
-                      </span>
-                    </div>
-                  )}
                 </div>
-                <div className="bg-gradient-to-r from-red-500 to-red-600 rounded-2xl p-12 text-center relative">
+                <div className="bg-gradient-to-r from-red-500 to-red-600 rounded-2xl p-12 text-center">
                   <span className="text-5xl font-black text-white">FAUX</span>
-                  {Object.values(answers).filter(a => a === 'FALSE').length > 0 && (
-                    <div className="absolute top-4 right-4 bg-white/20 rounded-full px-4 py-2">
-                      <span className="text-xl font-bold text-white">
-                        {Object.values(answers).filter(a => a === 'FALSE').length}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -761,7 +745,7 @@ export default function ScreenHome() {
           </div>
         )}
 
-        <div className="flex gap-8">
+        <div className="flex gap-8 mb-8">
           <div className="bg-green-500/20 rounded-2xl px-8 py-6 text-center">
             <div className="text-5xl font-bold text-green-400">
               {Object.values(answers).filter(a => a === correctAnswer).length}
@@ -774,6 +758,32 @@ export default function ScreenHome() {
             </div>
             <div className="text-red-300 mt-2">Mauvaises reponses</div>
           </div>
+        </div>
+
+        {/* Explanation / Anecdote */}
+        {currentQuestion.explanation && (
+          <div className="max-w-4xl w-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/50 rounded-2xl p-8 text-center animate-fade-in">
+            <div className="text-4xl mb-4">💡</div>
+            <p className="text-2xl text-yellow-100 leading-relaxed">{currentQuestion.explanation}</p>
+          </div>
+        )}
+      </main>
+    );
+  }
+
+  // TRANSITION
+  if (displayMode === 'TRANSITION') {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center">
+        <div className="text-center">
+          <div className="text-[10rem] mb-8 animate-bounce">⏳</div>
+          <h1 className="text-6xl font-black text-white mb-4">Prochaine Question...</h1>
+          <p className="text-3xl text-purple-300">Preparez-vous!</p>
+        </div>
+        <div className="mt-12 flex gap-4">
+          <div className="w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+          <div className="w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+          <div className="w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
         </div>
       </main>
     );
