@@ -149,7 +149,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('answer_received', { answerId: answer.id });
     } catch (error) {
       this.logger.error('Error submitting answer:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -183,7 +183,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error) {
       this.logger.error('Error pressing buzzer:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -205,12 +205,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error) {
       this.logger.error('Error starting question:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
   /**
-   * GameMaster: End a question
+   * GameMaster: End a question and reveal answers with auto-scoring
    */
   @SubscribeMessage('end_question')
   async handleEndQuestion(
@@ -218,15 +218,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() payload: { sessionId: string; questionId: string },
   ) {
     try {
-      await this.gameService.endQuestion(payload.sessionId, payload.questionId);
+      const result = await this.gameService.endQuestion(payload.sessionId, payload.questionId);
 
-      // Broadcast to all in session
-      this.server.to(`session:${payload.sessionId}`).emit('question_ended', {
+      // Broadcast to all in session with updated leaderboard
+      this.server.to(`session:${payload.sessionId}`).emit('question_revealed', {
         questionId: payload.questionId,
+        leaderboard: result.leaderboard,
+        totalAnswers: result.totalAnswers,
       });
     } catch (error) {
       this.logger.error('Error ending question:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -247,7 +249,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error) {
       this.logger.error('Error showing leaderboard:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -271,7 +273,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error) {
       this.logger.error('Error updating score:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -291,7 +293,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } catch (error) {
       this.logger.error('Error resetting buzzer:', error);
-      client.emit('error', { message: error.message });
+      client.emit('error', { message: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 }

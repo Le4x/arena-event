@@ -149,6 +149,7 @@ model Question {
   revealCueEnd     Float?    // End time for reveal phase (BLIND_TEST)
   timeLimit     Int          @default(30)
   points        Int          @default(100)
+  negativePoints Int         @default(0) // Points deducted for wrong answers (0 = no penalty)
   order         Int
   choices       Json?
   correctAnswer String?

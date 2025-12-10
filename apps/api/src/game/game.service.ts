@@ -63,7 +63,7 @@ export class GameService {
   }
 
   /**
-   * End a question in a session
+   * End a question in a session and auto-score all answers
    */
   async endQuestion(sessionId: string, questionId: string) {
     const session = await this.prisma.session.findUnique({
@@ -75,6 +75,81 @@ export class GameService {
       throw new NotFoundException('Session not found');
     }
 
+    // Get question with answers and buzzer presses
+    const question = await this.prisma.question.findUnique({
+      where: { id: questionId },
+      include: {
+        answers: {
+          include: {
+            team: true,
+          },
+        },
+        buzzerPresses: {
+          orderBy: {
+            rank: 'asc',
+          },
+          take: 3, // Top 3 for speed bonuses
+        },
+      },
+    });
+
+    if (!question) {
+      throw new NotFoundException('Question not found');
+    }
+
+    const questionStartedAt = session.gameState.questionStartedAt;
+
+    // Process each answer and calculate points
+    for (const answer of question.answers) {
+      let pointsToAward = 0;
+
+      if (answer.isCorrect) {
+        // Award base points for correct answer
+        pointsToAward = question.points;
+
+        // Calculate speed bonus for top 3
+        if (questionStartedAt) {
+          const timeTaken = (answer.submittedAt.getTime() - questionStartedAt.getTime()) / 1000;
+          const speedBonus = this.scoringService.calculateSpeedBonus(
+            timeTaken,
+            question.timeLimit,
+            50, // Max 50 points bonus
+          );
+
+          // Check if this team is in top 3 fastest
+          const buzzerPress = question.buzzerPresses.find(bp => bp.teamId === answer.teamId);
+          if (buzzerPress && buzzerPress.rank <= 3) {
+            // Award speed bonus based on rank
+            const rankBonus = speedBonus * (4 - buzzerPress.rank) / 3; // 1st: 100%, 2nd: 66%, 3rd: 33%
+            pointsToAward += Math.floor(rankBonus);
+          }
+        }
+      } else if (answer.isCorrect === false && question.negativePoints > 0) {
+        // Deduct points for wrong answer (only if negativePoints > 0)
+        pointsToAward = -question.negativePoints;
+      }
+
+      // Update answer with calculated points
+      await this.prisma.answer.update({
+        where: { id: answer.id },
+        data: {
+          points: pointsToAward,
+        },
+      });
+
+      // Update team score
+      if (pointsToAward !== 0) {
+        await this.prisma.team.update({
+          where: { id: answer.teamId },
+          data: {
+            score: {
+              increment: pointsToAward,
+            },
+          },
+        });
+      }
+    }
+
     // Update game state
     await this.prisma.gameState.update({
       where: { sessionId },
@@ -84,7 +159,14 @@ export class GameService {
       },
     });
 
-    return { questionId };
+    // Return leaderboard
+    const leaderboard = await this.getLeaderboard(sessionId);
+
+    return {
+      questionId,
+      leaderboard,
+      totalAnswers: question.answers.length,
+    };
   }
 
   /**
@@ -121,37 +203,21 @@ export class GameService {
 
     // Determine if answer is correct (auto-check for MCQ/TRUE_FALSE)
     let isCorrect: boolean | null = null;
-    let points = 0;
 
     if (question.correctAnswer) {
       isCorrect = content.toLowerCase().trim() === question.correctAnswer.toLowerCase().trim();
-      if (isCorrect) {
-        points = question.points;
-      }
     }
 
-    // Create answer
+    // Create answer (points will be awarded when revealing)
     const answer = await this.prisma.answer.create({
       data: {
         questionId,
         teamId,
         content,
         isCorrect,
-        points,
+        points: 0, // Points calculated and awarded during reveal
       },
     });
-
-    // Update team score if auto-corrected
-    if (isCorrect && points > 0) {
-      await this.prisma.team.update({
-        where: { id: teamId },
-        data: {
-          score: {
-            increment: points,
-          },
-        },
-      });
-    }
 
     return answer;
   }
