@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import ClientLayout from './ClientLayout';
 
 export const metadata: Metadata = {
-  title: 'Arena Event - Public Screen',
-  description: 'Public display for live quiz and blind test events',
+  title: 'Arena Event - Screen',
+  description: 'Professional live quiz and blind test platform - Public Display',
 };
 
 export default function RootLayout({
@@ -13,7 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ClientLayout>{children}</ClientLayout>
+      </body>
     </html>
   );
 }
