@@ -52,6 +52,7 @@ interface Question {
   options: string[];
   correctAnswer: string;
   points: number;
+  negativePoints?: number;
   timeLimit: number;
   order: number;
   mediaUrl?: string;
@@ -103,7 +104,7 @@ export default function Home() {
   // Form state
   const [eventForm, setEventForm] = useState({ name: '', description: '' });
   const [questionForm, setQuestionForm] = useState({
-    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '',
+    text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
     revealCueStart: null as number | null, revealCueEnd: null as number | null
   });
@@ -356,7 +357,7 @@ export default function Home() {
       });
       if (res.ok) {
         setShowQuestionModal(false);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
         setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
@@ -382,7 +383,7 @@ export default function Home() {
       if (res.ok) {
         setShowQuestionModal(false);
         setEditingQuestion(null);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
         setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
@@ -505,7 +506,7 @@ export default function Home() {
   const openAddQuestion = (roundId: string) => {
     setSelectedRoundId(roundId);
     setEditingQuestion(null);
-    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
     setAudioDuration(0);
     setShowQuestionModal(true);
   };
@@ -518,6 +519,7 @@ export default function Home() {
       options: question.options || ['', '', '', ''],
       correctAnswer: question.correctAnswer,
       points: question.points,
+      negativePoints: question.negativePoints || 0,
       timeLimit: question.timeLimit,
       mediaUrl: question.mediaUrl || '',
       questionCueStart: question.questionCueStart ?? null,
@@ -983,6 +985,12 @@ export default function Home() {
                 <div>
                   <label className="block text-sm text-gray-300 mb-2">Points</label>
                   <input type="number" value={questionForm.points} onChange={(e) => setQuestionForm({ ...questionForm, points: parseInt(e.target.value) || 100 })}
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">Negative Points (0 = no penalty)</label>
+                  <input type="number" value={questionForm.negativePoints} onChange={(e) => setQuestionForm({ ...questionForm, negativePoints: parseInt(e.target.value) || 0 })}
+                    min="0"
                     className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white" />
                 </div>
                 <div>
