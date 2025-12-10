@@ -215,7 +215,7 @@ export default function LandingPage() {
             <div>
               <h4 className="text-white font-bold text-lg mb-4">Applications</h4>
               <ul className="space-y-2">
-                <li><a href="https://play.arena-event.fr" className="text-white/60 hover:text-white transition">Player (Mobile)</a></li>
+                <li><a href="https://player.arena-event.fr" className="text-white/60 hover:text-white transition">Player (Mobile)</a></li>
                 <li><a href="https://screen.arena-event.fr" className="text-white/60 hover:text-white transition">Screen (Affichage)</a></li>
                 <li><a href="https://api.arena-event.fr/health" className="text-white/60 hover:text-white transition">API Status</a></li>
               </ul>

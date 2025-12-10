@@ -74,7 +74,7 @@ Cette configuration crée :
 - `admin.arena-event.fr` → Admin Dashboard (port 3000)
 - `api.arena-event.fr` → API Backend (port 3001)
 - `studio.arena-event.fr` → Studio (port 3002)
-- `play.arena-event.fr` → Player (port 3003)
+- `player.arena-event.fr` → Player (port 3003)
 - `screen.arena-event.fr` → Screen (port 3004)
 
 ### Option B: Configuration simple (juste le domaine principal)
@@ -122,7 +122,7 @@ sudo apt install certbot python3-certbot-nginx
 # Obtenir le certificat pour tous les domaines
 sudo certbot --nginx -d arena-event.fr -d www.arena-event.fr \
   -d admin.arena-event.fr -d api.arena-event.fr \
-  -d studio.arena-event.fr -d play.arena-event.fr \
+  -d studio.arena-event.fr -d player.arena-event.fr \
   -d screen.arena-event.fr
 
 # Ou juste pour le domaine principal
@@ -242,7 +242,7 @@ Après déploiement complet :
 - **Admin** : https://admin.arena-event.fr
 - **API** : https://api.arena-event.fr
 - **Studio** : https://studio.arena-event.fr
-- **Player** : https://play.arena-event.fr
+- **Player** : https://player.arena-event.fr
 - **Screen** : https://screen.arena-event.fr
 
 ---

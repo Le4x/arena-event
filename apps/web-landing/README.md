@@ -102,7 +102,7 @@ server {
 
 server {
     listen 80;
-    server_name play.arena-event.fr;
+    server_name player.arena-event.fr;
     location / {
         proxy_pass http://localhost:3003;
         proxy_http_version 1.1;
