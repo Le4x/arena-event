@@ -1579,18 +1579,133 @@ io.on('connection', (socket) => {
   });
 
   // Question end - from Studio to Screen/Player
-  socket.on('question-end', (data) => {
+  socket.on('question-end', async (data) => {
     const sessionId = data.sessionId || socket.sessionId;
+    const { questionId } = data;
     console.log(`Question ended in session ${sessionId}`);
 
     // Stop server-side timer
     stopServerTimer(sessionId);
 
-    io.to(`session:${sessionId}`).emit('question-end', {
-      questionId: data.questionId,
-      correctAnswer: data.correctAnswer,
-      serverTime: Date.now()
-    });
+    try {
+      // Get question with all answers and buzzer presses
+      const question = await prisma.question.findUnique({
+        where: { id: questionId },
+        include: {
+          answers: {
+            include: {
+              team: true
+            }
+          },
+          buzzerPresses: {
+            orderBy: {
+              rank: 'asc'
+            },
+            take: 3 // Top 3 for speed bonuses
+          }
+        }
+      });
+
+      if (!question) {
+        console.error('Question not found:', questionId);
+        io.to(`session:${sessionId}`).emit('question-end', {
+          questionId,
+          correctAnswer: data.correctAnswer,
+          serverTime: Date.now()
+        });
+        return;
+      }
+
+      // Calculate and award points for each answer
+      for (const answer of question.answers) {
+        let pointsToAward = 0;
+
+        if (answer.isCorrect) {
+          // Award base points for correct answer
+          pointsToAward = question.points;
+
+          // Calculate speed bonus for top 3 buzzer ranks
+          const buzzerPress = question.buzzerPresses.find(bp => bp.teamId === answer.teamId);
+          if (buzzerPress && buzzerPress.rank <= 3) {
+            // Calculate time-based speed bonus (max 50 points)
+            const timeTaken = (answer.submittedAt.getTime() - buzzerPress.pressedAt.getTime()) / 1000;
+            const timeRatio = Math.max(0, 1 - (timeTaken / question.timeLimit));
+            const maxSpeedBonus = 50;
+            const speedBonus = Math.floor(timeRatio * maxSpeedBonus);
+
+            // Apply rank multiplier: 1st=100%, 2nd=66%, 3rd=33%
+            const rankMultiplier = (4 - buzzerPress.rank) / 3;
+            const rankBonus = Math.floor(speedBonus * rankMultiplier);
+
+            pointsToAward += rankBonus;
+
+            console.log(`⚡ Speed bonus: team=${answer.teamId}, rank=${buzzerPress.rank}, bonus=${rankBonus}`);
+          }
+        } else if (answer.isCorrect === false && question.negativePoints > 0) {
+          // Deduct points for wrong answer (only if negativePoints > 0)
+          pointsToAward = -question.negativePoints;
+          console.log(`❌ Negative points: team=${answer.teamId}, penalty=${question.negativePoints}`);
+        }
+
+        // Update answer with calculated points
+        await prisma.answer.update({
+          where: { id: answer.id },
+          data: { points: pointsToAward }
+        });
+
+        // Update team score
+        if (pointsToAward !== 0) {
+          await prisma.team.update({
+            where: { id: answer.teamId },
+            data: {
+              score: {
+                increment: pointsToAward
+              }
+            }
+          });
+
+          console.log(`📊 Score update: team=${answer.team.name}, points=${pointsToAward}, isCorrect=${answer.isCorrect}`);
+        }
+      }
+
+      // Get updated leaderboard
+      const teams = await prisma.team.findMany({
+        where: {
+          session: {
+            id: sessionId
+          }
+        },
+        orderBy: {
+          score: 'desc'
+        }
+      });
+
+      const leaderboard = teams.map((team, index) => ({
+        teamId: team.id,
+        teamName: team.name,
+        score: team.score,
+        rank: index + 1
+      }));
+
+      // Emit question end with leaderboard
+      io.to(`session:${sessionId}`).emit('question-end', {
+        questionId,
+        correctAnswer: data.correctAnswer,
+        leaderboard,
+        totalAnswers: question.answers.length,
+        serverTime: Date.now()
+      });
+
+      console.log(`✅ Question ${questionId} scored: ${question.answers.length} answers processed`);
+    } catch (error) {
+      console.error('Error scoring question:', error);
+      // Fallback to original behavior
+      io.to(`session:${sessionId}`).emit('question-end', {
+        questionId,
+        correctAnswer: data.correctAnswer,
+        serverTime: Date.now()
+      });
+    }
   });
 
   // Timer events - server-side timer is now authoritative
@@ -1894,12 +2009,8 @@ io.on('connection', (socket) => {
         }
       }
 
-      if (isCorrect) {
-        await prisma.team.update({
-          where: { id: teamId },
-          data: { score: { increment: points } }
-        });
-      }
+      // NOTE: Points are no longer awarded immediately
+      // They will be calculated and awarded when the question is revealed
 
       // Use upsert to allow updating answer if team answers multiple times
       await prisma.answer.upsert({
@@ -1912,14 +2023,14 @@ io.on('connection', (socket) => {
         update: {
           content: answer,
           isCorrect,
-          points: isCorrect ? points : 0
+          points: 0 // Points calculated on reveal
         },
         create: {
           teamId,
           questionId,
           content: answer,
           isCorrect,
-          points: isCorrect ? points : 0
+          points: 0 // Points calculated on reveal
         }
       });
 
