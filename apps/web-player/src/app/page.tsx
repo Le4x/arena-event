@@ -42,6 +42,10 @@ export default function PlayerHome() {
   const [showConnectionOverlay, setShowConnectionOverlay] = useState(false);
   const maxRetries = 10;
 
+  // Header state
+  const [showHelp, setShowHelp] = useState(false);
+  const [teamRank, setTeamRank] = useState<number | null>(null);
+
   // Join state
   const [sessionCode, setSessionCode] = useState('');
   const [teamName, setTeamName] = useState('');
@@ -139,6 +143,28 @@ export default function PlayerHome() {
   // Game state ref for socket callbacks (avoid stale closure)
   const gameStateRef = useRef<GameState>(gameState);
   gameStateRef.current = gameState;
+
+  // Calculate team rank from leaderboard
+  useEffect(() => {
+    if (team && leaderboard.length > 0) {
+      const rank = leaderboard.findIndex(t => t.id === team.id) + 1;
+      setTeamRank(rank > 0 ? rank : null);
+    } else {
+      setTeamRank(null);
+    }
+  }, [leaderboard, team]);
+
+  // Handle disconnect
+  const handleDisconnect = () => {
+    if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
+      localStorage.removeItem('arena-session');
+      localStorage.removeItem('arena-team');
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+      window.location.reload();
+    }
+  };
 
   // Join session via API
   const handleJoin = async (e: React.FormEvent) => {
@@ -634,6 +660,127 @@ export default function PlayerHome() {
   // Team colors
   const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444'];
 
+  // Header Component (for logged-in screens)
+  const renderHeader = () => {
+    if (!team) return null;
+
+    return (
+      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-3 shadow-lg">
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
+          {/* Team info */}
+          <div className="flex items-center space-x-3 flex-1">
+            <div
+              className="w-8 h-8 rounded-full flex-shrink-0 border-2 border-white shadow"
+              style={{ backgroundColor: team.color }}
+            ></div>
+            <div className="min-w-0">
+              <div className="font-bold text-sm truncate">{team.name}</div>
+              <div className="text-xs text-purple-200">
+                {team.score || 0} pts
+                {teamRank && <span className="ml-2">• #{teamRank}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center space-x-2 ml-2">
+            {/* Help button */}
+            <button
+              onClick={() => setShowHelp(true)}
+              className="bg-white/20 hover:bg-white/30 rounded-full p-2 transition"
+              title="Aide"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+
+            {/* Disconnect button */}
+            <button
+              onClick={handleDisconnect}
+              className="bg-red-500/80 hover:bg-red-600 rounded-full p-2 transition"
+              title="Déconnexion"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Help Modal
+  const renderHelpModal = () => {
+    if (!showHelp) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" onClick={() => setShowHelp(false)}>
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-gray-800">❓ Aide</h2>
+            <button
+              onClick={() => setShowHelp(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="space-y-4 text-gray-700">
+            <div>
+              <h3 className="font-bold text-purple-600 mb-2">📱 Comment jouer ?</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>Répondez aux questions en sélectionnant une option</li>
+                <li>Plus vous répondez vite, plus vous gagnez de points</li>
+                <li>Surveillez le timer en haut de l'écran</li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-bold text-purple-600 mb-2">⚡ Types de questions</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li><strong>MCQ:</strong> Choix multiples</li>
+                <li><strong>VRAI/FAUX:</strong> Deux options</li>
+                <li><strong>BUZZER:</strong> Appuyez vite sur le buzzer</li>
+                <li><strong>BLIND TEST:</strong> Devinez le titre/artiste</li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-bold text-purple-600 mb-2">🏆 Mode Finale</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li><strong>DOUBLE (🔥):</strong> Double les points</li>
+                <li><strong>TIME+ (⏳):</strong> +15 secondes</li>
+                <li><strong>50/50 (🎯):</strong> Élimine 2 réponses</li>
+                <li><strong>SHIELD (🛡️):</strong> Protège d'une erreur</li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-bold text-purple-600 mb-2">💡 Astuces</h3>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>Gardez votre téléphone chargé</li>
+                <li>Restez connecté en WiFi si possible</li>
+                <li>Ne fermez pas l'application</li>
+              </ul>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowHelp(false)}
+            className="mt-6 w-full bg-purple-600 text-white font-bold py-3 rounded-xl hover:bg-purple-700 transition"
+          >
+            J'ai compris !
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // JOIN SCREEN
   if (gameState === 'JOIN') {
     return (
@@ -810,61 +957,54 @@ export default function PlayerHome() {
   // LOBBY SCREEN
   if (gameState === 'LOBBY') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md text-center">
-          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 mb-8">
-            <div className="text-6xl mb-4 animate-pulse">⏳</div>
-            <h1 className="text-3xl font-bold text-white mb-2">Waiting for host...</h1>
-            <p className="text-purple-200">The game will start soon!</p>
-          </div>
+      <>
+        {renderHeader()}
+        {renderHelpModal()}
+        <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md text-center">
+            <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 mb-8">
+              <div className="text-6xl mb-4 animate-pulse">⏳</div>
+              <h1 className="text-3xl font-bold text-white mb-2">En attente de l'hôte...</h1>
+              <p className="text-purple-200">La partie va bientôt commencer!</p>
+            </div>
 
-          <div className="bg-white rounded-3xl shadow-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Your Team</span>
-              <div className="flex items-center">
-                <div
-                  className="w-4 h-4 rounded-full mr-2"
-                  style={{ backgroundColor: team?.color || teamColor }}
-                ></div>
-                <span className="font-bold text-purple-600">{team?.name || teamName}</span>
+            <div className="bg-white rounded-3xl shadow-2xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-gray-500">Session</span>
+                <span className="font-mono font-bold text-gray-800">{session?.code}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Connexion</span>
+                <span className={`flex items-center font-medium ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
+                  <span className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                  {isConnected ? 'Connecté' : 'Connexion...'}
+                </span>
               </div>
             </div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Session</span>
-              <span className="font-mono font-bold text-gray-800">{session?.code}</span>
-            </div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Score</span>
-              <span className="font-bold text-purple-600">{team?.score || 0}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500">Status</span>
-              <span className={`flex items-center font-medium ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
-                <span className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                {isConnected ? 'Connected' : 'Connecting...'}
-              </span>
-            </div>
-          </div>
 
-          <p className="text-purple-200 mt-8 text-sm">
-            Get ready! The first question is coming...
-          </p>
-        </div>
-      </main>
+            <p className="text-purple-200 mt-8 text-sm">
+              Préparez-vous! La première question arrive...
+            </p>
+          </div>
+        </main>
+      </>
     );
   }
 
   // QUESTION SCREEN
   if (gameState === 'QUESTION' && currentQuestion) {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col">
-        {/* Timer Header */}
-        <header className={`p-4 text-center transition-colors ${
-          timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
-          timeRemaining <= 10 ? 'bg-yellow-500' :
-          isFinaleMode ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
-          'bg-purple-600'
-        }`}>
+      <>
+        {renderHeader()}
+        {renderHelpModal()}
+        <main className="min-h-screen bg-gray-900 flex flex-col">
+          {/* Timer Header */}
+          <header className={`p-4 text-center transition-colors ${
+            timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
+            timeRemaining <= 10 ? 'bg-yellow-500' :
+            isFinaleMode ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
+            'bg-purple-600'
+          }`}>
           {/* Finale mode badge */}
           {isFinaleMode && (
             <div className="text-xs font-bold text-white/90 mb-1 tracking-wider">
@@ -1179,13 +1319,17 @@ export default function PlayerHome() {
           </div>
         </footer>
       </main>
+      </>
     );
   }
 
   // WAITING SCREEN
   if (gameState === 'WAITING') {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+      <>
+        {renderHeader()}
+        {renderHelpModal()}
+        <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
         <div className="text-center">
           <div className="text-6xl mb-6 animate-bounce">
             {selectedAnswer ? '✅' : buzzerPressed ? '🔔' : '⏳'}
@@ -1203,6 +1347,7 @@ export default function PlayerHome() {
           )}
         </div>
       </main>
+      </>
     );
   }
 
@@ -1212,11 +1357,14 @@ export default function PlayerHome() {
     const wasShielded = activeJoker === 'SHIELD' && !wasCorrect;
 
     return (
-      <main className={`min-h-screen flex flex-col items-center justify-center p-4 ${
-        wasCorrect ? 'bg-gradient-to-br from-green-600 to-teal-600' :
-        wasShielded ? 'bg-gradient-to-br from-blue-600 to-purple-600' :
-        'bg-gradient-to-br from-red-600 to-orange-600'
-      }`}>
+      <>
+        {renderHeader()}
+        {renderHelpModal()}
+        <main className={`min-h-screen flex flex-col items-center justify-center p-4 ${
+          wasCorrect ? 'bg-gradient-to-br from-green-600 to-teal-600' :
+          wasShielded ? 'bg-gradient-to-br from-blue-600 to-purple-600' :
+          'bg-gradient-to-br from-red-600 to-orange-600'
+        }`}>
         <div className="text-center">
           <div className="text-8xl mb-6">
             {wasCorrect ? '🎉' : wasShielded ? '🛡️' : '😢'}
@@ -1258,6 +1406,7 @@ export default function PlayerHome() {
           </div>
         </div>
       </main>
+      </>
     );
   }
 
@@ -1266,7 +1415,10 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4">
+      <>
+        {renderHeader()}
+        {renderHelpModal()}
+        <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4">
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
             <div className="text-5xl mb-4">🏆</div>
@@ -1305,6 +1457,7 @@ export default function PlayerHome() {
           </div>
         </div>
       </main>
+      </>
     );
   }
 
@@ -1313,7 +1466,10 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 flex flex-col items-center justify-center p-4">
+      <>
+        {renderHeader()}
+        {renderHelpModal()}
+        <main className="min-h-screen bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 flex flex-col items-center justify-center p-4">
         <div className="text-center">
           <div className="text-8xl mb-6">🏆</div>
           <h1 className="text-4xl font-black text-white mb-2">GAME OVER!</h1>
@@ -1352,6 +1508,7 @@ export default function PlayerHome() {
           </button>
         </div>
       </main>
+      </>
     );
   }
 
