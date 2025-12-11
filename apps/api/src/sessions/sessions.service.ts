@@ -163,4 +163,47 @@ export class SessionsService {
       where: { id },
     });
   }
+
+  async getTheme(id: string): Promise<any> {
+    const session = await this.prisma.session.findUnique({
+      where: { id },
+      include: {
+        event: true,
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    return (session.event as any).theme || this.getDefaultTheme();
+  }
+
+  private getDefaultTheme(): any {
+    return {
+      colors: {
+        primary: '#8B5CF6',
+        secondary: '#EC4899',
+        accent: '#F59E0B',
+        background: '#1F2937',
+        text: '#FFFFFF',
+        correct: '#10B981',
+        wrong: '#EF4444',
+      },
+      logo: null,
+      frame: null,
+      background: null,
+      backgroundType: 'gradient',
+      sounds: {
+        correct: null,
+        wrong: null,
+        timer: null,
+        buzzer: null,
+      },
+      fonts: {
+        heading: 'inherit',
+        body: 'inherit',
+      },
+    };
+  }
 }

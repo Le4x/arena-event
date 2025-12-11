@@ -48,4 +48,9 @@ export class SessionsController {
   async delete(@Param('id') id: string) {
     return this.sessionsService.delete(id);
   }
+
+  @Get(':id/theme')
+  async getTheme(@Param('id') id: string) {
+    return this.sessionsService.getTheme(id);
+  }
 }
