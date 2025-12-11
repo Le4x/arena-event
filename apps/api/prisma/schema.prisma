@@ -50,6 +50,9 @@ model Event {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Theme customization
+  theme       Json?    // Stores theme configuration as JSON
+
   sessions Session[]
   rounds   Round[]
 

@@ -34,6 +34,50 @@ interface Session {
   eventName: string;
 }
 
+interface EventTheme {
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    text: string;
+    correct: string;
+    wrong: string;
+  };
+  logo: string | null;
+  frame: string | null;
+  background: string | null;
+  backgroundType: 'gradient' | 'solid' | 'image';
+  sounds: {
+    correct: string | null;
+    wrong: string | null;
+    timer: string | null;
+    buzzer: string | null;
+  };
+  fonts: {
+    heading: string;
+    body: string;
+  };
+}
+
+const defaultTheme: EventTheme = {
+  colors: {
+    primary: '#8B5CF6',
+    secondary: '#EC4899',
+    accent: '#F59E0B',
+    background: '#1F2937',
+    text: '#FFFFFF',
+    correct: '#10B981',
+    wrong: '#EF4444',
+  },
+  logo: null,
+  frame: null,
+  background: null,
+  backgroundType: 'gradient',
+  sounds: { correct: null, wrong: null, timer: null, buzzer: null },
+  fonts: { heading: 'inherit', body: 'inherit' },
+};
+
 export default function PlayerHome() {
   // Socket
   const socketRef = useRef<Socket | null>(null);
@@ -55,22 +99,31 @@ export default function PlayerHome() {
   const [team, setTeam] = useState<Team | null>(null);
   const [existingTeams, setExistingTeams] = useState<Team[]>([]);
 
+  // Theme
+  const [theme, setTheme] = useState<EventTheme>(defaultTheme);
+
   // Restore session from localStorage on mount
   useEffect(() => {
     const savedSession = localStorage.getItem('arena-session');
     const savedTeam = localStorage.getItem('arena-team');
+    const savedTheme = localStorage.getItem('arena-theme');
     if (savedSession && savedTeam) {
       try {
         const parsedSession = JSON.parse(savedSession);
         const parsedTeam = JSON.parse(savedTeam);
         setSession(parsedSession);
         setTeam(parsedTeam);
+        if (savedTheme) {
+          const parsedTheme = JSON.parse(savedTheme);
+          setTheme({ ...defaultTheme, ...parsedTheme });
+        }
         setGameState('LOBBY');
         connectSocket(parsedSession.id, parsedTeam.id);
       } catch (e) {
         console.error('Failed to restore session:', e);
         localStorage.removeItem('arena-session');
         localStorage.removeItem('arena-team');
+        localStorage.removeItem('arena-theme');
       }
     }
   }, []);
@@ -200,6 +253,20 @@ export default function PlayerHome() {
       // Save to localStorage
       localStorage.setItem('arena-session', JSON.stringify(newSession));
       setExistingTeams(data.session.teams || []);
+
+      // Fetch theme for this session
+      try {
+        const themeRes = await fetch(`${API_URL}/sessions/${data.session.id}/theme`);
+        if (themeRes.ok) {
+          const themeData = await themeRes.json();
+          setTheme({ ...defaultTheme, ...themeData });
+          // Save theme to localStorage
+          localStorage.setItem('arena-theme', JSON.stringify({ ...defaultTheme, ...themeData }));
+        }
+      } catch (themeError) {
+        console.error('Failed to fetch theme:', themeError);
+      }
+
       setGameState('TEAM_SELECT');
     } catch (err) {
       if (err instanceof Error) {
@@ -846,23 +913,26 @@ export default function PlayerHome() {
   // LOBBY SCREEN
   if (gameState === 'LOBBY') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
+      <main className="min-h-screen flex flex-col items-center justify-center p-4"
+        style={{ background: `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})` }}
+      >
         <div className="w-full max-w-md text-center">
           <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 mb-8">
+            {theme.logo && <img src={theme.logo} alt="Logo" className="h-20 mx-auto mb-4" />}
             <div className="text-6xl mb-4 animate-pulse">⏳</div>
-            <h1 className="text-3xl font-bold text-white mb-2">Waiting for host...</h1>
-            <p className="text-purple-200">The game will start soon!</p>
+            <h1 className="text-3xl font-bold mb-2" style={{ color: theme.colors.text }}>En attente du début...</h1>
+            <p style={{ color: theme.colors.text, opacity: 0.8 }}>Le jeu va bientôt commencer!</p>
           </div>
 
           <div className="bg-white rounded-3xl shadow-2xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Your Team</span>
+              <span className="text-gray-500">Ton équipe</span>
               <div className="flex items-center">
                 <div
                   className="w-4 h-4 rounded-full mr-2"
                   style={{ backgroundColor: team?.color || teamColor }}
                 ></div>
-                <span className="font-bold text-purple-600">{team?.name || teamName}</span>
+                <span className="font-bold" style={{ color: theme.colors.primary }}>{team?.name || teamName}</span>
               </div>
             </div>
             <div className="flex items-center justify-between mb-4">
@@ -871,13 +941,13 @@ export default function PlayerHome() {
             </div>
             <div className="flex items-center justify-between mb-4">
               <span className="text-gray-500">Score</span>
-              <span className="font-bold text-purple-600">{team?.score || 0}</span>
+              <span className="font-bold" style={{ color: theme.colors.primary }}>{team?.score || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Status</span>
               <span className={`flex items-center font-medium ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
                 <span className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                {isConnected ? 'Connected' : 'Connecting...'}
+                {isConnected ? 'Connecté' : 'Connexion...'}
               </span>
             </div>
           </div>
@@ -886,15 +956,16 @@ export default function PlayerHome() {
           {!isFullscreen && (
             <button
               onClick={requestFullscreen}
-              className="mt-6 w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+              className="mt-6 w-full font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+              style={{ background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`, color: theme.colors.text }}
             >
               <span className="text-xl">📱</span>
               <span>Mode Plein Écran</span>
             </button>
           )}
 
-          <p className="text-purple-200 mt-6 text-sm">
-            Get ready! The first question is coming...
+          <p className="mt-6 text-sm" style={{ color: theme.colors.text, opacity: 0.8 }}>
+            Préparez-vous! La première question arrive...
           </p>
         </div>
       </main>
@@ -904,46 +975,47 @@ export default function PlayerHome() {
   // QUESTION SCREEN
   if (gameState === 'QUESTION' && currentQuestion) {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col">
+      <main className="min-h-screen flex flex-col" style={{ backgroundColor: theme.colors.background }}>
         {/* Team Info Bar */}
-        <div className="bg-gray-800 px-4 py-2 flex items-center justify-between border-b border-gray-700">
+        <div className="bg-black/30 backdrop-blur px-4 py-2 flex items-center justify-between border-b border-white/10">
           <div className="flex items-center gap-2">
             <div
               className="w-4 h-4 rounded-full"
-              style={{ backgroundColor: team?.color || '#8B5CF6' }}
+              style={{ backgroundColor: team?.color || theme.colors.primary }}
             />
-            <span className="text-white font-semibold text-sm">{team?.name || 'Équipe'}</span>
+            <span className="font-semibold text-sm" style={{ color: theme.colors.text }}>{team?.name || 'Équipe'}</span>
           </div>
-          <div className="text-purple-400 font-bold text-sm">
+          <div className="font-bold text-sm" style={{ color: theme.colors.primary }}>
             {team?.score || 0} pts
           </div>
         </div>
         {/* Timer Header */}
-        <header className={`p-4 text-center transition-colors ${
-          timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
-          timeRemaining <= 10 ? 'bg-yellow-500' :
-          isFinaleMode ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
-          'bg-purple-600'
-        }`}>
+        <header className={`p-4 text-center transition-colors ${timeRemaining <= 5 ? 'animate-pulse' : ''}`}
+          style={{
+            backgroundColor: timeRemaining <= 5 ? theme.colors.wrong :
+              timeRemaining <= 10 ? theme.colors.accent :
+              isFinaleMode ? theme.colors.accent : theme.colors.primary
+          }}
+        >
           {/* Finale mode badge */}
           {isFinaleMode && (
-            <div className="text-xs font-bold text-white/90 mb-1 tracking-wider">
+            <div className="text-xs font-bold mb-1 tracking-wider" style={{ color: theme.colors.text, opacity: 0.9 }}>
               🏆 MODE FINALE
             </div>
           )}
           {/* Time plus indicator */}
           {timePlusActive && (
-            <div className="text-xs font-bold text-green-300 mb-1 animate-pulse">
+            <div className="text-xs font-bold mb-1 animate-pulse" style={{ color: theme.colors.correct }}>
               ⏳ +15 SECONDES!
             </div>
           )}
-          <div className="text-5xl font-black text-white">{timeRemaining}</div>
-          <div className="text-white/80 text-sm">seconds remaining</div>
+          <div className="text-5xl font-black" style={{ color: theme.colors.text }}>{timeRemaining}</div>
+          <div className="text-sm" style={{ color: theme.colors.text, opacity: 0.8 }}>secondes restantes</div>
         </header>
 
         {/* Question */}
         <div className="flex-1 p-4 flex flex-col">
-          <div className="bg-gray-800 rounded-2xl p-6 mb-4">
+          <div className="bg-black/40 backdrop-blur rounded-2xl p-6 mb-4">
             {currentQuestion.mediaUrl && (
               <img
                 src={currentQuestion.mediaUrl}
@@ -951,12 +1023,12 @@ export default function PlayerHome() {
                 className="w-full h-40 object-cover rounded-xl mb-4"
               />
             )}
-            <p className="text-white text-xl font-semibold text-center leading-relaxed">
+            <p className="text-xl font-semibold text-center leading-relaxed" style={{ color: theme.colors.text }}>
               {currentQuestion.text}
             </p>
-            <p className="text-purple-400 text-center mt-2">
+            <p className="text-center mt-2" style={{ color: theme.colors.primary }}>
               {currentQuestion.points} points
-              {activeJoker === 'DOUBLE' && <span className="text-yellow-400 ml-2">🔥 x2!</span>}
+              {activeJoker === 'DOUBLE' && <span style={{ color: theme.colors.accent }} className="ml-2">🔥 x2!</span>}
             </p>
           </div>
 
@@ -1226,11 +1298,11 @@ export default function PlayerHome() {
         </div>
 
         {/* Score Footer */}
-        <footer className="bg-gray-800 p-4">
+        <footer className="bg-black/30 backdrop-blur p-4">
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-gray-400 text-sm">Your Score</p>
-              <p className="text-2xl font-bold text-purple-400">{team?.score || 0}</p>
+              <p className="text-sm" style={{ color: theme.colors.text, opacity: 0.7 }}>Ton Score</p>
+              <p className="text-2xl font-bold" style={{ color: theme.colors.primary }}>{team?.score || 0}</p>
             </div>
             <div
               className="w-4 h-4 rounded-full"
@@ -1287,11 +1359,15 @@ export default function PlayerHome() {
     const wasShielded = activeJoker === 'SHIELD' && !wasCorrect;
 
     return (
-      <main className={`min-h-screen flex flex-col items-center justify-center p-4 ${
-        wasCorrect ? 'bg-gradient-to-br from-green-600 to-teal-600' :
-        wasShielded ? 'bg-gradient-to-br from-blue-600 to-purple-600' :
-        'bg-gradient-to-br from-red-600 to-orange-600'
-      }`}>
+      <main className="min-h-screen flex flex-col items-center justify-center p-4"
+        style={{
+          background: wasCorrect
+            ? `linear-gradient(to bottom right, ${theme.colors.correct}, ${theme.colors.correct}99)`
+            : wasShielded
+              ? `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary})`
+              : `linear-gradient(to bottom right, ${theme.colors.wrong}, ${theme.colors.wrong}99)`
+        }}
+      >
         <div className="text-center">
           <div className="text-8xl mb-6">
             {wasCorrect ? '🎉' : wasShielded ? '🛡️' : '😢'}
@@ -1341,12 +1417,15 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-4">
+      <main className="min-h-screen p-4"
+        style={{ background: `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})` }}
+      >
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
+            {theme.logo && <img src={theme.logo} alt="Logo" className="h-16 mx-auto mb-4" />}
             <div className="text-5xl mb-4">🏆</div>
-            <h1 className="text-3xl font-bold text-white">Leaderboard</h1>
-            <p className="text-purple-300 mt-2">Your rank: #{rank}</p>
+            <h1 className="text-3xl font-bold" style={{ color: theme.colors.text }}>Classement</h1>
+            <p className="mt-2" style={{ color: theme.colors.text, opacity: 0.8 }}>Ton rang: #{rank}</p>
           </div>
 
           <div className="space-y-3">
@@ -1355,10 +1434,11 @@ export default function PlayerHome() {
               return (
                 <div
                   key={t.id}
-                  className={`rounded-2xl p-4 flex items-center ${
-                    isYou ? 'bg-purple-500 ring-2 ring-yellow-400' :
-                    index < 3 ? 'bg-white/10' : 'bg-white/5'
-                  }`}
+                  className={`rounded-2xl p-4 flex items-center ${isYou ? 'ring-2' : ''}`}
+                  style={{
+                    backgroundColor: isYou ? theme.colors.primary : index < 3 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)',
+                    ringColor: isYou ? theme.colors.accent : 'transparent'
+                  }}
                 >
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg mr-4 ${
                     index === 0 ? 'bg-yellow-400 text-yellow-900' :
@@ -1369,11 +1449,11 @@ export default function PlayerHome() {
                     {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
                   </div>
                   <div className="flex-1">
-                    <p className="font-bold text-white">
-                      {t.name} {isYou && '(You)'}
+                    <p className="font-bold" style={{ color: theme.colors.text }}>
+                      {t.name} {isYou && '(Toi)'}
                     </p>
                   </div>
-                  <div className="text-2xl font-bold text-purple-300">{t.score}</div>
+                  <div className="text-2xl font-bold" style={{ color: theme.colors.primary }}>{t.score}</div>
                 </div>
               );
             })}
@@ -1388,11 +1468,14 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 flex flex-col items-center justify-center p-4">
+      <main className="min-h-screen flex flex-col items-center justify-center p-4"
+        style={{ background: `linear-gradient(to bottom right, ${theme.colors.accent}, ${theme.colors.secondary}, ${theme.colors.wrong})` }}
+      >
         <div className="text-center">
+          {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mx-auto mb-6" />}
           <div className="text-8xl mb-6">🏆</div>
-          <h1 className="text-4xl font-black text-white mb-2">GAME OVER!</h1>
-          <p className="text-white/80 text-xl mb-8">Final Results</p>
+          <h1 className="text-4xl font-black mb-2" style={{ color: theme.colors.text }}>FIN DU JEU!</h1>
+          <p className="text-xl mb-8" style={{ color: theme.colors.text, opacity: 0.8 }}>Résultats finaux</p>
 
           <div className="bg-white rounded-3xl p-8 shadow-2xl">
             <div className="flex items-center justify-center mb-4">
@@ -1402,10 +1485,10 @@ export default function PlayerHome() {
               ></div>
               <p className="text-gray-600 font-semibold">{team?.name}</p>
             </div>
-            <p className="text-gray-500 mb-2">Your Final Score</p>
-            <p className="text-5xl font-black text-purple-600 mb-4">{team?.score || 0}</p>
-            <p className="text-gray-500 mb-2">Final Rank</p>
-            <p className="text-4xl font-bold text-yellow-500">#{rank}</p>
+            <p className="text-gray-500 mb-2">Ton Score Final</p>
+            <p className="text-5xl font-black mb-4" style={{ color: theme.colors.primary }}>{team?.score || 0}</p>
+            <p className="text-gray-500 mb-2">Rang Final</p>
+            <p className="text-4xl font-bold" style={{ color: theme.colors.accent }}>#{rank}</p>
           </div>
 
           <button
@@ -1414,16 +1497,19 @@ export default function PlayerHome() {
               // Clear localStorage
               localStorage.removeItem('arena-session');
               localStorage.removeItem('arena-team');
+              localStorage.removeItem('arena-theme');
               setGameState('JOIN');
               setSessionCode('');
               setTeamName('');
               setSession(null);
               setTeam(null);
               setLeaderboard([]);
+              setTheme(defaultTheme);
             }}
-            className="mt-8 bg-white text-orange-600 font-bold py-4 px-8 rounded-2xl shadow-lg"
+            className="mt-8 font-bold py-4 px-8 rounded-2xl shadow-lg"
+            style={{ backgroundColor: theme.colors.text, color: theme.colors.primary }}
           >
-            Play Again
+            Rejouer
           </button>
         </div>
       </main>

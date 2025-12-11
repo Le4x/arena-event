@@ -5,9 +5,11 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17,6 +19,42 @@ const mediaDir = join(__dirname, 'media');
 if (!existsSync(mediaDir)) {
   mkdirSync(mediaDir, { recursive: true });
 }
+
+// Create theme assets directory
+const themeDir = join(__dirname, 'uploads', 'themes');
+if (!existsSync(themeDir)) {
+  mkdirSync(themeDir, { recursive: true });
+}
+
+// Multer configuration for theme uploads
+const themeStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const eventDir = join(themeDir, req.params.id);
+    if (!existsSync(eventDir)) {
+      mkdirSync(eventDir, { recursive: true });
+    }
+    cb(null, eventDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = extname(file.originalname);
+    const type = req.body.type || 'asset'; // logo, frame, background, sound
+    cb(null, `${type}-${uuidv4()}${ext}`);
+  }
+});
+
+const themeUpload = multer({
+  storage: themeStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp|svg|mp3|wav|ogg/;
+    const ext = extname(file.originalname).toLowerCase().slice(1);
+    if (allowedTypes.test(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Type de fichier non supporté'));
+    }
+  }
+});
 
 const app = express();
 const httpServer = createServer(app);
@@ -345,6 +383,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve static media files (audio, images)
 app.use('/media', express.static(mediaDir));
+
+// Serve theme assets
+app.use('/themes', express.static(join(__dirname, 'uploads', 'themes')));
 
 // Create audio subdirectory
 const audioDir = join(mediaDir, 'audio');
@@ -825,6 +866,221 @@ app.delete('/api/events/:id', authenticateToken, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Delete event error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// EVENT THEME ROUTES
+// ============================================
+
+// Get theme for an event
+app.get('/api/events/:id/theme', authenticateToken, async (req, res) => {
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { theme: true }
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Return default theme if none set
+    const defaultTheme = {
+      colors: {
+        primary: '#8B5CF6',      // Purple
+        secondary: '#3B82F6',    // Blue
+        accent: '#F59E0B',       // Amber
+        background: '#1F2937',   // Gray-800
+        text: '#FFFFFF',
+        correct: '#10B981',      // Green
+        wrong: '#EF4444'         // Red
+      },
+      logo: null,
+      frame: null,
+      background: null,
+      backgroundType: 'gradient', // 'gradient', 'solid', 'image'
+      sounds: {
+        correct: null,
+        wrong: null,
+        timer: null,
+        buzzer: null
+      },
+      fonts: {
+        heading: 'inherit',
+        body: 'inherit'
+      }
+    };
+
+    res.json({ theme: event.theme || defaultTheme });
+  } catch (error) {
+    console.error('Get theme error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update theme for an event
+app.put('/api/events/:id/theme', authenticateToken, async (req, res) => {
+  try {
+    const { theme } = req.body;
+
+    const event = await prisma.event.update({
+      where: { id: req.params.id },
+      data: { theme }
+    });
+
+    res.json({ success: true, theme: event.theme });
+  } catch (error) {
+    console.error('Update theme error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Upload theme asset (logo, frame, background, sound)
+app.post('/api/events/:id/theme/upload', authenticateToken, themeUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const assetType = req.body.type || 'asset';
+    const fileUrl = `/themes/${req.params.id}/${req.file.filename}`;
+
+    // Get current theme and update the specific asset
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { theme: true }
+    });
+
+    let currentTheme = event?.theme || {};
+
+    // Update the specific field based on type
+    if (assetType === 'logo') {
+      currentTheme.logo = fileUrl;
+    } else if (assetType === 'frame') {
+      currentTheme.frame = fileUrl;
+    } else if (assetType === 'background') {
+      currentTheme.background = fileUrl;
+      currentTheme.backgroundType = 'image';
+    } else if (assetType.startsWith('sound_')) {
+      const soundType = assetType.replace('sound_', '');
+      if (!currentTheme.sounds) currentTheme.sounds = {};
+      currentTheme.sounds[soundType] = fileUrl;
+    }
+
+    // Save updated theme
+    await prisma.event.update({
+      where: { id: req.params.id },
+      data: { theme: currentTheme }
+    });
+
+    res.json({
+      success: true,
+      url: fileUrl,
+      theme: currentTheme
+    });
+  } catch (error) {
+    console.error('Upload theme asset error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete theme asset
+app.delete('/api/events/:id/theme/:assetType', authenticateToken, async (req, res) => {
+  try {
+    const { assetType } = req.params;
+
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { theme: true }
+    });
+
+    if (!event?.theme) {
+      return res.status(404).json({ error: 'Theme not found' });
+    }
+
+    let currentTheme = event.theme;
+    let fileToDelete = null;
+
+    // Get file path and clear the field
+    if (assetType === 'logo') {
+      fileToDelete = currentTheme.logo;
+      currentTheme.logo = null;
+    } else if (assetType === 'frame') {
+      fileToDelete = currentTheme.frame;
+      currentTheme.frame = null;
+    } else if (assetType === 'background') {
+      fileToDelete = currentTheme.background;
+      currentTheme.background = null;
+      currentTheme.backgroundType = 'gradient';
+    } else if (assetType.startsWith('sound_')) {
+      const soundType = assetType.replace('sound_', '');
+      if (currentTheme.sounds) {
+        fileToDelete = currentTheme.sounds[soundType];
+        currentTheme.sounds[soundType] = null;
+      }
+    }
+
+    // Delete file from disk
+    if (fileToDelete) {
+      const filePath = join(__dirname, 'uploads', fileToDelete);
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+      }
+    }
+
+    // Save updated theme
+    await prisma.event.update({
+      where: { id: req.params.id },
+      data: { theme: currentTheme }
+    });
+
+    res.json({ success: true, theme: currentTheme });
+  } catch (error) {
+    console.error('Delete theme asset error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public endpoint to get theme for a session (for Screen/Player)
+app.get('/sessions/:sessionId/theme', async (req, res) => {
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: req.params.sessionId },
+      include: {
+        event: {
+          select: { theme: true }
+        }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Default theme
+    const defaultTheme = {
+      colors: {
+        primary: '#8B5CF6',
+        secondary: '#3B82F6',
+        accent: '#F59E0B',
+        background: '#1F2937',
+        text: '#FFFFFF',
+        correct: '#10B981',
+        wrong: '#EF4444'
+      },
+      logo: null,
+      frame: null,
+      background: null,
+      backgroundType: 'gradient',
+      sounds: {},
+      fonts: { heading: 'inherit', body: 'inherit' }
+    };
+
+    res.json({ theme: session.event?.theme || defaultTheme });
+  } catch (error) {
+    console.error('Get session theme error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

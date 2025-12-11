@@ -16,12 +16,39 @@ interface User {
   lastName: string;
 }
 
+interface EventTheme {
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    text: string;
+    correct: string;
+    wrong: string;
+  };
+  logo: string | null;
+  frame: string | null;
+  background: string | null;
+  backgroundType: 'gradient' | 'solid' | 'image';
+  sounds: {
+    correct: string | null;
+    wrong: string | null;
+    timer: string | null;
+    buzzer: string | null;
+  };
+  fonts: {
+    heading: string;
+    body: string;
+  };
+}
+
 interface Event {
   id: string;
   name: string;
   description: string;
   status: string;
   createdAt: string;
+  theme?: EventTheme;
   _count?: { sessions: number; rounds: number };
   rounds?: Round[];
 }
@@ -86,10 +113,12 @@ export default function Home() {
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
+  const [themeEventId, setThemeEventId] = useState<string | null>(null);
 
   // Form state
   const [eventForm, setEventForm] = useState({ name: '', description: '' });
@@ -102,6 +131,25 @@ export default function Home() {
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' as string
   });
+  const defaultTheme: EventTheme = {
+    colors: {
+      primary: '#8B5CF6',
+      secondary: '#3B82F6',
+      accent: '#F59E0B',
+      background: '#1F2937',
+      text: '#FFFFFF',
+      correct: '#10B981',
+      wrong: '#EF4444'
+    },
+    logo: null,
+    frame: null,
+    background: null,
+    backgroundType: 'gradient',
+    sounds: { correct: null, wrong: null, timer: null, buzzer: null },
+    fonts: { heading: 'inherit', body: 'inherit' }
+  };
+  const [themeForm, setThemeForm] = useState<EventTheme>(defaultTheme);
+  const [uploadingThemeAsset, setUploadingThemeAsset] = useState(false);
   const [audioDuration, setAudioDuration] = useState(0);
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -311,6 +359,84 @@ export default function Home() {
       }
     } catch (err) {
       console.error('Delete event error:', err);
+    }
+  };
+
+  // Theme functions
+  const openThemeEditor = async (eventId: string) => {
+    setThemeEventId(eventId);
+    setModalLoading(true);
+    try {
+      const res = await apiCall(`/api/events/${eventId}/theme`);
+      if (res.ok) {
+        const data = await res.json();
+        setThemeForm(data.theme || defaultTheme);
+      }
+    } catch (err) {
+      console.error('Load theme error:', err);
+      setThemeForm(defaultTheme);
+    } finally {
+      setModalLoading(false);
+      setShowThemeModal(true);
+    }
+  };
+
+  const saveTheme = async () => {
+    if (!themeEventId) return;
+    setModalLoading(true);
+    try {
+      const res = await apiCall(`/api/events/${themeEventId}/theme`, {
+        method: 'PUT',
+        body: JSON.stringify({ theme: themeForm }),
+      });
+      if (res.ok) {
+        setShowThemeModal(false);
+        setThemeEventId(null);
+      }
+    } catch (err) {
+      console.error('Save theme error:', err);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const uploadThemeAsset = async (file: File, assetType: string) => {
+    if (!themeEventId) return;
+    setUploadingThemeAsset(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', assetType);
+
+      const res = await fetch(`${API_URL}/api/events/${themeEventId}/theme/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setThemeForm(data.theme);
+      }
+    } catch (err) {
+      console.error('Upload theme asset error:', err);
+    } finally {
+      setUploadingThemeAsset(false);
+    }
+  };
+
+  const deleteThemeAsset = async (assetType: string) => {
+    if (!themeEventId) return;
+    try {
+      const res = await apiCall(`/api/events/${themeEventId}/theme/${assetType}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setThemeForm(data.theme);
+      }
+    } catch (err) {
+      console.error('Delete theme asset error:', err);
     }
   };
 
@@ -715,6 +841,9 @@ export default function Home() {
                     <div className="flex space-x-2">
                       <button onClick={() => loadEventDetails(event.id)} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg text-sm transition">
                         Edit
+                      </button>
+                      <button onClick={() => openThemeEditor(event.id)} className="bg-gradient-to-r from-pink-500 to-orange-500 hover:from-pink-600 hover:to-orange-600 text-white px-3 py-2 rounded-lg transition" title="Personnaliser le thème">
+                        🎨
                       </button>
                       <button onClick={() => openEditEvent(event)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition">
                         ⚙️
@@ -1503,6 +1632,191 @@ export default function Home() {
               <button onClick={editingUser ? updateUser : createUser}
                 className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl transition disabled:opacity-50" disabled={modalLoading}>
                 {modalLoading ? 'Saving...' : (editingUser ? 'Save Changes' : 'Create User')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Theme Configuration Modal */}
+      {showThemeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold mb-6 text-white flex items-center gap-2">
+              🎨 Personnalisation du Thème
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Colors Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2">🎨 Couleurs</h3>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Primaire</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={themeForm.colors.primary}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, primary: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer" />
+                      <input type="text" value={themeForm.colors.primary}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, primary: e.target.value } })}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Secondaire</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={themeForm.colors.secondary}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, secondary: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer" />
+                      <input type="text" value={themeForm.colors.secondary}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, secondary: e.target.value } })}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Accent</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={themeForm.colors.accent}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, accent: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer" />
+                      <input type="text" value={themeForm.colors.accent}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, accent: e.target.value } })}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Fond</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={themeForm.colors.background}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, background: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer" />
+                      <input type="text" value={themeForm.colors.background}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, background: e.target.value } })}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Bonne réponse</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={themeForm.colors.correct}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, correct: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer" />
+                      <input type="text" value={themeForm.colors.correct}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, correct: e.target.value } })}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Mauvaise réponse</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={themeForm.colors.wrong}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, wrong: e.target.value } })}
+                        className="w-10 h-10 rounded cursor-pointer" />
+                      <input type="text" value={themeForm.colors.wrong}
+                        onChange={(e) => setThemeForm({ ...themeForm, colors: { ...themeForm.colors, wrong: e.target.value } })}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Assets Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2">🖼️ Images</h3>
+
+                {/* Logo */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Logo de l&apos;événement</label>
+                  <div className="flex items-center gap-3">
+                    {themeForm.logo ? (
+                      <div className="relative">
+                        <img src={`${API_URL}${themeForm.logo}`} alt="Logo" className="w-16 h-16 object-contain bg-gray-700 rounded" />
+                        <button onClick={() => deleteThemeAsset('logo')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs">×</button>
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 bg-gray-700 rounded flex items-center justify-center text-gray-500">📷</div>
+                    )}
+                    <label className="flex-1 cursor-pointer">
+                      <div className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-center text-sm transition">
+                        {uploadingThemeAsset ? 'Upload...' : 'Choisir logo'}
+                      </div>
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => e.target.files?.[0] && uploadThemeAsset(e.target.files[0], 'logo')} />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Frame */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Cadre des questions</label>
+                  <div className="flex items-center gap-3">
+                    {themeForm.frame ? (
+                      <div className="relative">
+                        <img src={`${API_URL}${themeForm.frame}`} alt="Frame" className="w-24 h-16 object-contain bg-gray-700 rounded" />
+                        <button onClick={() => deleteThemeAsset('frame')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs">×</button>
+                      </div>
+                    ) : (
+                      <div className="w-24 h-16 bg-gray-700 rounded flex items-center justify-center text-gray-500">🖼️</div>
+                    )}
+                    <label className="flex-1 cursor-pointer">
+                      <div className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-center text-sm transition">
+                        {uploadingThemeAsset ? 'Upload...' : 'Choisir cadre'}
+                      </div>
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => e.target.files?.[0] && uploadThemeAsset(e.target.files[0], 'frame')} />
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Image PNG transparente qui s&apos;affichera autour des questions</p>
+                </div>
+
+                {/* Background */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Image de fond</label>
+                  <div className="flex items-center gap-3">
+                    {themeForm.background ? (
+                      <div className="relative">
+                        <img src={`${API_URL}${themeForm.background}`} alt="Background" className="w-24 h-16 object-cover bg-gray-700 rounded" />
+                        <button onClick={() => deleteThemeAsset('background')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs">×</button>
+                      </div>
+                    ) : (
+                      <div className="w-24 h-16 bg-gray-700 rounded flex items-center justify-center text-gray-500">🌄</div>
+                    )}
+                    <label className="flex-1 cursor-pointer">
+                      <div className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-center text-sm transition">
+                        {uploadingThemeAsset ? 'Upload...' : 'Choisir fond'}
+                      </div>
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => e.target.files?.[0] && uploadThemeAsset(e.target.files[0], 'background')} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Preview */}
+            <div className="mt-6 p-4 rounded-xl" style={{ backgroundColor: themeForm.colors.background }}>
+              <h3 className="text-lg font-semibold text-white mb-3">👁️ Aperçu</h3>
+              <div className="flex gap-4 items-center flex-wrap">
+                {themeForm.logo && <img src={`${API_URL}${themeForm.logo}`} alt="Logo" className="h-12 object-contain" />}
+                <div className="flex gap-2">
+                  <div className="px-4 py-2 rounded" style={{ backgroundColor: themeForm.colors.primary, color: themeForm.colors.text }}>Primaire</div>
+                  <div className="px-4 py-2 rounded" style={{ backgroundColor: themeForm.colors.secondary, color: themeForm.colors.text }}>Secondaire</div>
+                  <div className="px-4 py-2 rounded" style={{ backgroundColor: themeForm.colors.accent, color: '#000' }}>Accent</div>
+                  <div className="px-4 py-2 rounded" style={{ backgroundColor: themeForm.colors.correct, color: '#fff' }}>✓ Correct</div>
+                  <div className="px-4 py-2 rounded" style={{ backgroundColor: themeForm.colors.wrong, color: '#fff' }}>✗ Faux</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-4 mt-6">
+              <button onClick={() => { setShowThemeModal(false); setThemeEventId(null); }}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition" disabled={modalLoading}>
+                Annuler
+              </button>
+              <button onClick={saveTheme}
+                className="flex-1 bg-gradient-to-r from-pink-500 to-orange-500 hover:from-pink-600 hover:to-orange-600 text-white py-3 rounded-xl transition disabled:opacity-50" disabled={modalLoading}>
+                {modalLoading ? 'Enregistrement...' : 'Enregistrer le thème'}
               </button>
             </div>
           </div>

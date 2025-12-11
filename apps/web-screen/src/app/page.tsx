@@ -49,6 +49,50 @@ interface Session {
   teams: Team[];
 }
 
+interface EventTheme {
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    text: string;
+    correct: string;
+    wrong: string;
+  };
+  logo: string | null;
+  frame: string | null;
+  background: string | null;
+  backgroundType: 'gradient' | 'solid' | 'image';
+  sounds: {
+    correct: string | null;
+    wrong: string | null;
+    timer: string | null;
+    buzzer: string | null;
+  };
+  fonts: {
+    heading: string;
+    body: string;
+  };
+}
+
+const defaultTheme: EventTheme = {
+  colors: {
+    primary: '#8B5CF6',
+    secondary: '#EC4899',
+    accent: '#F59E0B',
+    background: '#1F2937',
+    text: '#FFFFFF',
+    correct: '#10B981',
+    wrong: '#EF4444',
+  },
+  logo: null,
+  frame: null,
+  background: null,
+  backgroundType: 'gradient',
+  sounds: { correct: null, wrong: null, timer: null, buzzer: null },
+  fonts: { heading: 'inherit', body: 'inherit' },
+};
+
 export default function ScreenHome() {
   // Socket
   const socketRef = useRef<Socket | null>(null);
@@ -61,6 +105,9 @@ export default function ScreenHome() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
+
+  // Theme
+  const [theme, setTheme] = useState<EventTheme>(defaultTheme);
 
   // Display state
   const [displayMode, setDisplayMode] = useState<DisplayMode>('SELECT');
@@ -111,11 +158,22 @@ export default function ScreenHome() {
   }, []);
 
   // Select session and connect
-  const selectSession = (session: Session) => {
+  const selectSession = async (session: Session) => {
     setSelectedSession(session);
     setTeams(session.teams.map(t => ({ ...t, hasAnswered: false })));
     setDisplayMode('LOBBY');
     connectSocket(session.id);
+
+    // Fetch theme for this session
+    try {
+      const res = await fetch(`${API_URL}/sessions/${session.id}/theme`);
+      if (res.ok) {
+        const themeData = await res.json();
+        setTheme({ ...defaultTheme, ...themeData });
+      }
+    } catch (error) {
+      console.error('Failed to fetch theme:', error);
+    }
   };
 
   // Socket connection (optimized for low latency)
@@ -475,34 +533,54 @@ export default function ScreenHome() {
 
   // LOBBY
   if (displayMode === 'LOBBY') {
+    const bgStyle = theme.background && theme.backgroundType === 'image'
+      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : {};
+
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center p-8 overflow-hidden relative">
-        {/* Animated Background */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-40 -right-40 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
-          <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ animationDelay: '2s' }}></div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" style={{ animationDelay: '4s' }}></div>
-        </div>
+      <main
+        className="min-h-screen flex flex-col items-center justify-center p-8 overflow-hidden relative"
+        style={{
+          ...bgStyle,
+          backgroundColor: theme.backgroundType !== 'image' ? theme.colors.background : undefined,
+          background: theme.backgroundType === 'gradient' && !theme.background
+            ? `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})`
+            : undefined
+        }}
+      >
+        {/* Animated Background (only if no custom background) */}
+        {!theme.background && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ backgroundColor: theme.colors.primary }}></div>
+            <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ backgroundColor: theme.colors.secondary, animationDelay: '2s' }}></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" style={{ backgroundColor: theme.colors.accent, animationDelay: '4s' }}></div>
+          </div>
+        )}
 
         <div className="relative z-10 text-center">
           <div className="mb-8">
-            <h1 className="text-8xl font-black mb-4">
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-500">
-                🎮 ARENA EVENT
-              </span>
-            </h1>
-            <p className="text-3xl text-purple-300">{selectedSession?.event.name}</p>
+            {/* Logo or default title */}
+            {theme.logo ? (
+              <img src={theme.logo} alt="Event Logo" className="max-h-48 mx-auto mb-6" />
+            ) : (
+              <h1 className="text-8xl font-black mb-4">
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-500">
+                  🎮 ARENA EVENT
+                </span>
+              </h1>
+            )}
+            <p className="text-3xl" style={{ color: theme.colors.text, opacity: 0.8 }}>{selectedSession?.event.name}</p>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 max-w-4xl mx-auto border border-white/20 shadow-2xl">
-            <p className="text-3xl text-purple-200 mb-6">Rejoins le jeu sur</p>
-            <div className="text-5xl font-bold text-white mb-8">
+            <p className="text-3xl mb-6" style={{ color: theme.colors.text, opacity: 0.8 }}>Rejoins le jeu sur</p>
+            <div className="text-5xl font-bold mb-8" style={{ color: theme.colors.text }}>
               http://91.134.135.247:3003
             </div>
 
             <div className="border-t border-white/20 pt-8 mt-8">
-              <p className="text-3xl text-purple-200 mb-6">Code de session</p>
-              <div className="inline-block bg-gradient-to-r from-yellow-400 to-orange-500 rounded-2xl px-16 py-8">
+              <p className="text-3xl mb-6" style={{ color: theme.colors.text, opacity: 0.8 }}>Code de session</p>
+              <div className="inline-block rounded-2xl px-16 py-8" style={{ background: `linear-gradient(to right, ${theme.colors.accent}, ${theme.colors.secondary})` }}>
                 <span className="text-8xl font-black text-black tracking-[0.2em]">
                   {selectedSession?.code}
                 </span>
@@ -512,8 +590,8 @@ export default function ScreenHome() {
 
           <div className="mt-12 flex justify-center items-center gap-8">
             <div className="bg-white/10 backdrop-blur rounded-2xl px-8 py-6 text-center">
-              <div className="text-6xl font-bold text-green-400">{teams.length}</div>
-              <div className="text-xl text-purple-200 mt-2">Teams</div>
+              <div className="text-6xl font-bold" style={{ color: theme.colors.correct }}>{teams.length}</div>
+              <div className="text-xl mt-2" style={{ color: theme.colors.text, opacity: 0.8 }}>Teams</div>
             </div>
           </div>
 
@@ -558,47 +636,58 @@ export default function ScreenHome() {
 
   // QUESTION
   if (displayMode === 'QUESTION' && currentQuestion) {
+    const bgStyle = theme.background && theme.backgroundType === 'image'
+      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : { backgroundColor: theme.colors.background };
+
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col">
+      <main className="min-h-screen flex flex-col" style={bgStyle}>
         {/* Header */}
-        <header className="bg-gray-800 px-8 py-4 flex items-center justify-between">
+        <header className="bg-black/30 backdrop-blur px-8 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <span className="text-4xl">🎮</span>
-            <span className="text-2xl font-bold text-white">{selectedSession?.event.name}</span>
+            {theme.logo ? (
+              <img src={theme.logo} alt="Logo" className="h-12" />
+            ) : (
+              <span className="text-4xl">🎮</span>
+            )}
+            <span className="text-2xl font-bold" style={{ color: theme.colors.text }}>{selectedSession?.event.name}</span>
           </div>
           <div className="text-center">
-            <span className="text-purple-400 text-xl">Question {questionNumber}/{totalQuestions}</span>
+            <span className="text-xl" style={{ color: theme.colors.primary }}>Question {questionNumber}/{totalQuestions}</span>
           </div>
-          <div className="bg-purple-600 px-6 py-2 rounded-xl">
-            <span className="text-white font-mono text-2xl font-bold">{selectedSession?.code}</span>
+          <div className="px-6 py-2 rounded-xl" style={{ backgroundColor: theme.colors.primary }}>
+            <span className="font-mono text-2xl font-bold" style={{ color: theme.colors.text }}>{selectedSession?.code}</span>
           </div>
         </header>
 
         {/* Timer */}
-        <div className={`py-6 text-center transition-colors ${
-          timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
-          timeRemaining <= 10 ? 'bg-yellow-500' :
-          'bg-purple-600'
-        }`}>
-          <div className="text-8xl font-black text-white">{timeRemaining}</div>
-          <div className="text-white/80 text-2xl">seconds</div>
+        <div className={`py-6 text-center transition-colors ${timeRemaining <= 5 ? 'animate-pulse' : ''}`}
+          style={{
+            backgroundColor: timeRemaining <= 5 ? theme.colors.wrong : timeRemaining <= 10 ? theme.colors.accent : theme.colors.primary
+          }}
+        >
+          <div className="text-8xl font-black" style={{ color: theme.colors.text }}>{timeRemaining}</div>
+          <div className="text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>seconds</div>
         </div>
 
         {/* Question */}
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-          <div className="bg-gray-800 rounded-3xl p-12 max-w-5xl w-full text-center shadow-2xl">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
+          {/* Frame overlay if configured */}
+          {theme.frame && (
+            <img
+              src={theme.frame}
+              alt=""
+              className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10"
+            />
+          )}
+          <div className="bg-black/50 backdrop-blur rounded-3xl p-12 max-w-5xl w-full text-center shadow-2xl relative z-0">
             <div className="flex items-center justify-center mb-6">
-              <span className={`px-4 py-2 rounded-full text-lg font-bold ${
-                currentQuestion.type === 'MCQ' ? 'bg-blue-500/20 text-blue-400' :
-                currentQuestion.type === 'TRUE_FALSE' ? 'bg-green-500/20 text-green-400' :
-                currentQuestion.type === 'BUZZER' ? 'bg-red-500/20 text-red-400' :
-                'bg-purple-500/20 text-purple-400'
-              }`}>
+              <span className="px-4 py-2 rounded-full text-lg font-bold" style={{ backgroundColor: `${theme.colors.primary}33`, color: theme.colors.primary }}>
                 {currentQuestion.type === 'MCQ' ? 'Choix Multiple' :
                  currentQuestion.type === 'TRUE_FALSE' ? 'Vrai ou Faux' :
                  currentQuestion.type === 'BUZZER' ? 'Buzzer' : 'Question Ouverte'}
               </span>
-              <span className="ml-4 text-purple-400 font-bold text-xl">{currentQuestion.points} pts</span>
+              <span className="ml-4 font-bold text-xl" style={{ color: theme.colors.accent }}>{currentQuestion.points} pts</span>
             </div>
 
             {currentQuestion.mediaUrl && (
@@ -609,7 +698,7 @@ export default function ScreenHome() {
               />
             )}
 
-            <h2 className="text-5xl font-bold text-white leading-tight mb-12">
+            <h2 className="text-5xl font-bold leading-tight mb-12" style={{ color: theme.colors.text }}>
               {currentQuestion.text}
             </h2>
 
@@ -655,16 +744,19 @@ export default function ScreenHome() {
         </div>
 
         {/* Answer Progress */}
-        <footer className="bg-gray-800 px-8 py-6">
+        <footer className="bg-black/30 backdrop-blur px-8 py-6">
           <div className="flex items-center justify-center">
-            <span className="text-purple-400 text-2xl mr-4">Reponses:</span>
-            <div className="flex-1 max-w-2xl bg-gray-700 rounded-full h-8 overflow-hidden">
+            <span className="text-2xl mr-4" style={{ color: theme.colors.primary }}>Reponses:</span>
+            <div className="flex-1 max-w-2xl bg-black/30 rounded-full h-8 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
-                style={{ width: `${teams.length > 0 ? (answeredCount / teams.length) * 100 : 0}%` }}
+                className="h-full transition-all duration-500"
+                style={{
+                  width: `${teams.length > 0 ? (answeredCount / teams.length) * 100 : 0}%`,
+                  background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`
+                }}
               />
             </div>
-            <span className="text-white text-2xl font-bold ml-4">{answeredCount}/{teams.length}</span>
+            <span className="text-2xl font-bold ml-4" style={{ color: theme.colors.text }}>{answeredCount}/{teams.length}</span>
           </div>
         </footer>
       </main>
@@ -673,11 +765,15 @@ export default function ScreenHome() {
 
   // REVEAL
   if (displayMode === 'REVEAL' && currentQuestion) {
+    const bgStyle = theme.background && theme.backgroundType === 'image'
+      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : { backgroundColor: theme.colors.background };
+
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8">
+      <main className="min-h-screen flex flex-col items-center justify-center p-8" style={bgStyle}>
         <div className="text-center mb-12">
-          <h2 className="text-4xl font-bold text-white mb-4">{currentQuestion.text}</h2>
-          <p className="text-3xl text-purple-400">La bonne reponse est...</p>
+          <h2 className="text-4xl font-bold mb-4" style={{ color: theme.colors.text }}>{currentQuestion.text}</h2>
+          <p className="text-3xl" style={{ color: theme.colors.primary }}>La bonne reponse est...</p>
         </div>
 
         {currentQuestion.type === 'MCQ' && currentQuestion.options && (
@@ -690,24 +786,33 @@ export default function ScreenHome() {
               return (
                 <div
                   key={idx}
-                  className={`rounded-2xl p-6 flex items-center justify-between transition-all duration-500 ${
-                    isCorrect
-                      ? 'bg-gradient-to-r from-green-500 to-green-600 scale-105 ring-4 ring-green-400'
-                      : 'bg-gray-700 opacity-50'
-                  }`}
+                  className={`rounded-2xl p-6 flex items-center justify-between transition-all duration-500 ${isCorrect ? 'scale-105 ring-4' : 'opacity-50'}`}
+                  style={{
+                    backgroundColor: isCorrect ? theme.colors.correct : 'rgba(0,0,0,0.5)',
+                    ringColor: isCorrect ? theme.colors.correct : 'transparent'
+                  }}
                 >
                   <div className="flex items-center">
-                    <span className={`w-14 h-14 rounded-full flex items-center justify-center mr-4 text-2xl font-black ${
-                      isCorrect ? 'bg-white/30 text-white' : 'bg-gray-600 text-gray-400'
-                    }`}>
+                    <span className="w-14 h-14 rounded-full flex items-center justify-center mr-4 text-2xl font-black"
+                      style={{
+                        backgroundColor: isCorrect ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
+                        color: isCorrect ? theme.colors.text : 'rgba(255,255,255,0.5)'
+                      }}
+                    >
                       {isCorrect ? '✓' : letter}
                     </span>
-                    <span className={`text-xl font-bold ${isCorrect ? 'text-white' : 'text-gray-400'}`}>
+                    <span className="text-xl font-bold"
+                      style={{ color: isCorrect ? theme.colors.text : 'rgba(255,255,255,0.5)' }}
+                    >
                       {option}
                     </span>
                   </div>
-                  <div className={`rounded-full px-4 py-2 ${isCorrect ? 'bg-white/20' : 'bg-gray-600'}`}>
-                    <span className={`text-xl font-bold ${isCorrect ? 'text-white' : 'text-gray-400'}`}>
+                  <div className="rounded-full px-4 py-2"
+                    style={{ backgroundColor: isCorrect ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)' }}
+                  >
+                    <span className="text-xl font-bold"
+                      style={{ color: isCorrect ? theme.colors.text : 'rgba(255,255,255,0.5)' }}
+                    >
                       {answerCount}
                     </span>
                   </div>
@@ -719,23 +824,19 @@ export default function ScreenHome() {
 
         {currentQuestion.type === 'TRUE_FALSE' && (
           <div className="grid grid-cols-2 gap-8 max-w-2xl w-full mb-12">
-            <div className={`rounded-2xl p-12 text-center transition-all ${
-              correctAnswer === 'TRUE'
-                ? 'bg-gradient-to-r from-green-500 to-green-600 scale-105 ring-4 ring-green-400'
-                : 'bg-gray-700 opacity-50'
-            }`}>
-              <span className="text-4xl font-black text-white">VRAI</span>
-              <div className="mt-4 text-2xl text-white/80">
+            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'TRUE' ? 'scale-105 ring-4' : 'opacity-50'}`}
+              style={{ backgroundColor: correctAnswer === 'TRUE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', ringColor: correctAnswer === 'TRUE' ? theme.colors.correct : 'transparent' }}
+            >
+              <span className="text-4xl font-black" style={{ color: theme.colors.text }}>VRAI</span>
+              <div className="mt-4 text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>
                 {Object.values(answers).filter(a => a === 'TRUE').length} reponses
               </div>
             </div>
-            <div className={`rounded-2xl p-12 text-center transition-all ${
-              correctAnswer === 'FALSE'
-                ? 'bg-gradient-to-r from-green-500 to-green-600 scale-105 ring-4 ring-green-400'
-                : 'bg-gray-700 opacity-50'
-            }`}>
-              <span className="text-4xl font-black text-white">FAUX</span>
-              <div className="mt-4 text-2xl text-white/80">
+            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'FALSE' ? 'scale-105 ring-4' : 'opacity-50'}`}
+              style={{ backgroundColor: correctAnswer === 'FALSE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', ringColor: correctAnswer === 'FALSE' ? theme.colors.correct : 'transparent' }}
+            >
+              <span className="text-4xl font-black" style={{ color: theme.colors.text }}>FAUX</span>
+              <div className="mt-4 text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>
                 {Object.values(answers).filter(a => a === 'FALSE').length} reponses
               </div>
             </div>
@@ -743,32 +844,34 @@ export default function ScreenHome() {
         )}
 
         {(currentQuestion.type === 'BUZZER' || currentQuestion.type === 'OPEN') && correctAnswer && (
-          <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl px-12 py-8 mb-12">
-            <p className="text-2xl text-green-100 mb-2">Reponse correcte</p>
-            <p className="text-5xl font-black text-white">{correctAnswer}</p>
+          <div className="rounded-2xl px-12 py-8 mb-12" style={{ backgroundColor: theme.colors.correct }}>
+            <p className="text-2xl mb-2" style={{ color: theme.colors.text, opacity: 0.9 }}>Reponse correcte</p>
+            <p className="text-5xl font-black" style={{ color: theme.colors.text }}>{correctAnswer}</p>
           </div>
         )}
 
         <div className="flex gap-8 mb-8">
-          <div className="bg-green-500/20 rounded-2xl px-8 py-6 text-center">
-            <div className="text-5xl font-bold text-green-400">
+          <div className="rounded-2xl px-8 py-6 text-center" style={{ backgroundColor: `${theme.colors.correct}33` }}>
+            <div className="text-5xl font-bold" style={{ color: theme.colors.correct }}>
               {Object.values(answers).filter(a => a === correctAnswer).length}
             </div>
-            <div className="text-green-300 mt-2">Bonnes reponses</div>
+            <div className="mt-2" style={{ color: theme.colors.correct, opacity: 0.8 }}>Bonnes reponses</div>
           </div>
-          <div className="bg-red-500/20 rounded-2xl px-8 py-6 text-center">
-            <div className="text-5xl font-bold text-red-400">
+          <div className="rounded-2xl px-8 py-6 text-center" style={{ backgroundColor: `${theme.colors.wrong}33` }}>
+            <div className="text-5xl font-bold" style={{ color: theme.colors.wrong }}>
               {Object.values(answers).filter(a => a && a !== correctAnswer).length}
             </div>
-            <div className="text-red-300 mt-2">Mauvaises reponses</div>
+            <div className="mt-2" style={{ color: theme.colors.wrong, opacity: 0.8 }}>Mauvaises reponses</div>
           </div>
         </div>
 
         {/* Explanation / Anecdote */}
         {currentQuestion.explanation && (
-          <div className="max-w-4xl w-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/50 rounded-2xl p-8 text-center animate-fade-in">
+          <div className="max-w-4xl w-full rounded-2xl p-8 text-center animate-fade-in border-2"
+            style={{ backgroundColor: `${theme.colors.accent}33`, borderColor: `${theme.colors.accent}80` }}
+          >
             <div className="text-4xl mb-4">💡</div>
-            <p className="text-2xl text-yellow-100 leading-relaxed">{currentQuestion.explanation}</p>
+            <p className="text-2xl leading-relaxed" style={{ color: theme.colors.text }}>{currentQuestion.explanation}</p>
           </div>
         )}
       </main>
@@ -818,12 +921,24 @@ export default function ScreenHome() {
 
   // LEADERBOARD
   if (displayMode === 'LEADERBOARD') {
+    const bgStyle = theme.background && theme.backgroundType === 'image'
+      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : {};
+
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 p-8">
+      <main className="min-h-screen p-8"
+        style={{
+          ...bgStyle,
+          background: !theme.background
+            ? `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})`
+            : undefined
+        }}
+      >
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
+            {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mx-auto mb-4" />}
             <div className="text-7xl mb-4">🏆</div>
-            <h1 className="text-6xl font-black text-white">CLASSEMENT</h1>
+            <h1 className="text-6xl font-black" style={{ color: theme.colors.text }}>CLASSEMENT</h1>
           </div>
 
           <div className="space-y-4">
@@ -833,9 +948,12 @@ export default function ScreenHome() {
               return (
                 <div
                   key={team.id}
-                  className={`rounded-2xl p-6 flex items-center ${
-                    isTop3 ? 'bg-gradient-to-r from-purple-600/50 to-pink-600/50' : 'bg-white/10'
-                  }`}
+                  className="rounded-2xl p-6 flex items-center"
+                  style={{
+                    background: isTop3
+                      ? `linear-gradient(to right, ${theme.colors.primary}80, ${theme.colors.secondary}80)`
+                      : 'rgba(255,255,255,0.1)'
+                  }}
                 >
                   <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-3xl mr-6 ${
                     index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-yellow-900' :
@@ -851,12 +969,12 @@ export default function ScreenHome() {
                       className="w-6 h-6 rounded-full mr-4"
                       style={{ backgroundColor: team.color }}
                     ></div>
-                    <p className="text-3xl font-bold text-white">{team.name}</p>
+                    <p className="text-3xl font-bold" style={{ color: theme.colors.text }}>{team.name}</p>
                   </div>
 
                   <div className="text-right">
-                    <p className="text-5xl font-black text-purple-300">{team.score}</p>
-                    <p className="text-purple-400">points</p>
+                    <p className="text-5xl font-black" style={{ color: theme.colors.primary }}>{team.score}</p>
+                    <p style={{ color: theme.colors.primary, opacity: 0.8 }}>points</p>
                   </div>
                 </div>
               );
