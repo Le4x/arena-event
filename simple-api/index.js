@@ -20,10 +20,16 @@ if (!existsSync(mediaDir)) {
 
 const app = express();
 const httpServer = createServer(app);
+// SECURITY: Parse CORS origins from environment
+const ALLOWED_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004'];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: ALLOWED_ORIGINS,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   },
   // Optimized for low latency
   transports: ['websocket', 'polling'],
@@ -393,7 +399,11 @@ app.post('/api/upload', async (req, res) => {
 // ============================================
 const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
+
+// SECURITY: Warn if using default JWT secret in production
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.error('WARNING: JWT_SECRET not set in production! Using default is insecure.');
+}
 
 // ============================================
 // RATE LIMITING (Anti-spam protection)
@@ -486,6 +496,16 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // SECURITY: Rate limit login attempts (5 attempts per minute per IP)
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const rateLimitResult = rateLimit(`login:${clientIP}`, 5, 60000);
+    if (!rateLimitResult.allowed) {
+      return res.status(429).json({
+        error: 'Too many login attempts. Please try again later.',
+        retryAfter: Math.ceil(rateLimitResult.retryAfter / 1000)
+      });
+    }
+
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
@@ -527,10 +547,33 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, firstName, lastName, role = 'ORGANIZER' } = req.body;
+    // SECURITY: Rate limit registration (3 per hour per IP)
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const rateLimitResult = rateLimit(`register:${clientIP}`, 3, 3600000);
+    if (!rateLimitResult.allowed) {
+      return res.status(429).json({
+        error: 'Too many registration attempts. Please try again later.',
+        retryAfter: Math.ceil(rateLimitResult.retryAfter / 1000)
+      });
+    }
+
+    // SECURITY: Role is NOT accepted from request - always ORGANIZER for public registration
+    // Admin can change roles via /api/users/:id endpoint (requires SUPER_ADMIN)
+    const { email, password, firstName, lastName } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // SECURITY: Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // SECURITY: Password strength validation
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -546,7 +589,7 @@ app.post('/api/auth/register', async (req, res) => {
         password: hashedPassword,
         firstName: firstName || '',
         lastName: lastName || '',
-        role
+        role: 'ORGANIZER'  // SECURITY: Always ORGANIZER for public registration
       }
     });
 
@@ -2510,10 +2553,20 @@ app.post('/sessions/:sessionId/answers', async (req, res) => {
   }
 });
 
-// Public: Update team score (for Studio)
-app.put('/sessions/:sessionId/teams/:teamId/score', async (req, res) => {
+// SECURITY: Update team score - requires authentication (Game Master or Admin only)
+app.put('/sessions/:sessionId/teams/:teamId/score', authenticateToken, async (req, res) => {
   try {
+    // SECURITY: Verify user has permission to modify scores
+    if (!['SUPER_ADMIN', 'ORGANIZER', 'GAME_MASTER'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Not authorized to modify scores' });
+    }
+
     const { score } = req.body;
+
+    // SECURITY: Validate score is a number
+    if (typeof score !== 'number' || isNaN(score)) {
+      return res.status(400).json({ error: 'Score must be a valid number' });
+    }
 
     const team = await prisma.team.update({
       where: { id: req.params.teamId },
@@ -2597,10 +2650,32 @@ app.post('/sessions/:sessionId/end', async (req, res) => {
   }
 });
 
-// Public: Emit Socket.IO events (for Studio control)
-app.post('/sessions/:sessionId/emit', async (req, res) => {
+// SECURITY: Emit Socket.IO events - requires authentication + whitelist of allowed events
+const ALLOWED_EMIT_EVENTS = [
+  'question-start', 'question-end', 'timer-sync', 'timer-end',
+  'buzzer-open', 'buzzer-lock', 'buzzer-reset', 'buzzer-winner',
+  'show-leaderboard', 'session-end', 'game-paused', 'game-resumed',
+  'blindtest-play', 'blindtest-pause', 'blindtest-stop', 'blindtest-reveal',
+  'score-update', 'finale-started', 'finale-ended'
+];
+
+app.post('/sessions/:sessionId/emit', authenticateToken, async (req, res) => {
   try {
+    // SECURITY: Only Game Masters and Admins can emit events
+    if (!['SUPER_ADMIN', 'ORGANIZER', 'GAME_MASTER'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Not authorized to emit events' });
+    }
+
     const { event, data } = req.body;
+
+    // SECURITY: Validate event is in whitelist
+    if (!event || !ALLOWED_EMIT_EVENTS.includes(event)) {
+      return res.status(400).json({
+        error: 'Invalid or disallowed event type',
+        allowedEvents: ALLOWED_EMIT_EVENTS
+      });
+    }
+
     io.to(`session:${req.params.sessionId}`).emit(event, data);
     res.json({ success: true });
   } catch (error) {
