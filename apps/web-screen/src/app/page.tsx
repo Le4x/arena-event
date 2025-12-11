@@ -747,27 +747,23 @@ export default function ScreenHome() {
           backgroundColor: !theme.background ? theme.colors.background : undefined,
         }}>
 
-        {/* Urgent red overlay */}
-        {isUrgent && (
-          <div className="fixed inset-0 bg-red-500/20 animate-pulse pointer-events-none z-40" />
-        )}
-
-        {/* DRAMATIC TIMER OVERLAY - appears over everything when urgent */}
-        {isUrgent && (
-          <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-            <div className="animate-bounce">
-              <div
-                className="text-[20rem] font-black text-white drop-shadow-2xl"
-                style={{
-                  textShadow: '0 0 100px rgba(255,0,0,0.9), 0 0 200px rgba(255,0,0,0.6)',
-                  WebkitTextStroke: '4px rgba(255,0,0,0.8)'
-                }}
-              >
-                {timeRemaining}
-              </div>
-            </div>
+        {/* DRAMATIC TIMER OVERLAY - ALWAYS rendered, uses opacity to show/hide */}
+        <div
+          className="fixed inset-0 flex items-center justify-center pointer-events-none z-50"
+          style={{ opacity: isUrgent ? 1 : 0, transition: 'opacity 0.3s' }}
+        >
+          {/* Red tint */}
+          <div className="absolute inset-0 bg-red-600/40 animate-pulse" />
+          {/* Big bouncing number */}
+          <div className="animate-bounce">
+            <span
+              className="text-[16rem] font-black text-white block"
+              style={{ textShadow: '0 0 80px rgba(255,0,0,0.9), 0 0 40px rgba(0,0,0,0.5)' }}
+            >
+              {timeRemaining}
+            </span>
           </div>
-        )}
+        </div>
 
         {/* Header */}
         <header className="bg-black/40 backdrop-blur-xl px-8 py-4 flex items-center justify-between border-b border-white/10">
@@ -787,24 +783,17 @@ export default function ScreenHome() {
           </div>
         </header>
 
-        {/* Timer Bar - fixed size, no dramatic enlargement */}
-        <div className={`py-6 text-center relative overflow-hidden transition-all duration-300`}
-          style={{ backgroundColor: isUrgent ? '#dc2626' : isWarning ? '#f97316' : theme.colors.primary }}>
-
-          {isUrgent && (
-            <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 animate-pulse" />
-          )}
-
-          <div className="relative z-10 flex items-center justify-center gap-4">
-            <div className={`text-7xl font-black transition-all duration-300 ${isUrgent ? 'text-white animate-pulse' : isWarning ? 'text-white' : ''}`}
-              style={{ color: theme.colors.text }}>
-              {timeRemaining}
-            </div>
-            <span className="text-2xl font-bold" style={{ color: theme.colors.text }}>secondes</span>
-            {isUrgent && (
-              <span className="text-3xl animate-bounce">⚠️</span>
-            )}
-          </div>
+        {/* Timer Bar - COMPLETELY STATIC SIZE, only background color changes */}
+        <div
+          className="py-6 text-center"
+          style={{ backgroundColor: isUrgent ? '#dc2626' : isWarning ? '#f97316' : theme.colors.primary }}
+        >
+          <span className="text-7xl font-black" style={{ color: theme.colors.text }}>
+            {timeRemaining}
+          </span>
+          <span className="text-2xl font-bold ml-4" style={{ color: theme.colors.text }}>
+            secondes
+          </span>
         </div>
 
         {/* Question */}
