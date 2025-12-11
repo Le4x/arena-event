@@ -1004,25 +1004,27 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
   try {
     const { text, type, options, correctAnswer, points, negativePoints, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd, explanation, tolerance } = req.body;
 
+    // Build update data, only including defined fields
+    const updateData = {};
+    if (text !== undefined) updateData.content = text;
+    if (type !== undefined) updateData.type = type;
+    if (options !== undefined) updateData.choices = options;
+    if (correctAnswer !== undefined) updateData.correctAnswer = correctAnswer;
+    if (points !== undefined) updateData.points = points;
+    if (negativePoints !== undefined) updateData.negativePoints = negativePoints;
+    if (timeLimit !== undefined) updateData.timeLimit = timeLimit;
+    if (mediaUrl !== undefined) updateData.mediaUrl = mediaUrl;
+    if (order !== undefined) updateData.order = order;
+    if (questionCueStart !== undefined) updateData.questionCueStart = questionCueStart;
+    if (questionCueEnd !== undefined) updateData.questionCueEnd = questionCueEnd;
+    if (revealCueStart !== undefined) updateData.revealCueStart = revealCueStart;
+    if (revealCueEnd !== undefined) updateData.revealCueEnd = revealCueEnd;
+    if (explanation !== undefined) updateData.explanation = explanation;
+    if (tolerance !== undefined) updateData.tolerance = tolerance;
+
     const question = await prisma.question.update({
       where: { id: req.params.id },
-      data: {
-        content: text,
-        type,
-        choices: options,
-        correctAnswer,
-        points,
-        negativePoints,
-        timeLimit,
-        mediaUrl,
-        order,
-        questionCueStart,
-        questionCueEnd,
-        revealCueStart,
-        revealCueEnd,
-        explanation,
-        tolerance
-      }
+      data: updateData
     });
 
     res.json({
