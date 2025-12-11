@@ -6,7 +6,7 @@ import { io, Socket } from 'socket.io-client';
 // API URL - configurable via environment variable or defaults to the VPS
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
 
-type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION';
+type DisplayMode = 'SELECT' | 'LOBBY' | 'WAITING' | 'QUESTION' | 'TIME_UP' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION' | 'SPONSORS';
 
 interface Team {
   id: string;
@@ -30,7 +30,6 @@ interface Question {
   artist?: string;
   songTitle?: string;
   explanation?: string;
-  // Cue points for audio playback (in seconds)
   questionCueStart?: number;
   questionCueEnd?: number;
   revealCueStart?: number;
@@ -80,7 +79,7 @@ const defaultTheme: EventTheme = {
     primary: '#8B5CF6',
     secondary: '#EC4899',
     accent: '#F59E0B',
-    background: '#1F2937',
+    background: '#0F172A',
     text: '#FFFFFF',
     correct: '#10B981',
     wrong: '#EF4444',
@@ -92,6 +91,46 @@ const defaultTheme: EventTheme = {
   sounds: { correct: null, wrong: null, timer: null, buzzer: null },
   fonts: { heading: 'inherit', body: 'inherit' },
 };
+
+// Animated particles component
+const ParticleBackground = ({ color1, color2 }: { color1: string; color2: string }) => (
+  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+    {[...Array(20)].map((_, i) => (
+      <div
+        key={i}
+        className="absolute rounded-full opacity-20 animate-float"
+        style={{
+          width: `${Math.random() * 100 + 50}px`,
+          height: `${Math.random() * 100 + 50}px`,
+          left: `${Math.random() * 100}%`,
+          top: `${Math.random() * 100}%`,
+          background: `linear-gradient(135deg, ${color1}, ${color2})`,
+          animationDelay: `${Math.random() * 5}s`,
+          animationDuration: `${Math.random() * 10 + 10}s`,
+        }}
+      />
+    ))}
+  </div>
+);
+
+// Confetti component for celebrations
+const Confetti = () => (
+  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+    {[...Array(50)].map((_, i) => (
+      <div
+        key={i}
+        className="absolute w-3 h-3 animate-confetti"
+        style={{
+          left: `${Math.random() * 100}%`,
+          backgroundColor: ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181', '#AA96DA'][Math.floor(Math.random() * 6)],
+          animationDelay: `${Math.random() * 3}s`,
+          animationDuration: `${Math.random() * 2 + 2}s`,
+          transform: `rotate(${Math.random() * 360}deg)`,
+        }}
+      />
+    ))}
+  </div>
+);
 
 export default function ScreenHome() {
   // Socket
@@ -111,6 +150,7 @@ export default function ScreenHome() {
 
   // Display state
   const [displayMode, setDisplayMode] = useState<DisplayMode>('SELECT');
+  const [previousMode, setPreviousMode] = useState<DisplayMode>('SELECT');
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(30);
@@ -119,6 +159,11 @@ export default function ScreenHome() {
   const [correctAnswer, setCorrectAnswer] = useState<string | null>(null);
   const [buzzerWinner, setBuzzerWinner] = useState<Team | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [showTimeUp, setShowTimeUp] = useState(false);
+
+  // Animation states
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   // Blindtest state
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -127,6 +172,16 @@ export default function ScreenHome() {
   const [revealedSong, setRevealedSong] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Transition helper
+  const transitionTo = useCallback((newMode: DisplayMode) => {
+    setIsTransitioning(true);
+    setPreviousMode(displayMode);
+    setTimeout(() => {
+      setDisplayMode(newMode);
+      setIsTransitioning(false);
+    }, 300);
+  }, [displayMode]);
 
   // Fetch sessions
   useEffect(() => {
@@ -161,7 +216,7 @@ export default function ScreenHome() {
   const selectSession = async (session: Session) => {
     setSelectedSession(session);
     setTeams(session.teams.map(t => ({ ...t, hasAnswered: false })));
-    setDisplayMode('LOBBY');
+    transitionTo('LOBBY');
     connectSocket(session.id);
 
     // Fetch theme for this session
@@ -176,9 +231,8 @@ export default function ScreenHome() {
     }
   };
 
-  // Socket connection (optimized for low latency)
+  // Socket connection
   const connectSocket = (sessionId: string) => {
-    // Disconnect existing socket if any
     if (socketRef.current) {
       socketRef.current.disconnect();
     }
@@ -235,9 +289,7 @@ export default function ScreenHome() {
       });
     });
 
-    socket.on('team-left', (data) => {
-      // Keep team in list but could mark as disconnected
-    });
+    socket.on('team-left', () => {});
 
     // Game events
     socket.on('question-start', (data) => {
@@ -246,42 +298,43 @@ export default function ScreenHome() {
       setCorrectAnswer(null);
       setBuzzerWinner(null);
       setAnswers({});
+      setShowTimeUp(false);
       setTeams(prev => prev.map(t => ({ ...t, hasAnswered: false, lastAnswer: undefined })));
-      setDisplayMode('QUESTION');
+      transitionTo('QUESTION');
     });
 
-    // Finale mode question start (same as question-start but for finale)
     socket.on('finale-question-start', (data) => {
       setCurrentQuestion(data.question);
       setTimeRemaining(data.timeLimit || data.question?.timeLimit || 30);
       setCorrectAnswer(null);
       setBuzzerWinner(null);
       setAnswers({});
+      setShowTimeUp(false);
       setTeams(prev => prev.map(t => ({ ...t, hasAnswered: false, lastAnswer: undefined })));
-      setDisplayMode('QUESTION');
+      transitionTo('QUESTION');
     });
 
-    // Server-side timer sync (authoritative)
     socket.on('timer-sync', (data) => {
       setTimeRemaining(data.remaining);
     });
 
-    // Legacy timer-update support
     socket.on('timer-update', (data) => {
       setTimeRemaining(data.timeRemaining || data.remaining);
     });
 
     socket.on('timer-end', () => {
       setTimeRemaining(0);
+      // Show TIME_UP screen briefly before reveal
+      setShowTimeUp(true);
+      transitionTo('TIME_UP');
     });
 
     socket.on('question-end', (data) => {
       setCorrectAnswer(data.correctAnswer);
-      // Update currentQuestion with explanation for reveal display
       if (data.explanation) {
         setCurrentQuestion(prev => prev ? { ...prev, explanation: data.explanation } : prev);
       }
-      setDisplayMode('REVEAL');
+      transitionTo('REVEAL');
     });
 
     socket.on('answer-submitted', (data) => {
@@ -294,12 +347,10 @@ export default function ScreenHome() {
     // Buzzer events
     socket.on('buzzer-open', () => {
       setBuzzerWinner(null);
-      setDisplayMode('BUZZER');
+      transitionTo('BUZZER');
     });
 
-    socket.on('buzzer-lock', () => {
-      // Keep buzzer display but locked
-    });
+    socket.on('buzzer-lock', () => {});
 
     socket.on('buzzer-reset', () => {
       setBuzzerWinner(null);
@@ -318,36 +369,43 @@ export default function ScreenHome() {
       ));
     });
 
-    // Leaderboard
+    // Display events
     socket.on('show-leaderboard', (data) => {
       if (data.teams) {
         setTeams(data.teams);
       }
-      setDisplayMode('LEADERBOARD');
+      transitionTo('LEADERBOARD');
     });
 
     socket.on('show-transition', () => {
-      setDisplayMode('TRANSITION');
+      transitionTo('TRANSITION');
     });
 
-    // Game state
+    socket.on('show-waiting', () => {
+      transitionTo('WAITING');
+    });
+
+    socket.on('show-sponsors', () => {
+      transitionTo('SPONSORS');
+    });
+
     socket.on('game-paused', () => {
-      setDisplayMode('PAUSED');
+      transitionTo('PAUSED');
     });
 
     socket.on('game-resumed', () => {
       if (currentQuestion) {
-        setDisplayMode('QUESTION');
+        transitionTo('QUESTION');
       }
     });
 
     socket.on('session-end', () => {
-      setDisplayMode('PODIUM');
+      setShowConfetti(true);
+      transitionTo('PODIUM');
     });
 
     // Blindtest events
     socket.on('blindtest-play', (data) => {
-      // Clear any existing cue end timer
       if (cueEndTimerRef.current) {
         clearTimeout(cueEndTimerRef.current);
         cueEndTimerRef.current = null;
@@ -356,16 +414,14 @@ export default function ScreenHome() {
       setIsAudioPlaying(true);
       setBlindtestRevealed(false);
       if (currentQuestion?.type === 'BLIND_TEST') {
-        setDisplayMode('BLINDTEST');
+        transitionTo('BLINDTEST');
       }
-      // Play audio with cue point
       if (audioRef.current && data.audioUrl) {
         audioRef.current.src = data.audioUrl;
         const startTime = data.questionCueStart || data.startTime || 0;
         audioRef.current.currentTime = startTime;
         audioRef.current.play().catch(console.error);
 
-        // Set up cue end timer if there's an end point
         const endTime = data.questionCueEnd || data.endTime;
         if (endTime && endTime > startTime) {
           const duration = (endTime - startTime) * 1000;
@@ -380,7 +436,6 @@ export default function ScreenHome() {
     });
 
     socket.on('blindtest-pause', () => {
-      // Clear cue end timer
       if (cueEndTimerRef.current) {
         clearTimeout(cueEndTimerRef.current);
         cueEndTimerRef.current = null;
@@ -392,7 +447,6 @@ export default function ScreenHome() {
     });
 
     socket.on('blindtest-stop', () => {
-      // Clear cue end timer
       if (cueEndTimerRef.current) {
         clearTimeout(cueEndTimerRef.current);
         cueEndTimerRef.current = null;
@@ -405,7 +459,6 @@ export default function ScreenHome() {
     });
 
     socket.on('blindtest-reveal', (data) => {
-      // Clear cue end timer
       if (cueEndTimerRef.current) {
         clearTimeout(cueEndTimerRef.current);
         cueEndTimerRef.current = null;
@@ -415,7 +468,6 @@ export default function ScreenHome() {
       setRevealedArtist(data.artist);
       setRevealedSong(data.songTitle);
 
-      // Play reveal cue if set
       if (audioRef.current && data.audioUrl) {
         const startTime = data.revealCueStart || data.startTime || 0;
         audioRef.current.src = data.audioUrl;
@@ -423,7 +475,6 @@ export default function ScreenHome() {
         audioRef.current.play().catch(console.error);
         setIsAudioPlaying(true);
 
-        // Set up cue end timer for reveal
         const endTime = data.revealCueEnd || data.endTime;
         if (endTime && endTime > startTime) {
           const duration = (endTime - startTime) * 1000;
@@ -443,34 +494,54 @@ export default function ScreenHome() {
     });
   };
 
-  // Timer is now server-side - no client-side interval needed
-  // The server emits 'timer-sync' events every 100ms for smooth synchronized updates
-
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
   const answeredCount = teams.filter(t => t.hasAnswered).length;
+
+  // Get dramatic timer class
+  const getTimerClass = () => {
+    if (timeRemaining <= 3) return 'animate-shake text-red-500 scale-150';
+    if (timeRemaining <= 5) return 'animate-pulse text-red-400 scale-125';
+    if (timeRemaining <= 10) return 'text-orange-400 scale-110';
+    return 'text-white';
+  };
+
+  // Background style helper
+  const getBgStyle = () => {
+    if (theme.background && theme.backgroundType === 'image') {
+      return { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' };
+    }
+    return {};
+  };
+
+  // Base container with transition
+  const containerClass = `min-h-screen transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`;
 
   // SESSION SELECT
   if (displayMode === 'SELECT') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center p-8">
-        <div className="text-center mb-12">
-          <div className="text-8xl mb-6">🎮</div>
-          <h1 className="text-6xl font-black text-white mb-4">Arena Event</h1>
-          <p className="text-2xl text-purple-300">Public Display</p>
+      <main className={`${containerClass} bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-8`}>
+        <ParticleBackground color1={theme.colors.primary} color2={theme.colors.secondary} />
+
+        <div className="relative z-10 text-center mb-12">
+          <div className="text-8xl mb-6 animate-bounce">🎮</div>
+          <h1 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-orange-400 mb-4">
+            Arena Event
+          </h1>
+          <p className="text-2xl text-purple-300">Écran Public</p>
         </div>
 
-        <div className="w-full max-w-3xl">
-          <h2 className="text-3xl font-bold text-white text-center mb-8">Select a Session</h2>
+        <div className="relative z-10 w-full max-w-3xl">
+          <h2 className="text-3xl font-bold text-white text-center mb-8">Sélectionner une Session</h2>
 
           {loadingSessions ? (
             <div className="text-center py-12">
               <div className="animate-spin w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-              <p className="text-purple-300 text-xl">Loading sessions...</p>
+              <p className="text-purple-300 text-xl">Chargement...</p>
             </div>
           ) : sessions.length === 0 ? (
-            <div className="text-center py-12 bg-white/10 backdrop-blur rounded-3xl">
+            <div className="text-center py-12 bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10">
               <p className="text-6xl mb-4">📭</p>
-              <p className="text-2xl text-purple-300">No active sessions</p>
+              <p className="text-2xl text-purple-300">Aucune session active</p>
               <button
                 onClick={async () => {
                   setLoadingSessions(true);
@@ -481,9 +552,7 @@ export default function ScreenHome() {
                     ]);
                     const data1 = res1.ok ? await res1.json() : [];
                     const data2 = res2.ok ? await res2.json() : [];
-                    const sessions1 = Array.isArray(data1) ? data1 : [];
-                    const sessions2 = Array.isArray(data2) ? data2 : [];
-                    setSessions([...sessions1, ...sessions2]);
+                    setSessions([...(Array.isArray(data1) ? data1 : []), ...(Array.isArray(data2) ? data2 : [])]);
                   } catch (error) {
                     console.error('Failed to fetch sessions:', error);
                     setSessions([]);
@@ -491,9 +560,9 @@ export default function ScreenHome() {
                     setLoadingSessions(false);
                   }
                 }}
-                className="mt-6 bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl text-xl"
+                className="mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-3 rounded-xl text-xl font-bold transition-all hover:scale-105"
               >
-                Refresh
+                Rafraîchir
               </button>
             </div>
           ) : (
@@ -502,28 +571,28 @@ export default function ScreenHome() {
                 <button
                   key={session.id}
                   onClick={() => selectSession(session)}
-                  className="bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 hover:border-purple-400 rounded-2xl p-8 text-left transition group"
+                  className="bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 hover:border-purple-400/50 rounded-2xl p-8 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/20 group"
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-3xl font-bold text-white group-hover:text-purple-300">
+                      <h3 className="text-3xl font-bold text-white group-hover:text-purple-300 transition-colors">
                         {session.event.name}
                       </h3>
-                      <p className="text-purple-300 mt-2">{session.event.description}</p>
+                      <p className="text-purple-300/70 mt-2">{session.event.description}</p>
                     </div>
-                    <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4 rounded-xl">
+                    <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4 rounded-xl shadow-lg shadow-purple-500/30">
                       <p className="text-sm text-purple-200">Code</p>
                       <p className="text-4xl font-mono font-black text-white">{session.code}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-6 mt-6">
-                    <span className={`px-4 py-2 rounded-full text-lg ${
-                      session.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                    <span className={`px-4 py-2 rounded-full text-lg font-semibold ${
+                      session.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                     }`}>
-                      {session.status}
+                      {session.status === 'ACTIVE' ? '🟢 En cours' : '🟡 En attente'}
                     </span>
                     <span className="text-purple-300 text-lg">
-                      {session.teams.length} teams
+                      👥 {session.teams.length} équipes
                     </span>
                   </div>
                 </button>
@@ -531,101 +600,73 @@ export default function ScreenHome() {
             </div>
           )}
         </div>
-
-        <div className={`fixed bottom-8 right-8 flex items-center gap-2 px-4 py-2 rounded-full ${
-          isConnected ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
-        }`}>
-          <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-400'}`}></div>
-          {isConnected ? 'Connected' : 'Disconnected'}
-        </div>
       </main>
     );
   }
 
   // LOBBY
   if (displayMode === 'LOBBY') {
-    const bgStyle = theme.background && theme.backgroundType === 'image'
-      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-      : {};
-
     return (
-      <main
-        className="min-h-screen flex flex-col items-center justify-center p-8 overflow-hidden relative"
-        style={{
-          ...bgStyle,
-          backgroundColor: theme.backgroundType !== 'image' ? theme.colors.background : undefined,
-          background: theme.backgroundType === 'gradient' && !theme.background
-            ? `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})`
-            : undefined
-        }}
-      >
-        {/* Animated Background (only if no custom background) */}
-        {!theme.background && (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ backgroundColor: theme.colors.primary }}></div>
-            <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ backgroundColor: theme.colors.secondary, animationDelay: '2s' }}></div>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" style={{ backgroundColor: theme.colors.accent, animationDelay: '4s' }}></div>
-          </div>
-        )}
+      <main className={containerClass} style={{ ...getBgStyle(), background: !theme.background ? `linear-gradient(135deg, ${theme.colors.background} 0%, ${theme.colors.primary}40 50%, ${theme.colors.secondary}40 100%)` : undefined }}>
+        <ParticleBackground color1={theme.colors.primary} color2={theme.colors.secondary} />
 
-        <div className="relative z-10 text-center">
-          <div className="mb-8">
-            {/* Logo or default title */}
+        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-8">
+          <div className="text-center mb-8">
             {theme.logo ? (
-              <img src={theme.logo} alt="Event Logo" className="max-h-48 mx-auto mb-6" />
+              <img src={theme.logo} alt="Event Logo" className="max-h-32 mx-auto mb-6 drop-shadow-2xl" />
             ) : (
-              <h1 className="text-8xl font-black mb-4">
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-500">
-                  🎮 ARENA EVENT
-                </span>
+              <h1 className="text-7xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r" style={{ backgroundImage: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.accent})` }}>
+                🎮 ARENA EVENT
               </h1>
             )}
-            <p className="text-3xl" style={{ color: theme.colors.text, opacity: 0.8 }}>{selectedSession?.event.name}</p>
+            <p className="text-3xl font-medium" style={{ color: theme.colors.text }}>{selectedSession?.event.name}</p>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 max-w-4xl mx-auto border border-white/20 shadow-2xl">
-            <p className="text-3xl mb-6" style={{ color: theme.colors.text, opacity: 0.8 }}>Rejoins le jeu sur</p>
-            <div className="text-5xl font-bold mb-8" style={{ color: theme.colors.text }}>
-              http://91.134.135.247:3003
+          <div className="bg-black/30 backdrop-blur-2xl rounded-3xl p-12 max-w-4xl mx-auto border border-white/10 shadow-2xl">
+            <p className="text-2xl mb-4 text-center" style={{ color: `${theme.colors.text}99` }}>🌐 Rejoignez le jeu sur</p>
+            <div className="text-4xl font-bold mb-8 text-center px-8 py-4 bg-white/5 rounded-2xl" style={{ color: theme.colors.text }}>
+              play.arena-event.fr
             </div>
 
-            <div className="border-t border-white/20 pt-8 mt-8">
-              <p className="text-3xl mb-6" style={{ color: theme.colors.text, opacity: 0.8 }}>Code de session</p>
-              <div className="inline-block rounded-2xl px-16 py-8" style={{ background: `linear-gradient(to right, ${theme.colors.accent}, ${theme.colors.secondary})` }}>
-                <span className="text-8xl font-black text-black tracking-[0.2em]">
-                  {selectedSession?.code}
-                </span>
+            <div className="border-t border-white/10 pt-8 mt-8">
+              <p className="text-2xl mb-6 text-center" style={{ color: `${theme.colors.text}99` }}>📱 Code de session</p>
+              <div className="flex justify-center">
+                <div className="inline-block rounded-2xl px-12 py-6 shadow-2xl transform hover:scale-105 transition-transform"
+                  style={{ background: `linear-gradient(135deg, ${theme.colors.accent}, ${theme.colors.primary})` }}>
+                  <span className="text-7xl font-black tracking-[0.3em]" style={{ color: '#000' }}>
+                    {selectedSession?.code}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="mt-12 flex justify-center items-center gap-8">
-            <div className="bg-white/10 backdrop-blur rounded-2xl px-8 py-6 text-center">
-              <div className="text-6xl font-bold" style={{ color: theme.colors.correct }}>{teams.length}</div>
-              <div className="text-xl mt-2" style={{ color: theme.colors.text, opacity: 0.8 }}>Teams</div>
+            <div className="bg-black/30 backdrop-blur rounded-2xl px-8 py-6 text-center border border-white/10">
+              <div className="text-6xl font-black" style={{ color: theme.colors.correct }}>{teams.length}</div>
+              <div className="text-xl mt-2" style={{ color: `${theme.colors.text}99` }}>Équipes connectées</div>
             </div>
           </div>
 
           {teams.length > 0 && (
             <div className="mt-8 flex flex-wrap justify-center gap-3 max-w-4xl">
-              {teams.map(team => (
+              {teams.map((team, i) => (
                 <div
                   key={team.id}
-                  className="bg-white/10 backdrop-blur rounded-xl px-4 py-2 flex items-center gap-2"
+                  className="bg-white/10 backdrop-blur rounded-xl px-4 py-2 flex items-center gap-2 animate-fade-in border border-white/10"
+                  style={{ animationDelay: `${i * 0.1}s` }}
                 >
-                  <div
-                    className="w-4 h-4 rounded-full"
-                    style={{ backgroundColor: team.color }}
-                  ></div>
-                  <span className="text-white font-medium">{team.name}</span>
+                  <div className="w-4 h-4 rounded-full shadow-lg" style={{ backgroundColor: team.color }}></div>
+                  <span className="font-medium" style={{ color: theme.colors.text }}>{team.name}</span>
                 </div>
               ))}
             </div>
           )}
 
           <div className="mt-12">
-            <div className="inline-flex items-center bg-yellow-500 text-black px-8 py-4 rounded-full text-2xl font-bold animate-pulse">
-              <span className="mr-3">⏳</span>
+            <div className="inline-flex items-center px-8 py-4 rounded-full text-xl font-bold animate-pulse"
+              style={{ backgroundColor: `${theme.colors.accent}33`, color: theme.colors.accent }}>
+              <span className="mr-3 text-2xl">⏳</span>
               EN ATTENTE DES JOUEURS...
             </div>
           </div>
@@ -637,88 +678,153 @@ export default function ScreenHome() {
             setSelectedSession(null);
             setDisplayMode('SELECT');
           }}
-          className="absolute top-8 left-8 text-white/60 hover:text-white transition"
+          className="absolute top-8 left-8 text-white/40 hover:text-white transition-colors z-20"
         >
-          ← Back
+          ← Retour
         </button>
+      </main>
+    );
+  }
+
+  // WAITING (Instructions screen)
+  if (displayMode === 'WAITING') {
+    return (
+      <main className={containerClass} style={{ ...getBgStyle(), background: !theme.background ? `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}60)` : undefined }}>
+        <ParticleBackground color1={theme.colors.primary} color2={theme.colors.accent} />
+
+        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-8 text-center">
+          {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mb-8" />}
+
+          <h1 className="text-6xl font-black mb-8" style={{ color: theme.colors.text }}>
+            🎯 COMMENT JOUER ?
+          </h1>
+
+          <div className="max-w-4xl space-y-6">
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 flex items-center gap-6 border border-white/10">
+              <div className="text-5xl">📱</div>
+              <div className="text-left">
+                <h3 className="text-2xl font-bold" style={{ color: theme.colors.text }}>1. Connectez-vous</h3>
+                <p className="text-xl" style={{ color: `${theme.colors.text}99` }}>Allez sur play.arena-event.fr et entrez le code</p>
+              </div>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 flex items-center gap-6 border border-white/10">
+              <div className="text-5xl">⏱️</div>
+              <div className="text-left">
+                <h3 className="text-2xl font-bold" style={{ color: theme.colors.text }}>2. Répondez vite</h3>
+                <p className="text-xl" style={{ color: `${theme.colors.text}99` }}>Plus vous répondez vite, plus vous gagnez de points !</p>
+              </div>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 flex items-center gap-6 border border-white/10">
+              <div className="text-5xl">🏆</div>
+              <div className="text-left">
+                <h3 className="text-2xl font-bold" style={{ color: theme.colors.text }}>3. Gagnez !</h3>
+                <p className="text-xl" style={{ color: `${theme.colors.text}99` }}>L'équipe avec le plus de points remporte la partie</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-12 px-8 py-4 rounded-2xl" style={{ backgroundColor: `${theme.colors.accent}33` }}>
+            <span className="text-3xl font-bold" style={{ color: theme.colors.accent }}>
+              Code: {selectedSession?.code}
+            </span>
+          </div>
+        </div>
       </main>
     );
   }
 
   // QUESTION
   if (displayMode === 'QUESTION' && currentQuestion) {
-    const bgStyle = theme.background && theme.backgroundType === 'image'
-      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-      : { backgroundColor: theme.colors.background };
+    const isUrgent = timeRemaining <= 5;
+    const isWarning = timeRemaining <= 10;
 
     return (
-      <main className="min-h-screen flex flex-col" style={bgStyle}>
+      <main className={`${containerClass} flex flex-col`}
+        style={{
+          ...getBgStyle(),
+          backgroundColor: !theme.background ? theme.colors.background : undefined,
+        }}>
+
+        {/* Urgent overlay */}
+        {isUrgent && (
+          <div className="fixed inset-0 bg-red-500/20 animate-pulse pointer-events-none z-50" />
+        )}
+
         {/* Header */}
-        <header className="bg-black/30 backdrop-blur px-8 py-4 flex items-center justify-between">
+        <header className="bg-black/40 backdrop-blur-xl px-8 py-4 flex items-center justify-between border-b border-white/10">
           <div className="flex items-center space-x-4">
             {theme.logo ? (
-              <img src={theme.logo} alt="Logo" className="h-12" />
+              <img src={theme.logo} alt="Logo" className="h-10" />
             ) : (
-              <span className="text-4xl">🎮</span>
+              <span className="text-3xl">🎮</span>
             )}
-            <span className="text-2xl font-bold" style={{ color: theme.colors.text }}>{selectedSession?.event.name}</span>
+            <span className="text-xl font-bold" style={{ color: theme.colors.text }}>{selectedSession?.event.name}</span>
           </div>
           <div className="text-center">
-            <span className="text-xl" style={{ color: theme.colors.primary }}>Question {questionNumber}/{totalQuestions}</span>
+            <span className="text-lg font-semibold" style={{ color: theme.colors.primary }}>Question {questionNumber}/{totalQuestions}</span>
           </div>
-          <div className="px-6 py-2 rounded-xl" style={{ backgroundColor: theme.colors.primary }}>
-            <span className="font-mono text-2xl font-bold" style={{ color: theme.colors.text }}>{selectedSession?.code}</span>
+          <div className="px-4 py-2 rounded-xl" style={{ backgroundColor: `${theme.colors.primary}33` }}>
+            <span className="font-mono text-xl font-bold" style={{ color: theme.colors.primary }}>{selectedSession?.code}</span>
           </div>
         </header>
 
-        {/* Timer */}
-        <div className={`py-6 text-center transition-colors ${timeRemaining <= 5 ? 'animate-pulse' : ''}`}
-          style={{
-            backgroundColor: timeRemaining <= 5 ? theme.colors.wrong : timeRemaining <= 10 ? theme.colors.accent : theme.colors.primary
-          }}
-        >
-          <div className="text-8xl font-black" style={{ color: theme.colors.text }}>{timeRemaining}</div>
-          <div className="text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>seconds</div>
+        {/* DRAMATIC TIMER */}
+        <div className={`py-8 text-center relative overflow-hidden transition-all duration-300 ${isUrgent ? 'bg-red-600' : isWarning ? 'bg-orange-500' : ''}`}
+          style={{ backgroundColor: !isUrgent && !isWarning ? theme.colors.primary : undefined }}>
+
+          {isUrgent && (
+            <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 animate-pulse" />
+          )}
+
+          <div className={`relative z-10 transition-all duration-300 ${getTimerClass()}`}>
+            <div className={`font-black transition-all duration-300 ${isUrgent ? 'text-[12rem] animate-bounce' : isWarning ? 'text-9xl' : 'text-8xl'}`}
+              style={{ color: theme.colors.text, textShadow: isUrgent ? '0 0 60px rgba(255,0,0,0.8)' : 'none' }}>
+              {timeRemaining}
+            </div>
+            {isUrgent && (
+              <div className="text-3xl font-bold animate-pulse mt-2" style={{ color: theme.colors.text }}>
+                ⚠️ DÉPÊCHEZ-VOUS ! ⚠️
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Question */}
         <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
-          {/* Frame overlay if configured */}
           {theme.frame && (
-            <img
-              src={theme.frame}
-              alt=""
-              className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10"
-            />
+            <img src={theme.frame} alt="" className="absolute inset-0 w-full h-full object-contain pointer-events-none z-10" />
           )}
-          <div className="bg-black/50 backdrop-blur rounded-3xl p-12 max-w-5xl w-full text-center shadow-2xl relative z-0">
-            <div className="flex items-center justify-center mb-6">
-              <span className="px-4 py-2 rounded-full text-lg font-bold" style={{ backgroundColor: `${theme.colors.primary}33`, color: theme.colors.primary }}>
-                {currentQuestion.type === 'MCQ' ? 'Choix Multiple' :
-                 currentQuestion.type === 'TRUE_FALSE' ? 'Vrai ou Faux' :
-                 currentQuestion.type === 'BUZZER' ? 'Buzzer' : 'Question Ouverte'}
+
+          <div className="bg-black/40 backdrop-blur-xl rounded-3xl p-12 max-w-5xl w-full text-center shadow-2xl border border-white/10 relative z-0">
+            <div className="flex items-center justify-center mb-6 gap-4">
+              <span className="px-4 py-2 rounded-full text-lg font-bold border"
+                style={{ backgroundColor: `${theme.colors.primary}20`, color: theme.colors.primary, borderColor: `${theme.colors.primary}40` }}>
+                {currentQuestion.type === 'MCQ' ? '📝 Choix Multiple' :
+                 currentQuestion.type === 'TRUE_FALSE' ? '✅ Vrai ou Faux' :
+                 currentQuestion.type === 'BUZZER' ? '🔔 Buzzer' : '💬 Question Ouverte'}
               </span>
-              <span className="ml-4 font-bold text-xl" style={{ color: theme.colors.accent }}>{currentQuestion.points} pts</span>
+              <span className="font-bold text-xl px-4 py-2 rounded-full"
+                style={{ backgroundColor: `${theme.colors.accent}20`, color: theme.colors.accent }}>
+                🏆 {currentQuestion.points} pts
+              </span>
             </div>
 
             {currentQuestion.mediaUrl && (
-              <img
-                src={currentQuestion.mediaUrl}
-                alt="Question media"
-                className="max-w-2xl mx-auto rounded-2xl mb-8"
-              />
+              <img src={currentQuestion.mediaUrl} alt="Question media" className="max-w-2xl mx-auto rounded-2xl mb-8 shadow-xl" />
             )}
 
             <h2 className="text-5xl font-bold leading-tight mb-12" style={{ color: theme.colors.text }}>
               {currentQuestion.text}
             </h2>
 
-            {/* MCQ Options - Hide individual answer counts, only show progress bar */}
+            {/* MCQ Options */}
             {currentQuestion.type === 'MCQ' && currentQuestion.options && (
               <div className="grid grid-cols-2 gap-6">
                 {currentQuestion.options.map((option, idx) => {
                   const letter = String.fromCharCode(65 + idx);
-                  const colors = [
+                  const gradients = [
                     'from-red-500 to-red-600',
                     'from-blue-500 to-blue-600',
                     'from-yellow-500 to-yellow-600',
@@ -728,9 +834,9 @@ export default function ScreenHome() {
                   return (
                     <div
                       key={idx}
-                      className={`bg-gradient-to-r ${colors[idx]} rounded-2xl p-6 flex items-center shadow-lg`}
+                      className={`bg-gradient-to-br ${gradients[idx]} rounded-2xl p-6 flex items-center shadow-xl transform hover:scale-[1.02] transition-transform`}
                     >
-                      <span className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mr-6 text-3xl font-black text-white">
+                      <span className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mr-6 text-3xl font-black text-white shadow-inner">
                         {letter}
                       </span>
                       <span className="text-2xl font-bold text-white">{option}</span>
@@ -740,14 +846,14 @@ export default function ScreenHome() {
               </div>
             )}
 
-            {/* True/False - Hide individual answer counts */}
+            {/* True/False */}
             {currentQuestion.type === 'TRUE_FALSE' && (
               <div className="grid grid-cols-2 gap-8">
-                <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-12 text-center">
-                  <span className="text-5xl font-black text-white">VRAI</span>
+                <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-12 text-center shadow-xl transform hover:scale-[1.02] transition-transform">
+                  <span className="text-5xl font-black text-white">✓ VRAI</span>
                 </div>
-                <div className="bg-gradient-to-r from-red-500 to-red-600 rounded-2xl p-12 text-center">
-                  <span className="text-5xl font-black text-white">FAUX</span>
+                <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-12 text-center shadow-xl transform hover:scale-[1.02] transition-transform">
+                  <span className="text-5xl font-black text-white">✗ FAUX</span>
                 </div>
               </div>
             )}
@@ -755,136 +861,219 @@ export default function ScreenHome() {
         </div>
 
         {/* Answer Progress */}
-        <footer className="bg-black/30 backdrop-blur px-8 py-6">
-          <div className="flex items-center justify-center">
-            <span className="text-2xl mr-4" style={{ color: theme.colors.primary }}>Reponses:</span>
-            <div className="flex-1 max-w-2xl bg-black/30 rounded-full h-8 overflow-hidden">
+        <footer className="bg-black/40 backdrop-blur-xl px-8 py-6 border-t border-white/10">
+          <div className="flex items-center justify-center gap-4">
+            <span className="text-xl font-semibold" style={{ color: theme.colors.primary }}>📊 Réponses:</span>
+            <div className="flex-1 max-w-2xl bg-black/30 rounded-full h-6 overflow-hidden">
               <div
-                className="h-full transition-all duration-500"
+                className="h-full transition-all duration-500 rounded-full"
                 style={{
                   width: `${teams.length > 0 ? (answeredCount / teams.length) * 100 : 0}%`,
                   background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`
                 }}
               />
             </div>
-            <span className="text-2xl font-bold ml-4" style={{ color: theme.colors.text }}>{answeredCount}/{teams.length}</span>
+            <span className="text-2xl font-black" style={{ color: theme.colors.text }}>{answeredCount}/{teams.length}</span>
           </div>
         </footer>
       </main>
     );
   }
 
+  // TIME_UP
+  if (displayMode === 'TIME_UP') {
+    return (
+      <main className={`${containerClass} bg-gradient-to-br from-red-900 via-red-800 to-orange-900 flex flex-col items-center justify-center`}>
+        <div className="text-center animate-bounce">
+          <div className="text-[14rem] mb-4">⏰</div>
+          <h1 className="text-8xl font-black text-white mb-4 animate-pulse">TEMPS ÉCOULÉ !</h1>
+          <p className="text-4xl text-red-200">Voyons les résultats...</p>
+        </div>
+
+        <div className="mt-12 flex gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="w-6 h-6 bg-white rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+          ))}
+        </div>
+      </main>
+    );
+  }
+
   // REVEAL
   if (displayMode === 'REVEAL' && currentQuestion) {
-    const bgStyle = theme.background && theme.backgroundType === 'image'
-      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-      : { backgroundColor: theme.colors.background };
-
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-8" style={bgStyle}>
-        <div className="text-center mb-12">
-          <h2 className="text-4xl font-bold mb-4" style={{ color: theme.colors.text }}>{currentQuestion.text}</h2>
-          <p className="text-3xl" style={{ color: theme.colors.primary }}>La bonne reponse est...</p>
-        </div>
+      <main className={containerClass} style={{ ...getBgStyle(), background: !theme.background ? `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}40)` : undefined }}>
+        <div className="min-h-screen flex flex-col items-center justify-center p-8">
+          <div className="text-center mb-8 animate-fade-in">
+            <h2 className="text-3xl font-bold mb-4" style={{ color: `${theme.colors.text}99` }}>{currentQuestion.text}</h2>
+            <p className="text-4xl font-black" style={{ color: theme.colors.primary }}>✨ La bonne réponse est... ✨</p>
+          </div>
 
-        {currentQuestion.type === 'MCQ' && currentQuestion.options && (
-          <div className="grid grid-cols-2 gap-6 max-w-4xl w-full mb-12">
-            {currentQuestion.options.map((option, idx) => {
-              const letter = String.fromCharCode(65 + idx);
-              const isCorrect = letter === correctAnswer;
-              const answerCount = Object.values(answers).filter(a => a === letter).length;
+          {currentQuestion.type === 'MCQ' && currentQuestion.options && (
+            <div className="grid grid-cols-2 gap-6 max-w-4xl w-full mb-8">
+              {currentQuestion.options.map((option, idx) => {
+                const letter = String.fromCharCode(65 + idx);
+                const isCorrect = letter === correctAnswer;
+                const answerCount = Object.values(answers).filter(a => a === letter).length;
 
-              return (
-                <div
-                  key={idx}
-                  className={`rounded-2xl p-6 flex items-center justify-between transition-all duration-500 ${isCorrect ? 'scale-105' : 'opacity-50'}`}
-                  style={{
-                    backgroundColor: isCorrect ? theme.colors.correct : 'rgba(0,0,0,0.5)',
-                    boxShadow: isCorrect ? `0 0 0 4px ${theme.colors.correct}` : 'none'
-                  }}
-                >
-                  <div className="flex items-center">
-                    <span className="w-14 h-14 rounded-full flex items-center justify-center mr-4 text-2xl font-black"
-                      style={{
-                        backgroundColor: isCorrect ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
-                        color: isCorrect ? theme.colors.text : 'rgba(255,255,255,0.5)'
-                      }}
-                    >
-                      {isCorrect ? '✓' : letter}
-                    </span>
-                    <span className="text-xl font-bold"
-                      style={{ color: isCorrect ? theme.colors.text : 'rgba(255,255,255,0.5)' }}
-                    >
-                      {option}
-                    </span>
-                  </div>
-                  <div className="rounded-full px-4 py-2"
-                    style={{ backgroundColor: isCorrect ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)' }}
+                return (
+                  <div
+                    key={idx}
+                    className={`rounded-2xl p-6 flex items-center justify-between transition-all duration-700 ${
+                      isCorrect ? 'scale-105 animate-pulse shadow-2xl' : 'opacity-40 scale-95'
+                    }`}
+                    style={{
+                      backgroundColor: isCorrect ? theme.colors.correct : 'rgba(0,0,0,0.3)',
+                      boxShadow: isCorrect ? `0 0 60px ${theme.colors.correct}60` : 'none'
+                    }}
                   >
-                    <span className="text-xl font-bold"
-                      style={{ color: isCorrect ? theme.colors.text : 'rgba(255,255,255,0.5)' }}
-                    >
-                      {answerCount}
-                    </span>
+                    <div className="flex items-center">
+                      <span className="w-14 h-14 rounded-full flex items-center justify-center mr-4 text-2xl font-black"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: theme.colors.text }}>
+                        {isCorrect ? '✓' : letter}
+                      </span>
+                      <span className="text-xl font-bold" style={{ color: theme.colors.text }}>{option}</span>
+                    </div>
+                    <div className="rounded-full px-4 py-2" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
+                      <span className="text-xl font-bold" style={{ color: theme.colors.text }}>{answerCount}</span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
 
-        {currentQuestion.type === 'TRUE_FALSE' && (
-          <div className="grid grid-cols-2 gap-8 max-w-2xl w-full mb-12">
-            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'TRUE' ? 'scale-105' : 'opacity-50'}`}
-              style={{ backgroundColor: correctAnswer === 'TRUE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', boxShadow: correctAnswer === 'TRUE' ? `0 0 0 4px ${theme.colors.correct}` : 'none' }}
-            >
-              <span className="text-4xl font-black" style={{ color: theme.colors.text }}>VRAI</span>
-              <div className="mt-4 text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>
-                {Object.values(answers).filter(a => a === 'TRUE').length} reponses
+          {currentQuestion.type === 'TRUE_FALSE' && (
+            <div className="grid grid-cols-2 gap-8 max-w-2xl w-full mb-8">
+              {['TRUE', 'FALSE'].map((val) => {
+                const isCorrect = correctAnswer === val;
+                return (
+                  <div key={val}
+                    className={`rounded-2xl p-12 text-center transition-all duration-700 ${isCorrect ? 'scale-105 animate-pulse shadow-2xl' : 'opacity-40 scale-95'}`}
+                    style={{ backgroundColor: isCorrect ? theme.colors.correct : 'rgba(0,0,0,0.3)', boxShadow: isCorrect ? `0 0 60px ${theme.colors.correct}60` : 'none' }}>
+                    <span className="text-4xl font-black" style={{ color: theme.colors.text }}>{val === 'TRUE' ? '✓ VRAI' : '✗ FAUX'}</span>
+                    <div className="mt-4 text-2xl" style={{ color: `${theme.colors.text}99` }}>
+                      {Object.values(answers).filter(a => a === val).length} réponses
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {(currentQuestion.type === 'BUZZER' || currentQuestion.type === 'OPEN' || currentQuestion.type === 'TEXT') && correctAnswer && (
+            <div className="rounded-2xl px-12 py-8 mb-8 animate-pulse shadow-2xl"
+              style={{ backgroundColor: theme.colors.correct, boxShadow: `0 0 60px ${theme.colors.correct}60` }}>
+              <p className="text-2xl mb-2" style={{ color: `${theme.colors.text}99` }}>Réponse correcte</p>
+              <p className="text-5xl font-black" style={{ color: theme.colors.text }}>{correctAnswer}</p>
+            </div>
+          )}
+
+          <div className="flex gap-8 mb-8">
+            <div className="rounded-2xl px-8 py-6 text-center" style={{ backgroundColor: `${theme.colors.correct}33`, border: `2px solid ${theme.colors.correct}` }}>
+              <div className="text-5xl font-bold" style={{ color: theme.colors.correct }}>
+                {Object.values(answers).filter(a => a === correctAnswer).length}
               </div>
+              <div className="mt-2" style={{ color: theme.colors.correct }}>✓ Bonnes réponses</div>
             </div>
-            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'FALSE' ? 'scale-105' : 'opacity-50'}`}
-              style={{ backgroundColor: correctAnswer === 'FALSE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', boxShadow: correctAnswer === 'FALSE' ? `0 0 0 4px ${theme.colors.correct}` : 'none' }}
-            >
-              <span className="text-4xl font-black" style={{ color: theme.colors.text }}>FAUX</span>
-              <div className="mt-4 text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>
-                {Object.values(answers).filter(a => a === 'FALSE').length} reponses
+            <div className="rounded-2xl px-8 py-6 text-center" style={{ backgroundColor: `${theme.colors.wrong}33`, border: `2px solid ${theme.colors.wrong}` }}>
+              <div className="text-5xl font-bold" style={{ color: theme.colors.wrong }}>
+                {Object.values(answers).filter(a => a && a !== correctAnswer).length}
               </div>
+              <div className="mt-2" style={{ color: theme.colors.wrong }}>✗ Mauvaises réponses</div>
             </div>
           </div>
-        )}
 
-        {(currentQuestion.type === 'BUZZER' || currentQuestion.type === 'OPEN') && correctAnswer && (
-          <div className="rounded-2xl px-12 py-8 mb-12" style={{ backgroundColor: theme.colors.correct }}>
-            <p className="text-2xl mb-2" style={{ color: theme.colors.text, opacity: 0.9 }}>Reponse correcte</p>
-            <p className="text-5xl font-black" style={{ color: theme.colors.text }}>{correctAnswer}</p>
-          </div>
-        )}
+          {currentQuestion.explanation && (
+            <div className="max-w-4xl w-full rounded-2xl p-8 text-center animate-fade-in border-2"
+              style={{ backgroundColor: `${theme.colors.accent}20`, borderColor: theme.colors.accent }}>
+              <div className="text-4xl mb-4">💡</div>
+              <p className="text-2xl leading-relaxed" style={{ color: theme.colors.text }}>{currentQuestion.explanation}</p>
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
 
-        <div className="flex gap-8 mb-8">
-          <div className="rounded-2xl px-8 py-6 text-center" style={{ backgroundColor: `${theme.colors.correct}33` }}>
-            <div className="text-5xl font-bold" style={{ color: theme.colors.correct }}>
-              {Object.values(answers).filter(a => a === correctAnswer).length}
+  // LEADERBOARD
+  if (displayMode === 'LEADERBOARD') {
+    return (
+      <main className={containerClass} style={{ ...getBgStyle(), background: !theme.background ? `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}60, ${theme.colors.secondary}60)` : undefined }}>
+        <div className="min-h-screen p-8">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-12">
+              {theme.logo && <img src={theme.logo} alt="Logo" className="h-20 mx-auto mb-4" />}
+              <div className="text-7xl mb-4">🏆</div>
+              <h1 className="text-6xl font-black" style={{ color: theme.colors.text }}>CLASSEMENT</h1>
             </div>
-            <div className="mt-2" style={{ color: theme.colors.correct, opacity: 0.8 }}>Bonnes reponses</div>
-          </div>
-          <div className="rounded-2xl px-8 py-6 text-center" style={{ backgroundColor: `${theme.colors.wrong}33` }}>
-            <div className="text-5xl font-bold" style={{ color: theme.colors.wrong }}>
-              {Object.values(answers).filter(a => a && a !== correctAnswer).length}
+
+            <div className="space-y-4">
+              {sortedTeams.map((team, index) => {
+                const isTop3 = index < 3;
+                const medals = ['🥇', '🥈', '🥉'];
+
+                return (
+                  <div
+                    key={team.id}
+                    className="rounded-2xl p-6 flex items-center animate-slide-in"
+                    style={{
+                      animationDelay: `${index * 0.1}s`,
+                      background: isTop3 ? `linear-gradient(135deg, ${theme.colors.primary}60, ${theme.colors.secondary}60)` : 'rgba(255,255,255,0.05)',
+                      border: isTop3 ? `2px solid ${theme.colors.primary}` : '1px solid rgba(255,255,255,0.1)'
+                    }}
+                  >
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-3xl mr-6 shadow-lg ${
+                      index === 0 ? 'bg-gradient-to-br from-yellow-400 to-amber-600' :
+                      index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500' :
+                      index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600' :
+                      'bg-gray-700'
+                    }`}>
+                      {isTop3 ? medals[index] : index + 1}
+                    </div>
+
+                    <div className="flex items-center flex-1">
+                      <div className="w-6 h-6 rounded-full mr-4 shadow-lg" style={{ backgroundColor: team.color }}></div>
+                      <p className="text-3xl font-bold" style={{ color: theme.colors.text }}>{team.name}</p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-5xl font-black" style={{ color: theme.colors.primary }}>{team.score}</p>
+                      <p className="text-sm" style={{ color: `${theme.colors.primary}99` }}>points</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="mt-2" style={{ color: theme.colors.wrong, opacity: 0.8 }}>Mauvaises reponses</div>
           </div>
         </div>
+      </main>
+    );
+  }
 
-        {/* Explanation / Anecdote */}
-        {currentQuestion.explanation && (
-          <div className="max-w-4xl w-full rounded-2xl p-8 text-center animate-fade-in border-2"
-            style={{ backgroundColor: `${theme.colors.accent}33`, borderColor: `${theme.colors.accent}80` }}
-          >
-            <div className="text-4xl mb-4">💡</div>
-            <p className="text-2xl leading-relaxed" style={{ color: theme.colors.text }}>{currentQuestion.explanation}</p>
+  // SPONSORS
+  if (displayMode === 'SPONSORS') {
+    return (
+      <main className={containerClass} style={{ ...getBgStyle(), background: !theme.background ? `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}40)` : undefined }}>
+        <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center">
+          {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mb-8" />}
+
+          <h1 className="text-6xl font-black mb-4" style={{ color: theme.colors.text }}>🙏 MERCI À NOS SPONSORS</h1>
+          <p className="text-2xl mb-12" style={{ color: `${theme.colors.text}99` }}>Cet événement est rendu possible grâce à :</p>
+
+          <div className="grid grid-cols-3 gap-8 max-w-4xl">
+            {/* Placeholder for sponsor logos */}
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-8 flex items-center justify-center h-32 border border-white/10">
+              <span className="text-2xl" style={{ color: `${theme.colors.text}60` }}>Sponsor 1</span>
+            </div>
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-8 flex items-center justify-center h-32 border border-white/10">
+              <span className="text-2xl" style={{ color: `${theme.colors.text}60` }}>Sponsor 2</span>
+            </div>
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-8 flex items-center justify-center h-32 border border-white/10">
+              <span className="text-2xl" style={{ color: `${theme.colors.text}60` }}>Sponsor 3</span>
+            </div>
           </div>
-        )}
+        </div>
       </main>
     );
   }
@@ -892,16 +1081,21 @@ export default function ScreenHome() {
   // TRANSITION
   if (displayMode === 'TRANSITION') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center">
-        <div className="text-center">
+      <main className={`${containerClass} flex flex-col items-center justify-center`}
+        style={{ background: `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}60)` }}>
+        <ParticleBackground color1={theme.colors.primary} color2={theme.colors.secondary} />
+
+        <div className="relative z-10 text-center">
           <div className="text-[10rem] mb-8 animate-bounce">⏳</div>
-          <h1 className="text-6xl font-black text-white mb-4">Prochaine Question...</h1>
-          <p className="text-3xl text-purple-300">Preparez-vous!</p>
+          <h1 className="text-6xl font-black mb-4" style={{ color: theme.colors.text }}>Prochaine Question...</h1>
+          <p className="text-3xl" style={{ color: `${theme.colors.text}80` }}>Préparez-vous !</p>
         </div>
+
         <div className="mt-12 flex gap-4">
-          <div className="w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
-          <div className="w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-          <div className="w-4 h-4 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+          {[0, 1, 2].map(i => (
+            <div key={i} className="w-5 h-5 rounded-full animate-bounce"
+              style={{ backgroundColor: theme.colors.primary, animationDelay: `${i * 0.2}s` }} />
+          ))}
         </div>
       </main>
     );
@@ -910,88 +1104,24 @@ export default function ScreenHome() {
   // BUZZER
   if (displayMode === 'BUZZER') {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center">
+      <main className={`${containerClass} flex flex-col items-center justify-center`}
+        style={{ background: buzzerWinner ? `linear-gradient(135deg, ${theme.colors.wrong}80, ${theme.colors.wrong}40)` : `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}60)` }}>
         {buzzerWinner ? (
-          <div className="text-center">
-            <div className="text-[12rem] mb-8 animate-bounce">🔔</div>
-            <h1 className="text-7xl font-black text-red-500 mb-8">BUZZ!</h1>
-            <div className="bg-red-500/20 border-4 border-red-500 rounded-3xl px-20 py-16">
-              <p className="text-6xl font-black text-white">{buzzerWinner.name}</p>
+          <div className="text-center animate-fade-in">
+            <div className="text-[14rem] mb-8 animate-bounce">🔔</div>
+            <h1 className="text-8xl font-black mb-8" style={{ color: theme.colors.wrong }}>BUZZ!</h1>
+            <div className="rounded-3xl px-20 py-16 border-4"
+              style={{ backgroundColor: `${theme.colors.wrong}30`, borderColor: theme.colors.wrong }}>
+              <p className="text-7xl font-black" style={{ color: theme.colors.text }}>{buzzerWinner.name}</p>
             </div>
           </div>
         ) : (
           <div className="text-center">
-            <div className="text-[12rem] mb-8 animate-pulse">🔔</div>
-            <h1 className="text-6xl font-bold text-white mb-4">Buzzer Ouvert!</h1>
-            <p className="text-3xl text-gray-400">Premier arrive, premier servi!</p>
+            <div className="text-[14rem] mb-8 animate-pulse">🔔</div>
+            <h1 className="text-6xl font-bold mb-4" style={{ color: theme.colors.text }}>Buzzer Ouvert !</h1>
+            <p className="text-3xl" style={{ color: `${theme.colors.text}80` }}>Premier arrivé, premier servi !</p>
           </div>
         )}
-      </main>
-    );
-  }
-
-  // LEADERBOARD
-  if (displayMode === 'LEADERBOARD') {
-    const bgStyle = theme.background && theme.backgroundType === 'image'
-      ? { backgroundImage: `url(${theme.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-      : {};
-
-    return (
-      <main className="min-h-screen p-8"
-        style={{
-          ...bgStyle,
-          background: !theme.background
-            ? `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})`
-            : undefined
-        }}
-      >
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mx-auto mb-4" />}
-            <div className="text-7xl mb-4">🏆</div>
-            <h1 className="text-6xl font-black" style={{ color: theme.colors.text }}>CLASSEMENT</h1>
-          </div>
-
-          <div className="space-y-4">
-            {sortedTeams.map((team, index) => {
-              const isTop3 = index < 3;
-
-              return (
-                <div
-                  key={team.id}
-                  className="rounded-2xl p-6 flex items-center"
-                  style={{
-                    background: isTop3
-                      ? `linear-gradient(to right, ${theme.colors.primary}80, ${theme.colors.secondary}80)`
-                      : 'rgba(255,255,255,0.1)'
-                  }}
-                >
-                  <div className={`w-20 h-20 rounded-full flex items-center justify-center font-black text-3xl mr-6 ${
-                    index === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-yellow-900' :
-                    index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-gray-800' :
-                    index === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-orange-900' :
-                    'bg-gray-600 text-white'
-                  }`}>
-                    {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
-                  </div>
-
-                  <div className="flex items-center flex-1">
-                    <div
-                      className="w-6 h-6 rounded-full mr-4"
-                      style={{ backgroundColor: team.color }}
-                    ></div>
-                    <p className="text-3xl font-bold" style={{ color: theme.colors.text }}>{team.name}</p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-5xl font-black" style={{ color: theme.colors.primary }}>{team.score}</p>
-                    <p style={{ color: theme.colors.primary, opacity: 0.8 }}>points</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </main>
     );
   }
@@ -999,11 +1129,12 @@ export default function ScreenHome() {
   // PAUSED
   if (displayMode === 'PAUSED') {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center">
+      <main className={`${containerClass} flex flex-col items-center justify-center`}
+        style={{ background: `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}40)` }}>
         <div className="text-center">
-          <div className="text-[10rem] mb-8">⏸️</div>
-          <h1 className="text-6xl font-bold text-white mb-4">Jeu en Pause</h1>
-          <p className="text-2xl text-gray-400">En attente de la reprise...</p>
+          <div className="text-[12rem] mb-8">⏸️</div>
+          <h1 className="text-6xl font-bold mb-4" style={{ color: theme.colors.text }}>Jeu en Pause</h1>
+          <p className="text-2xl" style={{ color: `${theme.colors.text}80` }}>En attente de la reprise...</p>
         </div>
       </main>
     );
@@ -1014,64 +1145,58 @@ export default function ScreenHome() {
     const top3 = sortedTeams.slice(0, 3);
 
     return (
-      <main className="min-h-screen bg-gradient-to-br from-yellow-600 via-orange-600 to-red-600 flex flex-col items-center justify-center p-8">
-        <div className="text-center mb-16">
-          <h1 className="text-7xl font-black text-white mb-4">🏆 RESULTATS FINAUX 🏆</h1>
+      <main className={`${containerClass} flex flex-col items-center justify-center p-8`}
+        style={{ background: `linear-gradient(135deg, ${theme.colors.accent}80, ${theme.colors.primary}80, ${theme.colors.secondary}80)` }}>
+        {showConfetti && <Confetti />}
+
+        <div className="relative z-10 text-center mb-12">
+          <h1 className="text-7xl font-black mb-4" style={{ color: theme.colors.text }}>🏆 RÉSULTATS FINAUX 🏆</h1>
         </div>
 
-        <div className="flex items-end justify-center gap-8">
+        <div className="relative z-10 flex items-end justify-center gap-8">
           {/* 2nd Place */}
           {top3[1] && (
-            <div className="text-center">
+            <div className="text-center animate-slide-up" style={{ animationDelay: '0.3s' }}>
               <div className="text-6xl mb-4">🥈</div>
-              <div className="bg-gray-400 rounded-t-2xl w-52 h-44 flex flex-col items-center justify-center">
-                <div
-                  className="w-8 h-8 rounded-full mb-2"
-                  style={{ backgroundColor: top3[1].color }}
-                ></div>
+              <div className="bg-gradient-to-b from-gray-300 to-gray-400 rounded-t-2xl w-52 h-44 flex flex-col items-center justify-center shadow-2xl">
+                <div className="w-8 h-8 rounded-full mb-2 shadow-lg" style={{ backgroundColor: top3[1].color }}></div>
                 <p className="text-2xl font-bold text-gray-800">{top3[1].name}</p>
                 <p className="text-3xl font-black text-gray-700">{top3[1].score}</p>
               </div>
-              <div className="bg-gray-500 w-52 h-8 rounded-b-lg"></div>
+              <div className="bg-gray-500 w-52 h-8 rounded-b-lg shadow-lg"></div>
             </div>
           )}
 
           {/* 1st Place */}
           {top3[0] && (
-            <div className="text-center">
+            <div className="text-center animate-slide-up">
               <div className="text-8xl mb-4 animate-bounce">🥇</div>
-              <div className="bg-yellow-400 rounded-t-2xl w-60 h-60 flex flex-col items-center justify-center">
-                <div
-                  className="w-10 h-10 rounded-full mb-2"
-                  style={{ backgroundColor: top3[0].color }}
-                ></div>
+              <div className="bg-gradient-to-b from-yellow-400 to-amber-500 rounded-t-2xl w-60 h-60 flex flex-col items-center justify-center shadow-2xl">
+                <div className="w-10 h-10 rounded-full mb-2 shadow-lg" style={{ backgroundColor: top3[0].color }}></div>
                 <p className="text-3xl font-bold text-yellow-900">{top3[0].name}</p>
                 <p className="text-5xl font-black text-yellow-800">{top3[0].score}</p>
               </div>
-              <div className="bg-yellow-600 w-60 h-8 rounded-b-lg"></div>
+              <div className="bg-amber-600 w-60 h-8 rounded-b-lg shadow-lg"></div>
             </div>
           )}
 
           {/* 3rd Place */}
           {top3[2] && (
-            <div className="text-center">
+            <div className="text-center animate-slide-up" style={{ animationDelay: '0.6s' }}>
               <div className="text-5xl mb-4">🥉</div>
-              <div className="bg-orange-400 rounded-t-2xl w-48 h-36 flex flex-col items-center justify-center">
-                <div
-                  className="w-6 h-6 rounded-full mb-2"
-                  style={{ backgroundColor: top3[2].color }}
-                ></div>
+              <div className="bg-gradient-to-b from-orange-400 to-orange-500 rounded-t-2xl w-48 h-36 flex flex-col items-center justify-center shadow-2xl">
+                <div className="w-6 h-6 rounded-full mb-2 shadow-lg" style={{ backgroundColor: top3[2].color }}></div>
                 <p className="text-xl font-bold text-orange-900">{top3[2].name}</p>
                 <p className="text-2xl font-black text-orange-800">{top3[2].score}</p>
               </div>
-              <div className="bg-orange-600 w-48 h-8 rounded-b-lg"></div>
+              <div className="bg-orange-600 w-48 h-8 rounded-b-lg shadow-lg"></div>
             </div>
           )}
         </div>
 
-        <div className="mt-16 text-center">
-          <p className="text-3xl text-white/80">Merci d'avoir joue!</p>
-          <p className="text-xl text-white/60 mt-2">Powered by Arena Event</p>
+        <div className="relative z-10 mt-16 text-center">
+          <p className="text-3xl" style={{ color: `${theme.colors.text}99` }}>Merci d'avoir joué !</p>
+          {theme.logo && <img src={theme.logo} alt="Logo" className="h-16 mx-auto mt-4 opacity-80" />}
         </div>
 
         <button
@@ -1080,8 +1205,10 @@ export default function ScreenHome() {
             setSelectedSession(null);
             setDisplayMode('SELECT');
             setTeams([]);
+            setShowConfetti(false);
           }}
-          className="mt-12 bg-white text-orange-600 font-bold py-4 px-8 rounded-2xl text-xl"
+          className="relative z-10 mt-8 font-bold py-4 px-8 rounded-2xl text-xl transition-all hover:scale-105"
+          style={{ backgroundColor: theme.colors.text, color: theme.colors.background }}
         >
           Nouvelle Session
         </button>
@@ -1092,20 +1219,18 @@ export default function ScreenHome() {
   // BLINDTEST
   if (displayMode === 'BLINDTEST') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black flex flex-col items-center justify-center relative overflow-hidden">
-        {/* Hidden audio element */}
+      <main className={`${containerClass} flex flex-col items-center justify-center relative overflow-hidden`}
+        style={{ background: `linear-gradient(135deg, ${theme.colors.background}, ${theme.colors.primary}80)` }}>
         <audio ref={audioRef} onEnded={() => setIsAudioPlaying(false)} />
 
         {/* Animated background circles */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {isAudioPlaying && (
-            <>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-500/20 rounded-full animate-ping" style={{ animationDuration: '2s' }}></div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-pink-500/15 rounded-full animate-ping" style={{ animationDuration: '2.5s' }}></div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-blue-500/10 rounded-full animate-ping" style={{ animationDuration: '3s' }}></div>
-            </>
-          )}
-        </div>
+        {isAudioPlaying && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full animate-ping opacity-20" style={{ backgroundColor: theme.colors.primary, animationDuration: '2s' }}></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full animate-ping opacity-15" style={{ backgroundColor: theme.colors.secondary, animationDuration: '2.5s' }}></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] rounded-full animate-ping opacity-10" style={{ backgroundColor: theme.colors.accent, animationDuration: '3s' }}></div>
+          </div>
+        )}
 
         {/* Audio visualizer bars */}
         {isAudioPlaying && (
@@ -1113,10 +1238,10 @@ export default function ScreenHome() {
             {[...Array(20)].map((_, i) => (
               <div
                 key={i}
-                className="w-6 bg-gradient-to-t from-purple-500 to-pink-500 rounded-t-lg"
+                className="w-6 rounded-t-lg animate-audio-bar"
                 style={{
-                  height: `${Math.random() * 100 + 20}%`,
-                  animation: `audioBar 0.${Math.floor(Math.random() * 5) + 3}s ease-in-out infinite alternate`,
+                  height: '20%',
+                  background: `linear-gradient(to top, ${theme.colors.primary}, ${theme.colors.secondary})`,
                   animationDelay: `${i * 0.05}s`
                 }}
               />
@@ -1124,56 +1249,44 @@ export default function ScreenHome() {
           </div>
         )}
 
-        {/* Main content */}
         <div className="relative z-10 text-center px-8">
           {blindtestRevealed ? (
-            // Revealed state
             <div className="animate-fade-in">
               <div className="text-8xl mb-8">🎵</div>
-              <h1 className="text-5xl font-bold text-purple-300 mb-4">C'ETAIT...</h1>
-              <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20">
-                <p className="text-7xl font-black text-white mb-4">{revealedSong || currentQuestion?.songTitle}</p>
-                <p className="text-4xl text-purple-300">par</p>
-                <p className="text-6xl font-bold text-pink-400 mt-4">{revealedArtist || currentQuestion?.artist}</p>
+              <h1 className="text-5xl font-bold mb-4" style={{ color: theme.colors.primary }}>C'ÉTAIT...</h1>
+              <div className="bg-black/30 backdrop-blur-xl rounded-3xl p-12 border border-white/10">
+                <p className="text-7xl font-black mb-4" style={{ color: theme.colors.text }}>{revealedSong || currentQuestion?.songTitle}</p>
+                <p className="text-4xl" style={{ color: `${theme.colors.text}80` }}>par</p>
+                <p className="text-6xl font-bold mt-4" style={{ color: theme.colors.secondary }}>{revealedArtist || currentQuestion?.artist}</p>
               </div>
             </div>
           ) : (
-            // Playing state
             <div>
               <div className={`text-[12rem] mb-8 ${isAudioPlaying ? 'animate-bounce' : ''}`}>
                 {isAudioPlaying ? '🎵' : '🎧'}
               </div>
-              <h1 className="text-6xl font-black text-white mb-4">
-                {isAudioPlaying ? 'ECOUTEZ BIEN...' : 'BLINDTEST'}
+              <h1 className="text-6xl font-black mb-4" style={{ color: theme.colors.text }}>
+                {isAudioPlaying ? 'ÉCOUTEZ BIEN...' : 'BLINDTEST'}
               </h1>
-              <p className="text-3xl text-purple-300">
-                {isAudioPlaying ? 'Qui sera le premier a trouver?' : 'Preparez-vous...'}
+              <p className="text-3xl" style={{ color: `${theme.colors.text}80` }}>
+                {isAudioPlaying ? 'Qui sera le premier à trouver ?' : 'Préparez-vous...'}
               </p>
 
-              {/* Points info */}
-              <div className="mt-12 bg-white/10 backdrop-blur rounded-2xl px-8 py-4 inline-block">
-                <span className="text-purple-300 text-2xl">Points: </span>
-                <span className="text-4xl font-bold text-yellow-400">{currentQuestion?.points}</span>
+              <div className="mt-12 rounded-2xl px-8 py-4 inline-block" style={{ backgroundColor: `${theme.colors.accent}30` }}>
+                <span className="text-2xl" style={{ color: `${theme.colors.text}80` }}>Points: </span>
+                <span className="text-4xl font-bold" style={{ color: theme.colors.accent }}>{currentQuestion?.points}</span>
               </div>
             </div>
           )}
 
-          {/* Buzzer winner */}
           {buzzerWinner && !blindtestRevealed && (
-            <div className="mt-12 bg-red-500/20 border-4 border-red-500 rounded-3xl px-16 py-8 animate-pulse">
-              <p className="text-3xl text-red-400 mb-2">🔔 BUZZ!</p>
-              <p className="text-5xl font-black text-white">{buzzerWinner.name}</p>
+            <div className="mt-12 rounded-3xl px-16 py-8 animate-pulse border-4"
+              style={{ backgroundColor: `${theme.colors.wrong}30`, borderColor: theme.colors.wrong }}>
+              <p className="text-3xl mb-2" style={{ color: theme.colors.wrong }}>🔔 BUZZ!</p>
+              <p className="text-5xl font-black" style={{ color: theme.colors.text }}>{buzzerWinner.name}</p>
             </div>
           )}
         </div>
-
-        {/* CSS for audio bar animation */}
-        <style jsx>{`
-          @keyframes audioBar {
-            0% { height: 20%; }
-            100% { height: 100%; }
-          }
-        `}</style>
       </main>
     );
   }
