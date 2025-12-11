@@ -591,7 +591,23 @@ export default function PlayerHome() {
     });
 
     socket.on('finale-question-start', (data) => {
-      // Update jokers at start of each finale question
+      // Set up question UI (same as question-start)
+      setCurrentQuestion(data.question);
+      setTimeRemaining(data.timeLimit || data.question?.timeLimit || 30);
+      setHasAnswered(false);
+      setSelectedAnswer(null);
+      setTextAnswer('');
+      setIsCorrect(null);
+      setPointsEarned(0);
+      setCorrectAnswer(null);
+      setBuzzerPressed(false);
+      setBuzzerOpen(data.question?.type === 'BUZZER');
+      setBuzzerWinner(null);
+      questionStartTime.current = Date.now();
+      setGameState('QUESTION');
+      startTimer(data.timeLimit || data.question?.timeLimit || 30);
+
+      // Update jokers for finale mode
       if (data.jokers && teamId && data.jokers[teamId]) {
         setMyJokers(data.jokers[teamId]);
       }

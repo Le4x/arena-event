@@ -326,19 +326,26 @@ export default function StudioHome() {
 
     // Handle 50/50 joker request - automatically select 2 wrong answers to eliminate
     socket.on('fifty-fifty-request', (data) => {
-      // Get current question choices
+      // Get current question
       const question = currentQuestionRef.current;
-      if (!question || !question.choices || question.type !== 'MCQ') return;
+      console.log('fifty-fifty-request received, question:', question?.type, 'options:', question?.options?.length);
+
+      if (!question || !question.options || question.type !== 'MCQ') {
+        console.log('fifty-fifty: invalid question or not MCQ');
+        return;
+      }
 
       const correctAnswer = question.correctAnswer;
-      const allOptions = ['A', 'B', 'C', 'D'].slice(0, question.choices.length);
+      const allOptions = ['A', 'B', 'C', 'D'].slice(0, question.options.length);
 
       // Find wrong answers
       const wrongOptions = allOptions.filter(opt => opt !== correctAnswer);
+      console.log('fifty-fifty: correctAnswer=', correctAnswer, 'wrongOptions=', wrongOptions);
 
-      // Randomly select 2 wrong answers to eliminate
+      // Randomly select 2 wrong answers to eliminate (or all wrong if less than 2)
       const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
-      const eliminatedOptions = shuffled.slice(0, 2);
+      const eliminatedOptions = shuffled.slice(0, Math.min(2, shuffled.length));
+      console.log('fifty-fifty: eliminatedOptions=', eliminatedOptions);
 
       // Send the eliminated options to all clients
       socket.emit('fifty-fifty-applied', {

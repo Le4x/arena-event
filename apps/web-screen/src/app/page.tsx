@@ -250,6 +250,17 @@ export default function ScreenHome() {
       setDisplayMode('QUESTION');
     });
 
+    // Finale mode question start (same as question-start but for finale)
+    socket.on('finale-question-start', (data) => {
+      setCurrentQuestion(data.question);
+      setTimeRemaining(data.timeLimit || data.question?.timeLimit || 30);
+      setCorrectAnswer(null);
+      setBuzzerWinner(null);
+      setAnswers({});
+      setTeams(prev => prev.map(t => ({ ...t, hasAnswered: false, lastAnswer: undefined })));
+      setDisplayMode('QUESTION');
+    });
+
     // Server-side timer sync (authoritative)
     socket.on('timer-sync', (data) => {
       setTimeRemaining(data.remaining);
