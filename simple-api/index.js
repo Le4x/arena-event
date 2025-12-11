@@ -1955,6 +1955,7 @@ io.on('connection', (socket) => {
         });
 
         // Emit score-update so Studio sees the new score in real-time
+        console.log(`📊 Emitting score-update: team=${teamId}, newScore=${updatedTeam.score}, session=${sessionId}`);
         io.to(`session:${sessionId}`).emit('score-update', {
           teamId,
           newScore: updatedTeam.score
