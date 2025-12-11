@@ -943,7 +943,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
 
 app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
+    const { text, type, options, correctAnswer, points, negativePoints, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd, explanation, tolerance } = req.body;
 
     // Get max order for this round
     const maxOrder = await prisma.question.aggregate({
@@ -958,12 +958,15 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         choices: options || [],
         correctAnswer: correctAnswer || '',
         points: points || 100,
+        negativePoints: negativePoints || 0,
         timeLimit: timeLimit || 30,
         mediaUrl: mediaUrl || null,
         questionCueStart: questionCueStart || null,
         questionCueEnd: questionCueEnd || null,
         revealCueStart: revealCueStart || null,
         revealCueEnd: revealCueEnd || null,
+        explanation: explanation || null,
+        tolerance: tolerance ?? 0.8,
         order: (maxOrder._max.order ?? -1) + 1,
         roundId: req.params.roundId
       }
@@ -979,13 +982,16 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         options: question.choices || [],
         correctAnswer: question.correctAnswer,
         points: question.points,
+        negativePoints: question.negativePoints,
         timeLimit: question.timeLimit,
         order: question.order,
         mediaUrl: question.mediaUrl,
         questionCueStart: question.questionCueStart,
         questionCueEnd: question.questionCueEnd,
         revealCueStart: question.revealCueStart,
-        revealCueEnd: question.revealCueEnd
+        revealCueEnd: question.revealCueEnd,
+        explanation: question.explanation,
+        tolerance: question.tolerance
       }
     });
   } catch (error) {
@@ -996,7 +1002,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
 
 app.put('/api/questions/:id', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
+    const { text, type, options, correctAnswer, points, negativePoints, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd, explanation, tolerance } = req.body;
 
     const question = await prisma.question.update({
       where: { id: req.params.id },
@@ -1006,13 +1012,16 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         choices: options,
         correctAnswer,
         points,
+        negativePoints,
         timeLimit,
         mediaUrl,
         order,
         questionCueStart,
         questionCueEnd,
         revealCueStart,
-        revealCueEnd
+        revealCueEnd,
+        explanation,
+        tolerance
       }
     });
 
@@ -1025,13 +1034,16 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         options: question.choices || [],
         correctAnswer: question.correctAnswer,
         points: question.points,
+        negativePoints: question.negativePoints,
         timeLimit: question.timeLimit,
         order: question.order,
         mediaUrl: question.mediaUrl,
         questionCueStart: question.questionCueStart,
         questionCueEnd: question.questionCueEnd,
         revealCueStart: question.revealCueStart,
-        revealCueEnd: question.revealCueEnd
+        revealCueEnd: question.revealCueEnd,
+        explanation: question.explanation,
+        tolerance: question.tolerance
       }
     });
   } catch (error) {
