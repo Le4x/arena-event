@@ -364,6 +364,16 @@ export default function PlayerHome() {
     socket.on('question-end', (data) => {
       stopTimer();
       setCorrectAnswer(data.correctAnswer);
+
+      // Find this team's result in the answers (points are applied at reveal)
+      if (data.answers && teamId) {
+        const myAnswer = data.answers.find((a: any) => a.teamId === teamId);
+        if (myAnswer) {
+          setIsCorrect(myAnswer.isCorrect);
+          setPointsEarned(myAnswer.points || 0);
+        }
+      }
+
       setGameState('RESULT');
     });
 

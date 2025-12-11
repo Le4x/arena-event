@@ -1632,19 +1632,71 @@ io.on('connection', (socket) => {
   });
 
   // Question end - from Studio to Screen/Player
-  socket.on('question-end', (data) => {
+  socket.on('question-end', async (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Question ended in session ${sessionId}`);
+    const questionId = data.questionId;
+    console.log(`Question ended in session ${sessionId}, questionId=${questionId}`);
 
     // Stop server-side timer
     stopServerTimer(sessionId);
 
-    io.to(`session:${sessionId}`).emit('question-end', {
-      questionId: data.questionId,
-      correctAnswer: data.correctAnswer,
-      explanation: data.explanation,
-      serverTime: Date.now()
-    });
+    // NOW apply points for all answers to this question
+    if (questionId) {
+      try {
+        const answers = await prisma.answer.findMany({
+          where: { questionId },
+          include: { team: true }
+        });
+
+        for (const answer of answers) {
+          if (answer.isCorrect && answer.points > 0) {
+            const updatedTeam = await prisma.team.update({
+              where: { id: answer.teamId },
+              data: { score: { increment: answer.points } }
+            });
+
+            console.log(`📊 Points applied at reveal: team=${answer.teamId}, +${answer.points}, newScore=${updatedTeam.score}`);
+
+            // Emit score-update for this team
+            io.to(`session:${sessionId}`).emit('score-update', {
+              teamId: answer.teamId,
+              newScore: updatedTeam.score
+            });
+          }
+        }
+
+        // Emit question-end with all answer results
+        io.to(`session:${sessionId}`).emit('question-end', {
+          questionId: data.questionId,
+          correctAnswer: data.correctAnswer,
+          explanation: data.explanation,
+          serverTime: Date.now(),
+          answers: answers.map(a => ({
+            teamId: a.teamId,
+            teamName: a.team.name,
+            answer: a.content,
+            isCorrect: a.isCorrect,
+            points: a.points
+          }))
+        });
+      } catch (error) {
+        console.error('Error applying points at reveal:', error);
+        // Still emit question-end even if there was an error
+        io.to(`session:${sessionId}`).emit('question-end', {
+          questionId: data.questionId,
+          correctAnswer: data.correctAnswer,
+          explanation: data.explanation,
+          serverTime: Date.now()
+        });
+      }
+    } else {
+      io.to(`session:${sessionId}`).emit('question-end', {
+        questionId: data.questionId,
+        correctAnswer: data.correctAnswer,
+        explanation: data.explanation,
+        serverTime: Date.now()
+      });
+    }
   });
 
   // Timer events - server-side timer is now authoritative
@@ -1948,21 +2000,7 @@ io.on('connection', (socket) => {
         }
       }
 
-      if (isCorrect) {
-        const updatedTeam = await prisma.team.update({
-          where: { id: teamId },
-          data: { score: { increment: points } }
-        });
-
-        // Emit score-update so Studio sees the new score in real-time
-        console.log(`📊 Emitting score-update: team=${teamId}, newScore=${updatedTeam.score}, session=${sessionId}`);
-        io.to(`session:${sessionId}`).emit('score-update', {
-          teamId,
-          newScore: updatedTeam.score
-        });
-      }
-
-      // Use upsert to allow updating answer if team answers multiple times
+      // Store answer with calculated points (but DON'T add to score yet - wait for reveal)
       await prisma.answer.upsert({
         where: {
           questionId_teamId: {
@@ -1984,27 +2022,25 @@ io.on('connection', (socket) => {
         }
       });
 
-      // Emit to all in session (for Screen)
+      // Emit to all in session (for Screen) - DON'T reveal if correct yet
       io.to(`session:${sessionId}`).emit('answer-submitted', {
         teamId,
         questionId,
         answer,
-        isCorrect,
-        points: isCorrect ? points : 0,
-        jokerApplied,
-        shieldActivated
+        // Don't reveal correctness until question-end
+        hasAnswered: true
       });
 
-      // Emit result back to the submitting player
+      // Emit result back to the submitting player - DON'T reveal if correct yet
       socket.emit('answer-result', {
         teamId,
-        isCorrect,
-        points: isCorrect ? points : 0,
+        // Points and correctness will be revealed at question-end
+        submitted: true,
         jokerApplied,
         shieldActivated
       });
 
-      console.log(`Answer submitted: team=${teamId}, correct=${isCorrect}, points=${points}, joker=${jokerApplied || 'none'}`);
+      console.log(`Answer submitted: team=${teamId}, answer="${answer}", joker=${jokerApplied || 'none'} (points will be added at reveal)`);
     } catch (error) {
       console.error('Socket answer error:', error);
     }
