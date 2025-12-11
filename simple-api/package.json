@@ -9,7 +9,9 @@
     "dev": "node --watch index.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --config jest.config.cjs",
-    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --config jest.config.cjs"
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --config jest.config.cjs",
+    "test:sync": "node test-score-sync.js",
+    "test:sync:auto": "node test-score-sync-auto.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
