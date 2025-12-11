@@ -347,8 +347,8 @@ export default function StudioHome() {
       const eliminatedOptions = shuffled.slice(0, Math.min(2, shuffled.length));
       console.log('fifty-fifty: eliminatedOptions=', eliminatedOptions);
 
-      // Send the eliminated options to all clients
-      socket.emit('fifty-fifty-applied', {
+      // Send the eliminated options to backend (which will broadcast to all clients)
+      socket.emit('fifty-fifty-options', {
         sessionId: data.sessionId || selectedSessionRef.current?.id,
         teamId: data.teamId,
         eliminatedOptions
