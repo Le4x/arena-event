@@ -1460,6 +1460,7 @@ app.post('/api/sessions/:sessionId/question/end', authenticateToken, async (req,
     io.to(`session:${req.params.sessionId}`).emit('question-end', {
       questionId,
       correctAnswer: question.correctAnswer,
+      explanation: question.explanation,
       answers: answers.map(a => ({
         teamId: a.teamId,
         teamName: a.team.name,
@@ -1632,6 +1633,7 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('question-end', {
       questionId: data.questionId,
       correctAnswer: data.correctAnswer,
+      explanation: data.explanation,
       serverTime: Date.now()
     });
   });

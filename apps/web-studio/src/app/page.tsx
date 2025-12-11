@@ -285,7 +285,7 @@ export default function StudioHome() {
     });
 
     // Listen for score updates
-    socket.on('score-updated', (data) => {
+    socket.on('score-update', (data) => {
       setTeams(prev => prev.map(t =>
         t.id === data.teamId ? { ...t, score: data.newScore } : t
       ));
@@ -455,6 +455,7 @@ export default function StudioHome() {
       sessionId: selectedSession?.id,
       questionId: currentQuestion?.id,
       correctAnswer: currentQuestion?.correctAnswer,
+      explanation: currentQuestion?.explanation,
     });
   };
 

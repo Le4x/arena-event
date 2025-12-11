@@ -208,6 +208,10 @@ export default function ScreenHome() {
 
     socket.on('question-end', (data) => {
       setCorrectAnswer(data.correctAnswer);
+      // Update currentQuestion with explanation for reveal display
+      if (data.explanation) {
+        setCurrentQuestion(prev => prev ? { ...prev, explanation: data.explanation } : prev);
+      }
       setDisplayMode('REVEAL');
     });
 

@@ -133,6 +133,31 @@ export default function PlayerHome() {
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [timePlusActive, setTimePlusActive] = useState(false);
 
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Request fullscreen function
+  const requestFullscreen = useCallback(() => {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen().catch(err => console.log('Fullscreen error:', err));
+    } else if ((elem as any).webkitRequestFullscreen) {
+      (elem as any).webkitRequestFullscreen();
+    } else if ((elem as any).msRequestFullscreen) {
+      (elem as any).msRequestFullscreen();
+    }
+    setIsFullscreen(true);
+  }, []);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   // Timer ref
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const questionStartTime = useRef<number>(0);
@@ -841,7 +866,18 @@ export default function PlayerHome() {
             </div>
           </div>
 
-          <p className="text-purple-200 mt-8 text-sm">
+          {/* Fullscreen Button */}
+          {!isFullscreen && (
+            <button
+              onClick={requestFullscreen}
+              className="mt-6 w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span className="text-xl">📱</span>
+              <span>Mode Plein Écran</span>
+            </button>
+          )}
+
+          <p className="text-purple-200 mt-6 text-sm">
             Get ready! The first question is coming...
           </p>
         </div>
@@ -853,6 +889,19 @@ export default function PlayerHome() {
   if (gameState === 'QUESTION' && currentQuestion) {
     return (
       <main className="min-h-screen bg-gray-900 flex flex-col">
+        {/* Team Info Bar */}
+        <div className="bg-gray-800 px-4 py-2 flex items-center justify-between border-b border-gray-700">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: team?.color || '#8B5CF6' }}
+            />
+            <span className="text-white font-semibold text-sm">{team?.name || 'Équipe'}</span>
+          </div>
+          <div className="text-purple-400 font-bold text-sm">
+            {team?.score || 0} pts
+          </div>
+        </div>
         {/* Timer Header */}
         <header className={`p-4 text-center transition-colors ${
           timeRemaining <= 5 ? 'bg-red-600 animate-pulse' :
@@ -1180,22 +1229,37 @@ export default function PlayerHome() {
   // WAITING SCREEN
   if (gameState === 'WAITING') {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
-        <div className="text-center">
-          <div className="text-6xl mb-6 animate-bounce">
-            {selectedAnswer ? '✅' : buzzerPressed ? '🔔' : '⏳'}
+      <main className="min-h-screen bg-gray-900 flex flex-col">
+        {/* Team Info Bar */}
+        <div className="bg-gray-800 px-4 py-2 flex items-center justify-between border-b border-gray-700">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: team?.color || '#8B5CF6' }}
+            />
+            <span className="text-white font-semibold text-sm">{team?.name || 'Équipe'}</span>
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">
-            {selectedAnswer ? 'Answer Submitted!' : buzzerPressed ? 'Buzzer Pressed!' : "Time's Up!"}
-          </h1>
-          <p className="text-gray-400">Waiting for results...</p>
-
-          {selectedAnswer && (
-            <div className="mt-8 bg-gray-800 rounded-2xl p-6">
-              <p className="text-gray-400 mb-2">Your Answer</p>
-              <p className="text-4xl font-bold text-purple-400">{selectedAnswer}</p>
+          <div className="text-purple-400 font-bold text-sm">
+            {team?.score || 0} pts
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-4">
+          <div className="text-center">
+            <div className="text-6xl mb-6 animate-bounce">
+              {selectedAnswer ? '✅' : buzzerPressed ? '🔔' : '⏳'}
             </div>
-          )}
+            <h1 className="text-2xl font-bold text-white mb-2">
+              {selectedAnswer ? 'Answer Submitted!' : buzzerPressed ? 'Buzzer Pressed!' : "Time's Up!"}
+            </h1>
+            <p className="text-gray-400">Waiting for results...</p>
+
+            {selectedAnswer && (
+              <div className="mt-8 bg-gray-800 rounded-2xl p-6">
+                <p className="text-gray-400 mb-2">Your Answer</p>
+                <p className="text-4xl font-bold text-purple-400">{selectedAnswer}</p>
+              </div>
+            )}
+          </div>
         </div>
       </main>
     );
