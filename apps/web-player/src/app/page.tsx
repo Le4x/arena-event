@@ -424,7 +424,7 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(true);
         setPointsEarned(data.points || 0);
-        setTeam(prev => prev ? { ...prev, score: prev.score + (data.points || 0) } : prev);
+        // Don't update score here - wait for score-update event
         setGameState('RESULT');
       }
       setBuzzerWinner(null);
@@ -447,19 +447,25 @@ export default function PlayerHome() {
       setBuzzerWinner(null);
     });
 
+    // Answer result - just confirms submission, actual results come at question-end
     socket.on('answer-result', (data) => {
+      // Points and correctness are now revealed at question-end, not here
+      // This event just confirms the answer was received
       if (data.teamId === teamId) {
-        setIsCorrect(data.isCorrect);
-        setPointsEarned(data.points || 0);
-        if (data.points > 0) {
-          setTeam(prev => prev ? { ...prev, score: prev.score + data.points } : prev);
-        }
+        console.log('Answer submitted successfully');
       }
     });
 
+    // Score updates - this is the ONLY place scores should be updated
     socket.on('score-update', (data) => {
       if (data.teamId === teamId) {
-        setTeam(prev => prev ? { ...prev, score: data.newScore } : prev);
+        setTeam(prev => {
+          if (!prev) return prev;
+          const updated = { ...prev, score: data.newScore };
+          // Also update localStorage to keep it in sync
+          localStorage.setItem('arena-team', JSON.stringify(updated));
+          return updated;
+        });
       }
     });
 

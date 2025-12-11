@@ -1787,15 +1787,43 @@ io.on('connection', (socket) => {
   });
 
   // Buzzer validation - correct answer (from Studio)
-  socket.on('buzzer-correct', (data) => {
+  socket.on('buzzer-correct', async (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${data.points}`);
-    io.to(`session:${sessionId}`).emit('buzzer-correct', {
-      team: data.team,
-      teamId: data.teamId,
-      teamName: data.teamName,
-      points: data.points
-    });
+    const points = data.points || 100;
+    console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${points}`);
+
+    // Update score in database
+    try {
+      const updatedTeam = await prisma.team.update({
+        where: { id: data.teamId },
+        data: { score: { increment: points } }
+      });
+
+      console.log(`📊 Buzzer points applied: team=${data.teamId}, +${points}, newScore=${updatedTeam.score}`);
+
+      // Emit score-update FIRST so all clients get the new score
+      io.to(`session:${sessionId}`).emit('score-update', {
+        teamId: data.teamId,
+        newScore: updatedTeam.score
+      });
+
+      // Then emit buzzer-correct for UI feedback
+      io.to(`session:${sessionId}`).emit('buzzer-correct', {
+        team: data.team,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        points: points
+      });
+    } catch (error) {
+      console.error('Error updating score for buzzer:', error);
+      // Still emit the event even if DB update fails
+      io.to(`session:${sessionId}`).emit('buzzer-correct', {
+        team: data.team,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        points: points
+      });
+    }
   });
 
   // Buzzer validation - wrong answer (from Studio)
