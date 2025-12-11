@@ -523,6 +523,29 @@ export default function StudioHome() {
     });
   };
 
+  // Show waiting screen with instructions
+  const showWaiting = () => {
+    socketRef.current?.emit('show-waiting', {
+      sessionId: selectedSession?.id,
+      message: 'Préparez-vous pour la prochaine question !',
+      instructions: [
+        'Restez concentrés',
+        'Gardez votre téléphone en main',
+        'La question arrive bientôt...'
+      ]
+    });
+  };
+
+  // Show sponsors screen
+  const showSponsors = () => {
+    socketRef.current?.emit('show-sponsors', {
+      sessionId: selectedSession?.id,
+      message: 'Merci à nos sponsors !',
+      sponsors: [], // Can be populated from event data
+      duration: 10000
+    });
+  };
+
   const validateBuzzer = (teamId: string, isCorrect: boolean) => {
     if (!selectedSession || !currentQuestion) return;
 
@@ -1362,6 +1385,22 @@ export default function StudioHome() {
                 >
                   <span className="text-2xl block mb-1">⏳</span>
                   Transition
+                </button>
+
+                <button
+                  onClick={showWaiting}
+                  className="bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                >
+                  <span className="text-2xl block mb-1">📝</span>
+                  Instructions
+                </button>
+
+                <button
+                  onClick={showSponsors}
+                  className="bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white font-bold py-4 px-6 rounded-xl transition transform hover:scale-105 shadow-lg"
+                >
+                  <span className="text-2xl block mb-1">⭐</span>
+                  Sponsors
                 </button>
 
                 {!isFinaleMode ? (
