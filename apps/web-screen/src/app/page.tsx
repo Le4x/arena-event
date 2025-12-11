@@ -786,10 +786,10 @@ export default function ScreenHome() {
               return (
                 <div
                   key={idx}
-                  className={`rounded-2xl p-6 flex items-center justify-between transition-all duration-500 ${isCorrect ? 'scale-105 ring-4' : 'opacity-50'}`}
+                  className={`rounded-2xl p-6 flex items-center justify-between transition-all duration-500 ${isCorrect ? 'scale-105' : 'opacity-50'}`}
                   style={{
                     backgroundColor: isCorrect ? theme.colors.correct : 'rgba(0,0,0,0.5)',
-                    ringColor: isCorrect ? theme.colors.correct : 'transparent'
+                    boxShadow: isCorrect ? `0 0 0 4px ${theme.colors.correct}` : 'none'
                   }}
                 >
                   <div className="flex items-center">
@@ -824,16 +824,16 @@ export default function ScreenHome() {
 
         {currentQuestion.type === 'TRUE_FALSE' && (
           <div className="grid grid-cols-2 gap-8 max-w-2xl w-full mb-12">
-            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'TRUE' ? 'scale-105 ring-4' : 'opacity-50'}`}
-              style={{ backgroundColor: correctAnswer === 'TRUE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', ringColor: correctAnswer === 'TRUE' ? theme.colors.correct : 'transparent' }}
+            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'TRUE' ? 'scale-105' : 'opacity-50'}`}
+              style={{ backgroundColor: correctAnswer === 'TRUE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', boxShadow: correctAnswer === 'TRUE' ? `0 0 0 4px ${theme.colors.correct}` : 'none' }}
             >
               <span className="text-4xl font-black" style={{ color: theme.colors.text }}>VRAI</span>
               <div className="mt-4 text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>
                 {Object.values(answers).filter(a => a === 'TRUE').length} reponses
               </div>
             </div>
-            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'FALSE' ? 'scale-105 ring-4' : 'opacity-50'}`}
-              style={{ backgroundColor: correctAnswer === 'FALSE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', ringColor: correctAnswer === 'FALSE' ? theme.colors.correct : 'transparent' }}
+            <div className={`rounded-2xl p-12 text-center transition-all ${correctAnswer === 'FALSE' ? 'scale-105' : 'opacity-50'}`}
+              style={{ backgroundColor: correctAnswer === 'FALSE' ? theme.colors.correct : 'rgba(0,0,0,0.5)', boxShadow: correctAnswer === 'FALSE' ? `0 0 0 4px ${theme.colors.correct}` : 'none' }}
             >
               <span className="text-4xl font-black" style={{ color: theme.colors.text }}>FAUX</span>
               <div className="mt-4 text-2xl" style={{ color: theme.colors.text, opacity: 0.8 }}>

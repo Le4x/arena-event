@@ -1434,10 +1434,10 @@ export default function PlayerHome() {
               return (
                 <div
                   key={t.id}
-                  className={`rounded-2xl p-4 flex items-center ${isYou ? 'ring-2' : ''}`}
+                  className="rounded-2xl p-4 flex items-center"
                   style={{
                     backgroundColor: isYou ? theme.colors.primary : index < 3 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)',
-                    ringColor: isYou ? theme.colors.accent : 'transparent'
+                    boxShadow: isYou ? `0 0 0 2px ${theme.colors.accent}` : 'none'
                   }}
                 >
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg mr-4 ${
