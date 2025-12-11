@@ -2002,6 +2002,40 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('show-leaderboard', { teams: data.teams });
   });
 
+  // Show waiting screen (instructions)
+  socket.on('show-waiting', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Showing waiting screen in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('show-waiting', {
+      message: data.message || 'Préparez-vous pour la prochaine question !',
+      instructions: data.instructions || [],
+      serverTime: Date.now()
+    });
+  });
+
+  // Show sponsors screen
+  socket.on('show-sponsors', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Showing sponsors screen in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('show-sponsors', {
+      sponsors: data.sponsors || [],
+      message: data.message || 'Merci à nos sponsors !',
+      duration: data.duration || 10000, // 10 seconds by default
+      serverTime: Date.now()
+    });
+  });
+
+  // Show transition screen
+  socket.on('show-transition', (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`Showing transition screen in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('show-transition', {
+      message: data.message || '',
+      type: data.type || 'default', // 'next-round', 'finale', 'break', etc.
+      serverTime: Date.now()
+    });
+  });
+
   // Game paused/resumed
   socket.on('game-paused', (data) => {
     const sessionId = data.sessionId || socket.sessionId;
