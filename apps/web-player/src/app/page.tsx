@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 // API URL - configurable via environment variable with HTTPS default
@@ -78,6 +78,126 @@ const defaultTheme: EventTheme = {
   fonts: { heading: 'inherit', body: 'inherit' },
 };
 
+// Animated background component
+const AnimatedBackground = ({ theme }: { theme: EventTheme }) => {
+  return (
+    <div className="fixed inset-0 overflow-hidden pointer-events-none">
+      <div
+        className="absolute inset-0"
+        style={{
+          background: theme.background && theme.backgroundType === 'image'
+            ? `url(${theme.background}) center/cover`
+            : `linear-gradient(135deg, ${theme.colors.background} 0%, ${theme.colors.primary}40 50%, ${theme.colors.secondary}40 100%)`
+        }}
+      />
+      {/* Animated orbs */}
+      <div
+        className="absolute w-96 h-96 rounded-full blur-3xl animate-float opacity-20"
+        style={{ backgroundColor: theme.colors.primary, top: '-10%', left: '-10%' }}
+      />
+      <div
+        className="absolute w-80 h-80 rounded-full blur-3xl animate-float-delayed opacity-20"
+        style={{ backgroundColor: theme.colors.secondary, bottom: '-10%', right: '-10%' }}
+      />
+      <div
+        className="absolute w-64 h-64 rounded-full blur-3xl animate-float opacity-15"
+        style={{ backgroundColor: theme.colors.accent, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
+      />
+    </div>
+  );
+};
+
+// Connection overlay component
+const ConnectionOverlay = ({
+  isVisible,
+  error,
+  retryCount,
+  maxRetries,
+  onRetry,
+  onBack,
+  theme
+}: {
+  isVisible: boolean;
+  error: string | null;
+  retryCount: number;
+  maxRetries: number;
+  onRetry: () => void;
+  onBack: () => void;
+  theme: EventTheme;
+}) => {
+  if (!isVisible) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-lg flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl border border-white/10">
+        {/* Animated connection icon */}
+        <div className="relative w-24 h-24 mx-auto mb-6">
+          <div
+            className="absolute inset-0 rounded-full animate-ping opacity-30"
+            style={{ backgroundColor: theme.colors.wrong }}
+          />
+          <div
+            className="absolute inset-2 rounded-full animate-pulse"
+            style={{ backgroundColor: `${theme.colors.wrong}40` }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <svg className="w-12 h-12 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
+            </svg>
+          </div>
+        </div>
+
+        <h2 className="text-2xl font-bold text-white mb-2">Connexion perdue</h2>
+        <p className="text-gray-400 mb-6">
+          {error || 'Tentative de reconnexion en cours...'}
+        </p>
+
+        {/* Progress indicator */}
+        {retryCount > 0 && retryCount < maxRetries && (
+          <div className="mb-6">
+            <div className="h-2 bg-gray-700 rounded-full overflow-hidden mb-2">
+              <div
+                className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500"
+                style={{ width: `${(retryCount / maxRetries) * 100}%` }}
+              />
+            </div>
+            <p className="text-sm text-gray-500">
+              Tentative {retryCount}/{maxRetries}...
+            </p>
+          </div>
+        )}
+
+        <button
+          onClick={onRetry}
+          className="w-full font-bold py-4 px-6 rounded-2xl transition-all transform hover:scale-105 active:scale-95 mb-4"
+          style={{
+            background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`,
+            color: theme.colors.text
+          }}
+        >
+          Reconnecter maintenant
+        </button>
+
+        <button
+          onClick={onBack}
+          className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-3 px-6 rounded-xl transition"
+        >
+          Retour à l'accueil
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Page transition wrapper
+const PageTransition = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => {
+  return (
+    <div className={`animate-slide-up ${className}`}>
+      {children}
+    </div>
+  );
+};
+
 export default function PlayerHome() {
   // Socket
   const socketRef = useRef<Socket | null>(null);
@@ -132,25 +252,18 @@ export default function PlayerHome() {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        // Page is now hidden (user switched apps/tabs)
-        console.log('📱 Page hidden - connection will pause');
-        // Socket.IO will handle disconnect automatically
+        console.log('Page hidden - connection will pause');
       } else {
-        // Page is now visible (user came back)
-        console.log('📱 Page visible - checking connection');
-        // Force reconnect if disconnected
+        console.log('Page visible - checking connection');
         if (socketRef.current && !socketRef.current.connected && session && team) {
-          console.log('🔄 Forcing reconnection...');
+          console.log('Forcing reconnection...');
           socketRef.current.connect();
         }
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [session, team]);
 
   // Game state
@@ -215,9 +328,15 @@ export default function PlayerHome() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const questionStartTime = useRef<number>(0);
 
-  // Game state ref for socket callbacks (avoid stale closure)
+  // Game state ref for socket callbacks
   const gameStateRef = useRef<GameState>(gameState);
   gameStateRef.current = gameState;
+
+  // Team ID ref for socket callbacks
+  const teamIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    teamIdRef.current = team?.id || null;
+  }, [team]);
 
   // Join session via API
   const handleJoin = async (e: React.FormEvent) => {
@@ -227,7 +346,7 @@ export default function PlayerHome() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       const res = await fetch(`${API_URL}/sessions/join`, {
         method: 'POST',
@@ -250,7 +369,6 @@ export default function PlayerHome() {
         eventName: data.session.event?.name || 'Arena Event',
       };
       setSession(newSession);
-      // Save to localStorage
       localStorage.setItem('arena-session', JSON.stringify(newSession));
       setExistingTeams(data.session.teams || []);
 
@@ -260,7 +378,6 @@ export default function PlayerHome() {
         if (themeRes.ok) {
           const themeData = await themeRes.json();
           setTheme({ ...defaultTheme, ...themeData });
-          // Save theme to localStorage
           localStorage.setItem('arena-theme', JSON.stringify({ ...defaultTheme, ...themeData }));
         }
       } catch (themeError) {
@@ -288,7 +405,7 @@ export default function PlayerHome() {
   // Create or join team
   const handleTeamJoin = async () => {
     if (!teamName.trim() || !session) {
-      setError('Please enter a team name');
+      setError('Entrez un nom d\'équipe');
       return;
     }
 
@@ -304,19 +421,16 @@ export default function PlayerHome() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to create team');
+        throw new Error(data.error || 'Impossible de créer l\'équipe');
       }
 
       const data = await res.json();
       setTeam(data);
-      // Save to localStorage
       localStorage.setItem('arena-team', JSON.stringify(data));
       setGameState('LOBBY');
-
-      // Connect socket
       connectSocket(session.id, data.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join team');
+      setError(err instanceof Error ? err.message : 'Erreur lors de la création');
     } finally {
       setLoading(false);
     }
@@ -327,7 +441,6 @@ export default function PlayerHome() {
     if (!session) return;
 
     setTeam(existingTeam);
-    // Save to localStorage
     localStorage.setItem('arena-team', JSON.stringify(existingTeam));
     setTeamName(existingTeam.name);
     setGameState('LOBBY');
@@ -344,9 +457,22 @@ export default function PlayerHome() {
     setRetryCount(prev => prev + 1);
   }, [session, team]);
 
-  // Socket connection (optimized for low latency)
+  // Go back to home
+  const goBackToHome = useCallback(() => {
+    socketRef.current?.disconnect();
+    localStorage.removeItem('arena-session');
+    localStorage.removeItem('arena-team');
+    localStorage.removeItem('arena-theme');
+    setShowConnectionOverlay(false);
+    setConnectionError(null);
+    setGameState('JOIN');
+    setSession(null);
+    setTeam(null);
+    setTheme(defaultTheme);
+  }, []);
+
+  // Socket connection
   const connectSocket = (sessionId: string, teamId: string) => {
-    // Disconnect existing socket if any
     if (socketRef.current) {
       socketRef.current.disconnect();
     }
@@ -377,8 +503,6 @@ export default function PlayerHome() {
     socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
       setIsConnected(false);
-      // Show overlay only if not in JOIN state (user has joined a session)
-      // Use ref to avoid stale closure bug
       if (gameStateRef.current !== 'JOIN' && gameStateRef.current !== 'TEAM_SELECT') {
         setShowConnectionOverlay(true);
         setConnectionError(`Connexion perdue: ${reason}`);
@@ -432,9 +556,8 @@ export default function PlayerHome() {
       stopTimer();
       setCorrectAnswer(data.correctAnswer);
 
-      // Find this team's result in the answers (points are applied at reveal)
-      if (data.answers && teamId) {
-        const myAnswer = data.answers.find((a: any) => a.teamId === teamId);
+      if (data.answers && teamIdRef.current) {
+        const myAnswer = data.answers.find((a: any) => a.teamId === teamIdRef.current);
         if (myAnswer) {
           setIsCorrect(myAnswer.isCorrect);
           setPointsEarned(myAnswer.points || 0);
@@ -444,12 +567,10 @@ export default function PlayerHome() {
       setGameState('RESULT');
     });
 
-    // Server-side timer sync (authoritative)
     socket.on('timer-sync', (data) => {
       setTimeRemaining(data.remaining);
     });
 
-    // Legacy timer-update support
     socket.on('timer-update', (data) => {
       setTimeRemaining(data.timeRemaining || data.remaining);
     });
@@ -480,18 +601,15 @@ export default function PlayerHome() {
 
     socket.on('buzzer-winner', (data) => {
       setBuzzerWinner(data.teamName);
-      // If this team won the buzzer, lock it
-      if (data.teamId === teamId) {
+      if (data.teamId === teamIdRef.current) {
         setBuzzerOpen(false);
       }
     });
 
-    // Buzzer validation events
     socket.on('buzzer-correct', (data) => {
-      if (data.teamId === teamId) {
+      if (data.teamId === teamIdRef.current) {
         setIsCorrect(true);
         setPointsEarned(data.points || 0);
-        // Don't update score here - wait for score-update event
         setGameState('RESULT');
       }
       setBuzzerWinner(null);
@@ -499,37 +617,30 @@ export default function PlayerHome() {
     });
 
     socket.on('buzzer-wrong', (data) => {
-      if (data.teamId === teamId) {
+      if (data.teamId === teamIdRef.current) {
         setIsCorrect(false);
         setPointsEarned(0);
-        // Show wrong feedback briefly then allow another try
         setBuzzerWrongFeedback(true);
         setTimeout(() => setBuzzerWrongFeedback(false), 2000);
         setBuzzerPressed(false);
         setBuzzerOpen(true);
       } else {
-        // Other teams can try again
         setBuzzerOpen(true);
       }
       setBuzzerWinner(null);
     });
 
-    // Answer result - just confirms submission, actual results come at question-end
     socket.on('answer-result', (data) => {
-      // Points and correctness are now revealed at question-end, not here
-      // This event just confirms the answer was received
-      if (data.teamId === teamId) {
+      if (data.teamId === teamIdRef.current) {
         console.log('Answer submitted successfully');
       }
     });
 
-    // Score updates - this is the ONLY place scores should be updated
     socket.on('score-update', (data) => {
-      if (data.teamId === teamId) {
+      if (data.teamId === teamIdRef.current) {
         setTeam(prev => {
           if (!prev) return prev;
           const updated = { ...prev, score: data.newScore };
-          // Also update localStorage to keep it in sync
           localStorage.setItem('arena-team', JSON.stringify(updated));
           return updated;
         });
@@ -559,7 +670,6 @@ export default function PlayerHome() {
     socket.on('blindtest-play', () => {
       setIsBlindtestPlaying(true);
       setBlindtestRevealed(false);
-      // Open buzzer for blindtest
       setBuzzerOpen(true);
       setBuzzerPressed(false);
     });
@@ -580,18 +690,16 @@ export default function PlayerHome() {
       setBuzzerOpen(false);
     });
 
-    // ========== FINALE MODE EVENTS ==========
+    // Finale mode events
     socket.on('finale-started', (data) => {
       setIsFinaleMode(true);
-      // Set my jokers from the jokers object
-      if (data.jokers && teamId && data.jokers[teamId]) {
-        setMyJokers(data.jokers[teamId]);
+      if (data.jokers && teamIdRef.current && data.jokers[teamIdRef.current]) {
+        setMyJokers(data.jokers[teamIdRef.current]);
       }
       setEliminatedOptions([]);
     });
 
     socket.on('finale-question-start', (data) => {
-      // Set up question UI (same as question-start)
       setCurrentQuestion(data.question);
       setTimeRemaining(data.timeLimit || data.question?.timeLimit || 30);
       setHasAnswered(false);
@@ -607,9 +715,8 @@ export default function PlayerHome() {
       setGameState('QUESTION');
       startTimer(data.timeLimit || data.question?.timeLimit || 30);
 
-      // Update jokers for finale mode
-      if (data.jokers && teamId && data.jokers[teamId]) {
-        setMyJokers(data.jokers[teamId]);
+      if (data.jokers && teamIdRef.current && data.jokers[teamIdRef.current]) {
+        setMyJokers(data.jokers[teamIdRef.current]);
       }
       setActiveJoker(null);
       setEliminatedOptions([]);
@@ -617,7 +724,7 @@ export default function PlayerHome() {
     });
 
     socket.on('joker-used', (data) => {
-      if (data.teamId === teamId) {
+      if (data.teamId === teamIdRef.current) {
         setMyJokers(data.remainingJokers);
         setActiveJoker(data.jokerType);
       }
@@ -640,10 +747,7 @@ export default function PlayerHome() {
     });
   };
 
-  // Timer is now server-side - no client-side interval needed
-  // The server emits 'timer-sync' events every 100ms for smooth synchronized updates
   const startTimer = (seconds: number) => {
-    // Only set initial time, server will sync the rest
     setTimeRemaining(seconds);
   };
 
@@ -654,7 +758,7 @@ export default function PlayerHome() {
     }
   };
 
-  // Submit answer (Socket only for lower latency - no duplicate REST call)
+  // Submit answer
   const handleAnswer = async (answer: string) => {
     if (hasAnswered || !currentQuestion || !session || !team) return;
 
@@ -664,7 +768,6 @@ export default function PlayerHome() {
 
     const responseTime = Date.now() - questionStartTime.current;
 
-    // Send via socket only (server handles persistence)
     socketRef.current?.emit('submit-answer', {
       sessionId: session.id,
       teamId: team.id,
@@ -674,20 +777,18 @@ export default function PlayerHome() {
     });
   };
 
-  // Submit text answer
   const handleTextAnswer = () => {
     if (textAnswer.trim()) {
       handleAnswer(textAnswer.trim());
     }
   };
 
-  // Press buzzer (with server acknowledgment for reliability)
+  // Press buzzer
   const handleBuzzer = () => {
     if (buzzerPressed || !buzzerOpen || !session || !team) return;
 
     setBuzzerPressed(true);
 
-    // Emit with acknowledgment callback
     socketRef.current?.emit('buzzer-press', {
       sessionId: session.id,
       teamId: team.id,
@@ -695,27 +796,23 @@ export default function PlayerHome() {
       team: team,
       timestamp: Date.now(),
     }, (response: { success: boolean; winner: boolean; actualWinner?: { name: string } }) => {
-      // Handle acknowledgment from server
       if (response) {
         if (response.success && response.winner) {
-          // We won the buzzer!
           console.log('Buzzer press confirmed - we won!');
         } else if (!response.success && response.actualWinner) {
-          // Someone else was faster
           console.log(`Buzzer press rejected - ${response.actualWinner.name} was faster`);
           setBuzzerPressed(false);
-          // Keep buzzer locked since someone else won
           setBuzzerOpen(false);
         }
       }
     });
   };
 
-  // Use joker (finale mode only)
+  // Use joker
   const useJoker = (jokerType: string) => {
     if (!session || !team || !isFinaleMode) return;
     if (!myJokers[jokerType] || myJokers[jokerType] <= 0) return;
-    if (activeJoker) return; // Already using a joker this question
+    if (activeJoker) return;
 
     socketRef.current?.emit('joker-use', {
       sessionId: session.id,
@@ -730,9 +827,9 @@ export default function PlayerHome() {
     const count = myJokers[jokerType] || 0;
     const isActive = activeJoker === jokerType;
 
-    if (count <= 0) return 'bg-gray-700 opacity-40 cursor-not-allowed';
-    if (isActive) return 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-2 ring-white animate-pulse';
-    return 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600';
+    if (count <= 0) return 'bg-gray-800/50 opacity-40 cursor-not-allowed';
+    if (isActive) return 'bg-gradient-to-r from-yellow-400 to-orange-500 ring-2 ring-white animate-pulse shadow-lg shadow-yellow-500/30';
+    return 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 shadow-lg';
   };
 
   // Cleanup
@@ -753,72 +850,99 @@ export default function PlayerHome() {
   // Team colors
   const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#EF4444'];
 
+  // Timer urgency class
+  const getTimerClass = () => {
+    if (timeRemaining <= 3) return 'animate-shake text-red-500 scale-125';
+    if (timeRemaining <= 5) return 'animate-pulse text-red-400 scale-110';
+    if (timeRemaining <= 10) return 'text-orange-400';
+    return 'text-white';
+  };
+
+  // ============== RENDER ==============
+
+  // Connection overlay always available
+  const connectionOverlay = (
+    <ConnectionOverlay
+      isVisible={showConnectionOverlay}
+      error={connectionError}
+      retryCount={retryCount}
+      maxRetries={maxRetries}
+      onRetry={retryConnection}
+      onBack={goBackToHome}
+      theme={theme}
+    />
+  );
+
   // JOIN SCREEN
   if (gameState === 'JOIN') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="text-center mb-8">
-            <div className="text-7xl mb-4 animate-bounce">🎮</div>
-            <h1 className="text-4xl font-black text-white drop-shadow-lg">Arena Event</h1>
-            <p className="text-purple-100 mt-2 text-lg">Join the game!</p>
+      <main className="min-h-screen relative overflow-hidden">
+        <AnimatedBackground theme={theme} />
+        <PageTransition className="relative z-10 min-h-screen flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <div className="text-center mb-8">
+              <div className="text-7xl mb-4 animate-bounce">🎮</div>
+              <h1 className="text-4xl font-black text-white drop-shadow-lg">Arena Event</h1>
+              <p className="text-purple-200 mt-2 text-lg">Rejoins la partie !</p>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-xl rounded-3xl shadow-2xl p-8 border border-white/20">
+              {error && (
+                <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-xl animate-shake">
+                  <p className="text-red-200 text-sm text-center">{error}</p>
+                </div>
+              )}
+
+              <form onSubmit={handleJoin} className="space-y-6">
+                <div>
+                  <label className="block text-lg font-bold text-white mb-3">
+                    Code de session
+                  </label>
+                  <input
+                    type="text"
+                    value={sessionCode}
+                    onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
+                    className="w-full px-4 py-5 text-3xl text-center font-black bg-black/30 border-2 border-white/20 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-500/30 uppercase tracking-[0.3em] text-white placeholder-white/30"
+                    placeholder="ABC123"
+                    maxLength={6}
+                    required
+                    disabled={loading}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || sessionCode.length < 4}
+                  className="w-full text-white text-2xl font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:transform-none"
+                  style={{ background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})` }}
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin h-6 w-6 mr-3" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Connexion...
+                    </span>
+                  ) : 'REJOINDRE'}
+                </button>
+              </form>
+            </div>
+
+            <div className="mt-8 grid grid-cols-3 gap-3">
+              {[
+                { icon: '⚡', label: 'Rapide' },
+                { icon: '🎯', label: 'Temps réel' },
+                { icon: '🏆', label: 'Compétitif' },
+              ].map((item, idx) => (
+                <div key={idx} className="bg-white/10 backdrop-blur rounded-xl p-4 text-center border border-white/10">
+                  <div className="text-3xl mb-1">{item.icon}</div>
+                  <div className="text-xs text-white/80 font-semibold">{item.label}</div>
+                </div>
+              ))}
+            </div>
           </div>
-
-          <div className="bg-white rounded-3xl shadow-2xl p-8">
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl">
-                <p className="text-red-600 text-sm text-center">{error}</p>
-              </div>
-            )}
-
-            <form onSubmit={handleJoin} className="space-y-6">
-              <div>
-                <label className="block text-lg font-bold text-gray-700 mb-3">
-                  Session Code
-                </label>
-                <input
-                  type="text"
-                  value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-                  className="w-full px-4 py-5 text-3xl text-center font-black border-3 border-gray-200 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-200 uppercase tracking-[0.3em] text-gray-800"
-                  placeholder="ABC123"
-                  maxLength={6}
-                  required
-                  disabled={loading}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading || sessionCode.length < 4}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-2xl font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:transform-none"
-              >
-                {loading ? (
-                  <span className="flex items-center justify-center">
-                    <svg className="animate-spin h-6 w-6 mr-3" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Joining...
-                  </span>
-                ) : 'JOIN GAME'}
-              </button>
-            </form>
-          </div>
-
-          <div className="mt-8 grid grid-cols-3 gap-3">
-            {[
-              { icon: '⚡', label: 'Fast' },
-              { icon: '🎯', label: 'Real-time' },
-              { icon: '🏆', label: 'Compete' },
-            ].map((item, idx) => (
-              <div key={idx} className="bg-white/20 backdrop-blur rounded-xl p-4 text-center">
-                <div className="text-3xl mb-1">{item.icon}</div>
-                <div className="text-xs text-white font-semibold">{item.label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        </PageTransition>
       </main>
     );
   }
@@ -826,102 +950,107 @@ export default function PlayerHome() {
   // TEAM SELECTION SCREEN
   if (gameState === 'TEAM_SELECT') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="text-center mb-6">
-            <div className="text-5xl mb-4">👥</div>
-            <h1 className="text-3xl font-bold text-white">{session?.eventName}</h1>
-            <p className="text-purple-100 mt-2">
-              Code: <span className="font-mono font-bold">{session?.code}</span>
-            </p>
-          </div>
-
-          <div className="bg-white rounded-3xl shadow-2xl p-6">
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl">
-                <p className="text-red-600 text-sm text-center">{error}</p>
-              </div>
-            )}
-
-            {/* Existing teams */}
-            {existingTeams.length > 0 && (
-              <div className="mb-6">
-                <p className="text-gray-600 font-medium mb-3">Join existing team:</p>
-                <div className="space-y-2">
-                  {existingTeams.map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => joinExistingTeam(t)}
-                      className="w-full flex items-center p-3 bg-gray-50 hover:bg-purple-50 rounded-xl transition"
-                    >
-                      <div
-                        className="w-10 h-10 rounded-full mr-3"
-                        style={{ backgroundColor: t.color }}
-                      ></div>
-                      <span className="font-semibold text-gray-800">{t.name}</span>
-                      <span className="ml-auto text-purple-600 font-bold">{t.score} pts</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200"></div>
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="bg-white px-4 text-gray-500 text-sm">or create new team</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Create new team */}
-            <div className="space-y-4">
-              <input
-                type="text"
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-                className="w-full px-4 py-4 text-xl text-center font-bold border-2 border-gray-200 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-200 text-gray-800"
-                placeholder="Team Name"
-                maxLength={20}
-              />
-
-              <div>
-                <p className="text-gray-600 text-sm mb-2 text-center">Choose color:</p>
-                <div className="flex justify-center gap-3">
-                  {colors.map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setTeamColor(c)}
-                      className={`w-10 h-10 rounded-full transition transform hover:scale-110 ${
-                        teamColor === c ? 'ring-4 ring-gray-400 scale-110' : ''
-                      }`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={handleTeamJoin}
-                disabled={!teamName.trim() || loading}
-                className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white text-xl font-bold py-5 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
-              >
-                {loading ? 'Creating...' : `JOIN AS ${teamName || '...'}`}
-              </button>
+      <main className="min-h-screen relative overflow-hidden">
+        <AnimatedBackground theme={theme} />
+        <PageTransition className="relative z-10 min-h-screen flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <div className="text-center mb-6">
+              {theme.logo && <img src={theme.logo} alt="Logo" className="h-16 mx-auto mb-4" />}
+              <div className="text-5xl mb-4">👥</div>
+              <h1 className="text-3xl font-bold text-white">{session?.eventName}</h1>
+              <p className="text-purple-200 mt-2">
+                Code: <span className="font-mono font-bold">{session?.code}</span>
+              </p>
             </div>
-          </div>
 
-          <button
-            onClick={() => {
-              setGameState('JOIN');
-              setSession(null);
-              setError('');
-            }}
-            className="mt-6 text-white/80 hover:text-white transition mx-auto block"
-          >
-            ← Back
-          </button>
-        </div>
+            <div className="bg-white/10 backdrop-blur-xl rounded-3xl shadow-2xl p-6 border border-white/20">
+              {error && (
+                <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-xl">
+                  <p className="text-red-200 text-sm text-center">{error}</p>
+                </div>
+              )}
+
+              {/* Existing teams */}
+              {existingTeams.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-white/80 font-medium mb-3">Rejoindre une équipe:</p>
+                  <div className="space-y-2">
+                    {existingTeams.map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => joinExistingTeam(t)}
+                        className="w-full flex items-center p-3 bg-black/20 hover:bg-black/30 rounded-xl transition border border-white/10"
+                      >
+                        <div
+                          className="w-10 h-10 rounded-full mr-3 shadow-lg"
+                          style={{ backgroundColor: t.color }}
+                        />
+                        <span className="font-semibold text-white">{t.name}</span>
+                        <span className="ml-auto font-bold" style={{ color: theme.colors.primary }}>{t.score} pts</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="relative my-6">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-white/20"></div>
+                    </div>
+                    <div className="relative flex justify-center">
+                      <span className="bg-transparent px-4 text-white/50 text-sm">ou créer une équipe</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Create new team */}
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  className="w-full px-4 py-4 text-xl text-center font-bold bg-black/30 border-2 border-white/20 rounded-2xl focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-500/30 text-white placeholder-white/30"
+                  placeholder="Nom de l'équipe"
+                  maxLength={20}
+                />
+
+                <div>
+                  <p className="text-white/60 text-sm mb-2 text-center">Choisir une couleur:</p>
+                  <div className="flex justify-center gap-3">
+                    {colors.map(c => (
+                      <button
+                        key={c}
+                        onClick={() => setTeamColor(c)}
+                        className={`w-10 h-10 rounded-full transition transform hover:scale-110 ${
+                          teamColor === c ? 'ring-4 ring-white scale-110 shadow-lg' : ''
+                        }`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleTeamJoin}
+                  disabled={!teamName.trim() || loading}
+                  className="w-full text-white text-xl font-bold py-5 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+                  style={{ background: `linear-gradient(to right, ${theme.colors.correct}, #059669)` }}
+                >
+                  {loading ? 'Création...' : `JOUER EN TANT QUE ${teamName || '...'}`}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setGameState('JOIN');
+                setSession(null);
+                setError('');
+              }}
+              className="mt-6 text-white/60 hover:text-white transition mx-auto block"
+            >
+              ← Retour
+            </button>
+          </div>
+        </PageTransition>
       </main>
     );
   }
@@ -929,61 +1058,63 @@ export default function PlayerHome() {
   // LOBBY SCREEN
   if (gameState === 'LOBBY') {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-4"
-        style={{ background: `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})` }}
-      >
-        <div className="w-full max-w-md text-center">
-          <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 mb-8">
-            {theme.logo && <img src={theme.logo} alt="Logo" className="h-20 mx-auto mb-4" />}
-            <div className="text-6xl mb-4 animate-pulse">⏳</div>
-            <h1 className="text-3xl font-bold mb-2" style={{ color: theme.colors.text }}>En attente du début...</h1>
-            <p style={{ color: theme.colors.text, opacity: 0.8 }}>Le jeu va bientôt commencer!</p>
-          </div>
+      <main className="min-h-screen relative overflow-hidden">
+        <AnimatedBackground theme={theme} />
+        {connectionOverlay}
+        <PageTransition className="relative z-10 min-h-screen flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md text-center">
+            <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 mb-6 border border-white/20">
+              {theme.logo && <img src={theme.logo} alt="Logo" className="h-20 mx-auto mb-4" />}
+              <div className="text-6xl mb-4 animate-pulse">⏳</div>
+              <h1 className="text-3xl font-bold text-white mb-2">En attente...</h1>
+              <p className="text-white/60">Le jeu va bientôt commencer!</p>
+            </div>
 
-          <div className="bg-white rounded-3xl shadow-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Ton équipe</span>
-              <div className="flex items-center">
-                <div
-                  className="w-4 h-4 rounded-full mr-2"
-                  style={{ backgroundColor: team?.color || teamColor }}
-                ></div>
-                <span className="font-bold" style={{ color: theme.colors.primary }}>{team?.name || teamName}</span>
+            <div className="bg-white/10 backdrop-blur-xl rounded-3xl shadow-2xl p-6 border border-white/20">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/10">
+                <span className="text-white/60">Ton équipe</span>
+                <div className="flex items-center">
+                  <div
+                    className="w-4 h-4 rounded-full mr-2"
+                    style={{ backgroundColor: team?.color || teamColor }}
+                  />
+                  <span className="font-bold text-white">{team?.name || teamName}</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/10">
+                <span className="text-white/60">Session</span>
+                <span className="font-mono font-bold text-white">{session?.code}</span>
+              </div>
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/10">
+                <span className="text-white/60">Score</span>
+                <span className="font-bold" style={{ color: theme.colors.primary }}>{team?.score || 0}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-white/60">Status</span>
+                <span className={`flex items-center font-medium ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></span>
+                  {isConnected ? 'Connecté' : 'Connexion...'}
+                </span>
               </div>
             </div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Session</span>
-              <span className="font-mono font-bold text-gray-800">{session?.code}</span>
-            </div>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-gray-500">Score</span>
-              <span className="font-bold" style={{ color: theme.colors.primary }}>{team?.score || 0}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500">Status</span>
-              <span className={`flex items-center font-medium ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
-                <span className={`w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-                {isConnected ? 'Connecté' : 'Connexion...'}
-              </span>
-            </div>
+
+            {/* Fullscreen Button */}
+            {!isFullscreen && (
+              <button
+                onClick={requestFullscreen}
+                className="mt-6 w-full font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                style={{ background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`, color: theme.colors.text }}
+              >
+                <span className="text-xl">📱</span>
+                <span>Mode Plein Écran</span>
+              </button>
+            )}
+
+            <p className="mt-6 text-sm text-white/50">
+              Préparez-vous! La première question arrive...
+            </p>
           </div>
-
-          {/* Fullscreen Button */}
-          {!isFullscreen && (
-            <button
-              onClick={requestFullscreen}
-              className="mt-6 w-full font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
-              style={{ background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})`, color: theme.colors.text }}
-            >
-              <span className="text-xl">📱</span>
-              <span>Mode Plein Écran</span>
-            </button>
-          )}
-
-          <p className="mt-6 text-sm" style={{ color: theme.colors.text, opacity: 0.8 }}>
-            Préparez-vous! La première question arrive...
-          </p>
-        </div>
+        </PageTransition>
       </main>
     );
   }
@@ -991,47 +1122,56 @@ export default function PlayerHome() {
   // QUESTION SCREEN
   if (gameState === 'QUESTION' && currentQuestion) {
     return (
-      <main className="min-h-screen flex flex-col" style={{ backgroundColor: theme.colors.background }}>
+      <main className="min-h-screen flex flex-col relative" style={{ backgroundColor: theme.colors.background }}>
+        {connectionOverlay}
+
+        {/* Critical time overlay */}
+        {timeRemaining <= 5 && (
+          <div className="fixed inset-0 bg-red-900/30 pointer-events-none animate-pulse z-10" />
+        )}
+
         {/* Team Info Bar */}
-        <div className="bg-black/30 backdrop-blur px-4 py-2 flex items-center justify-between border-b border-white/10">
+        <div className="bg-black/40 backdrop-blur px-4 py-2 flex items-center justify-between border-b border-white/10 relative z-20">
           <div className="flex items-center gap-2">
             <div
-              className="w-4 h-4 rounded-full"
+              className="w-4 h-4 rounded-full shadow-lg"
               style={{ backgroundColor: team?.color || theme.colors.primary }}
             />
-            <span className="font-semibold text-sm" style={{ color: theme.colors.text }}>{team?.name || 'Équipe'}</span>
+            <span className="font-semibold text-sm text-white">{team?.name || 'Équipe'}</span>
           </div>
           <div className="font-bold text-sm" style={{ color: theme.colors.primary }}>
             {team?.score || 0} pts
           </div>
         </div>
+
         {/* Timer Header */}
-        <header className={`p-4 text-center transition-colors ${timeRemaining <= 5 ? 'animate-pulse' : ''}`}
+        <header
+          className={`p-4 text-center transition-all duration-300 relative z-20 ${timeRemaining <= 5 ? 'animate-pulse' : ''}`}
           style={{
             backgroundColor: timeRemaining <= 5 ? theme.colors.wrong :
               timeRemaining <= 10 ? theme.colors.accent :
               isFinaleMode ? theme.colors.accent : theme.colors.primary
           }}
         >
-          {/* Finale mode badge */}
           {isFinaleMode && (
-            <div className="text-xs font-bold mb-1 tracking-wider" style={{ color: theme.colors.text, opacity: 0.9 }}>
+            <div className="text-xs font-bold mb-1 tracking-wider text-white/90">
               🏆 MODE FINALE
             </div>
           )}
-          {/* Time plus indicator */}
           {timePlusActive && (
-            <div className="text-xs font-bold mb-1 animate-pulse" style={{ color: theme.colors.correct }}>
+            <div className="text-xs font-bold mb-1 animate-bounce" style={{ color: theme.colors.correct }}>
               ⏳ +15 SECONDES!
             </div>
           )}
-          <div className="text-5xl font-black" style={{ color: theme.colors.text }}>{timeRemaining}</div>
-          <div className="text-sm" style={{ color: theme.colors.text, opacity: 0.8 }}>secondes restantes</div>
+          <div className={`text-5xl font-black transition-all duration-300 ${getTimerClass()}`}>
+            {timeRemaining}
+          </div>
+          <div className="text-sm text-white/80">secondes</div>
         </header>
 
         {/* Question */}
-        <div className="flex-1 p-4 flex flex-col">
-          <div className="bg-black/40 backdrop-blur rounded-2xl p-6 mb-4">
+        <div className="flex-1 p-4 flex flex-col relative z-20">
+          <div className="bg-black/40 backdrop-blur-lg rounded-2xl p-6 mb-4 border border-white/10">
             {currentQuestion.mediaUrl && (
               <img
                 src={currentQuestion.mediaUrl}
@@ -1039,7 +1179,7 @@ export default function PlayerHome() {
                 className="w-full h-40 object-cover rounded-xl mb-4"
               />
             )}
-            <p className="text-xl font-semibold text-center leading-relaxed" style={{ color: theme.colors.text }}>
+            <p className="text-xl font-semibold text-center leading-relaxed text-white">
               {currentQuestion.text}
             </p>
             <p className="text-center mt-2" style={{ color: theme.colors.primary }}>
@@ -1050,10 +1190,9 @@ export default function PlayerHome() {
 
           {/* Joker Buttons (Finale Mode Only) */}
           {isFinaleMode && !hasAnswered && (
-            <div className="bg-gray-800/50 rounded-2xl p-3 mb-4">
-              <div className="text-xs text-gray-400 text-center mb-2 font-semibold">⚡ JOKERS</div>
+            <div className="bg-black/30 backdrop-blur-lg rounded-2xl p-3 mb-4 border border-white/10">
+              <div className="text-xs text-white/60 text-center mb-2 font-semibold">⚡ JOKERS</div>
               <div className="grid grid-cols-4 gap-2">
-                {/* DOUBLE - x2 points */}
                 <button
                   onClick={() => useJoker('DOUBLE')}
                   disabled={!myJokers['DOUBLE'] || myJokers['DOUBLE'] <= 0 || !!activeJoker}
@@ -1064,7 +1203,6 @@ export default function PlayerHome() {
                   <div className="text-[10px] opacity-70">{myJokers['DOUBLE'] || 0}</div>
                 </button>
 
-                {/* TIME_PLUS - +15 seconds */}
                 <button
                   onClick={() => useJoker('TIME_PLUS')}
                   disabled={!myJokers['TIME_PLUS'] || myJokers['TIME_PLUS'] <= 0 || !!activeJoker}
@@ -1075,7 +1213,6 @@ export default function PlayerHome() {
                   <div className="text-[10px] opacity-70">{myJokers['TIME_PLUS'] || 0}</div>
                 </button>
 
-                {/* FIFTY_FIFTY - Remove 2 wrong answers */}
                 <button
                   onClick={() => useJoker('FIFTY_FIFTY')}
                   disabled={!myJokers['FIFTY_FIFTY'] || myJokers['FIFTY_FIFTY'] <= 0 || !!activeJoker || currentQuestion.type !== 'MCQ'}
@@ -1086,7 +1223,6 @@ export default function PlayerHome() {
                   <div className="text-[10px] opacity-70">{myJokers['FIFTY_FIFTY'] || 0}</div>
                 </button>
 
-                {/* SHIELD - Protect from wrong answer penalty */}
                 <button
                   onClick={() => useJoker('SHIELD')}
                   disabled={!myJokers['SHIELD'] || myJokers['SHIELD'] <= 0 || !!activeJoker}
@@ -1100,8 +1236,8 @@ export default function PlayerHome() {
               {activeJoker && (
                 <div className="text-center mt-2 text-yellow-400 text-xs font-bold animate-pulse">
                   {activeJoker === 'DOUBLE' && '🔥 Points x2 actif!'}
-                  {activeJoker === 'TIME_PLUS' && '⏳ +15 secondes ajoutees!'}
-                  {activeJoker === 'FIFTY_FIFTY' && '🎯 2 mauvaises reponses eliminees!'}
+                  {activeJoker === 'TIME_PLUS' && '⏳ +15 secondes ajoutées!'}
+                  {activeJoker === 'FIFTY_FIFTY' && '🎯 2 mauvaises réponses éliminées!'}
                   {activeJoker === 'SHIELD' && '🛡️ Bouclier actif!'}
                 </div>
               )}
@@ -1122,15 +1258,14 @@ export default function PlayerHome() {
                 const isSelected = selectedAnswer === letter;
                 const isEliminated = eliminatedOptions.includes(letter);
 
-                // Don't show eliminated options (50/50 joker)
                 if (isEliminated) {
                   return (
                     <div
                       key={idx}
-                      className="bg-gray-700/50 text-gray-500 py-5 px-6 rounded-2xl border-2 border-dashed border-gray-600"
+                      className="bg-gray-800/50 text-gray-500 py-5 px-6 rounded-2xl border-2 border-dashed border-gray-600"
                     >
                       <div className="flex items-center">
-                        <span className="w-10 h-10 bg-gray-600/50 rounded-full flex items-center justify-center mr-4 text-xl font-black line-through">
+                        <span className="w-10 h-10 bg-gray-700/50 rounded-full flex items-center justify-center mr-4 text-xl font-black line-through">
                           {letter}
                         </span>
                         <span className="text-lg text-left flex-1 line-through opacity-50">{option}</span>
@@ -1146,7 +1281,7 @@ export default function PlayerHome() {
                     onClick={() => handleAnswer(letter)}
                     disabled={hasAnswered}
                     className={`bg-gradient-to-r ${colorClasses[idx % 4]} text-white font-bold py-5 px-6 rounded-2xl shadow-lg transition transform active:scale-95 disabled:opacity-70 ${
-                      isSelected ? 'ring-4 ring-white scale-[1.02]' : ''
+                      isSelected ? 'ring-4 ring-white scale-[1.02] shadow-xl' : ''
                     }`}
                   >
                     <div className="flex items-center">
@@ -1168,7 +1303,7 @@ export default function PlayerHome() {
                 onClick={() => handleAnswer('TRUE')}
                 disabled={hasAnswered}
                 className={`bg-gradient-to-br from-green-500 to-green-600 text-white font-black text-3xl py-8 rounded-2xl shadow-lg transition transform active:scale-95 ${
-                  selectedAnswer === 'TRUE' ? 'ring-4 ring-white' : ''
+                  selectedAnswer === 'TRUE' ? 'ring-4 ring-white shadow-xl' : ''
                 }`}
               >
                 VRAI
@@ -1177,7 +1312,7 @@ export default function PlayerHome() {
                 onClick={() => handleAnswer('FALSE')}
                 disabled={hasAnswered}
                 className={`bg-gradient-to-br from-red-500 to-red-600 text-white font-black text-3xl py-8 rounded-2xl shadow-lg transition transform active:scale-95 ${
-                  selectedAnswer === 'FALSE' ? 'ring-4 ring-white' : ''
+                  selectedAnswer === 'FALSE' ? 'ring-4 ring-white shadow-xl' : ''
                 }`}
               >
                 FAUX
@@ -1188,20 +1323,19 @@ export default function PlayerHome() {
           {/* Buzzer */}
           {currentQuestion.type === 'BUZZER' && (
             <div className="flex-1 flex flex-col items-center justify-center">
-              {/* Wrong answer feedback */}
               {buzzerWrongFeedback && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
-                  <p className="text-red-400 text-xl font-bold">❌ Wrong! Try again!</p>
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-shake">
+                  <p className="text-red-400 text-xl font-bold">❌ Mauvais! Réessaye!</p>
                 </div>
               )}
 
               {buzzerWinner ? (
                 <div className="text-center">
                   <p className="text-2xl text-white mb-4">
-                    {buzzerWinner === team?.name ? '🎉 You got the buzzer!' : `${buzzerWinner} got the buzzer!`}
+                    {buzzerWinner === team?.name ? '🎉 Tu as buzzé!' : `${buzzerWinner} a buzzé!`}
                   </p>
                   {buzzerWinner === team?.name && (
-                    <p className="text-gray-400">Waiting for validation...</p>
+                    <p className="text-white/60">En attente de validation...</p>
                   )}
                 </div>
               ) : (
@@ -1212,12 +1346,12 @@ export default function PlayerHome() {
                     buzzerPressed
                       ? 'bg-gray-600'
                       : buzzerOpen
-                        ? 'bg-gradient-to-br from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 animate-pulse'
+                        ? 'bg-gradient-to-br from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 animate-pulse shadow-red-500/50'
                         : 'bg-gray-600 opacity-50'
                   }`}
                 >
                   <span className="text-white text-3xl font-black">
-                    {buzzerPressed ? 'BUZZED!' : buzzerOpen ? 'BUZZ!' : 'WAIT...'}
+                    {buzzerPressed ? 'BUZZÉ!' : buzzerOpen ? 'BUZZ!' : 'ATTENDS...'}
                   </span>
                 </button>
               )}
@@ -1232,15 +1366,16 @@ export default function PlayerHome() {
                 value={textAnswer}
                 onChange={(e) => setTextAnswer(e.target.value)}
                 disabled={hasAnswered}
-                className="w-full px-4 py-4 text-xl text-center font-bold bg-gray-800 border-2 border-gray-600 rounded-2xl focus:outline-none focus:border-purple-500 text-white mb-4"
-                placeholder="Your answer..."
+                className="w-full px-4 py-4 text-xl text-center font-bold bg-black/30 border-2 border-white/20 rounded-2xl focus:outline-none focus:border-purple-500 text-white placeholder-white/30 mb-4"
+                placeholder="Ta réponse..."
               />
               <button
                 onClick={handleTextAnswer}
                 disabled={hasAnswered || !textAnswer.trim()}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-4 rounded-2xl disabled:opacity-50"
+                className="w-full font-bold py-4 rounded-2xl disabled:opacity-50 text-white"
+                style={{ background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})` }}
               >
-                Submit Answer
+                Envoyer
               </button>
             </div>
           )}
@@ -1248,45 +1383,41 @@ export default function PlayerHome() {
           {/* Blindtest */}
           {currentQuestion.type === 'BLIND_TEST' && (
             <div className="flex-1 flex flex-col items-center justify-center">
-              {/* Status indicator */}
               <div className={`mb-6 px-6 py-3 rounded-full ${
-                isBlindtestPlaying ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-400'
+                isBlindtestPlaying ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-400'
               }`}>
                 <p className="text-xl font-bold flex items-center">
                   {isBlindtestPlaying ? (
                     <><span className="animate-pulse mr-2">🎵</span> Musique en cours...</>
                   ) : blindtestRevealed ? (
-                    <><span className="mr-2">✅</span> Reponse revelee</>
+                    <><span className="mr-2">✅</span> Réponse révélée</>
                   ) : (
                     <><span className="mr-2">🎧</span> En attente...</>
                   )}
                 </p>
               </div>
 
-              {/* Revealed answer */}
               {blindtestRevealed && (
                 <div className="mb-6 bg-purple-500/20 border-2 border-purple-500 rounded-xl p-6 text-center">
-                  <p className="text-purple-300 text-lg mb-2">C'etait...</p>
+                  <p className="text-purple-300 text-lg mb-2">C'était...</p>
                   <p className="text-3xl font-bold text-white">{revealedSong}</p>
                   <p className="text-xl text-purple-300 mt-2">par {revealedArtist}</p>
                 </div>
               )}
 
-              {/* Wrong answer feedback */}
               {buzzerWrongFeedback && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
-                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-shake">
+                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise réponse!</p>
                 </div>
               )}
 
-              {/* Buzzer winner or buzzer button */}
               {buzzerWinner ? (
                 <div className="text-center">
                   <p className="text-2xl text-white mb-4">
-                    {buzzerWinner === team?.name ? '🎉 Tu as buzze!' : `${buzzerWinner} a buzze!`}
+                    {buzzerWinner === team?.name ? '🎉 Tu as buzzé!' : `${buzzerWinner} a buzzé!`}
                   </p>
                   {buzzerWinner === team?.name && (
-                    <p className="text-gray-400">En attente de validation...</p>
+                    <p className="text-white/60">En attente de validation...</p>
                   )}
                 </div>
               ) : !blindtestRevealed && (
@@ -1297,14 +1428,14 @@ export default function PlayerHome() {
                     buzzerPressed
                       ? 'bg-gray-600'
                       : buzzerOpen && isBlindtestPlaying
-                        ? 'bg-gradient-to-br from-purple-500 to-pink-700 hover:from-purple-600 hover:to-pink-800 animate-pulse'
+                        ? 'bg-gradient-to-br from-purple-500 to-pink-700 hover:from-purple-600 hover:to-pink-800 animate-pulse shadow-purple-500/50'
                         : 'bg-gray-600 opacity-50'
                   }`}
                 >
                   <div className="flex flex-col items-center">
                     <span className="text-4xl mb-2">🎵</span>
                     <span className="text-white text-2xl font-black">
-                      {buzzerPressed ? 'BUZZE!' : buzzerOpen && isBlindtestPlaying ? 'JE SAIS!' : 'ATTENDS...'}
+                      {buzzerPressed ? 'BUZZÉ!' : buzzerOpen && isBlindtestPlaying ? 'JE SAIS!' : 'ATTENDS...'}
                     </span>
                   </div>
                 </button>
@@ -1314,57 +1445,61 @@ export default function PlayerHome() {
         </div>
 
         {/* Score Footer */}
-        <footer className="bg-black/30 backdrop-blur p-4">
+        <footer className="bg-black/40 backdrop-blur p-4 relative z-20">
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm" style={{ color: theme.colors.text, opacity: 0.7 }}>Ton Score</p>
+              <p className="text-sm text-white/60">Ton Score</p>
               <p className="text-2xl font-bold" style={{ color: theme.colors.primary }}>{team?.score || 0}</p>
             </div>
             <div
-              className="w-4 h-4 rounded-full"
+              className="w-4 h-4 rounded-full shadow-lg"
               style={{ backgroundColor: team?.color || teamColor }}
-            ></div>
+            />
           </div>
         </footer>
       </main>
     );
   }
 
-  // WAITING SCREEN
+  // WAITING SCREEN (after answering)
   if (gameState === 'WAITING') {
     return (
-      <main className="min-h-screen bg-gray-900 flex flex-col">
-        {/* Team Info Bar */}
-        <div className="bg-gray-800 px-4 py-2 flex items-center justify-between border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-4 h-4 rounded-full"
-              style={{ backgroundColor: team?.color || '#8B5CF6' }}
-            />
-            <span className="text-white font-semibold text-sm">{team?.name || 'Équipe'}</span>
-          </div>
-          <div className="text-purple-400 font-bold text-sm">
-            {team?.score || 0} pts
-          </div>
-        </div>
-        <div className="flex-1 flex flex-col items-center justify-center p-4">
-          <div className="text-center">
-            <div className="text-6xl mb-6 animate-bounce">
-              {selectedAnswer ? '✅' : buzzerPressed ? '🔔' : '⏳'}
+      <main className="min-h-screen relative overflow-hidden" style={{ backgroundColor: theme.colors.background }}>
+        <AnimatedBackground theme={theme} />
+        {connectionOverlay}
+        <PageTransition className="relative z-10 min-h-screen flex flex-col">
+          {/* Team Info Bar */}
+          <div className="bg-black/40 backdrop-blur px-4 py-2 flex items-center justify-between border-b border-white/10">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-4 h-4 rounded-full"
+                style={{ backgroundColor: team?.color || '#8B5CF6' }}
+              />
+              <span className="text-white font-semibold text-sm">{team?.name || 'Équipe'}</span>
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">
-              {selectedAnswer ? 'Answer Submitted!' : buzzerPressed ? 'Buzzer Pressed!' : "Time's Up!"}
-            </h1>
-            <p className="text-gray-400">Waiting for results...</p>
-
-            {selectedAnswer && (
-              <div className="mt-8 bg-gray-800 rounded-2xl p-6">
-                <p className="text-gray-400 mb-2">Your Answer</p>
-                <p className="text-4xl font-bold text-purple-400">{selectedAnswer}</p>
-              </div>
-            )}
+            <div className="font-bold text-sm" style={{ color: theme.colors.primary }}>
+              {team?.score || 0} pts
+            </div>
           </div>
-        </div>
+          <div className="flex-1 flex flex-col items-center justify-center p-4">
+            <div className="text-center">
+              <div className="text-6xl mb-6 animate-bounce">
+                {selectedAnswer ? '✅' : buzzerPressed ? '🔔' : '⏳'}
+              </div>
+              <h1 className="text-2xl font-bold text-white mb-2">
+                {selectedAnswer ? 'Réponse envoyée!' : buzzerPressed ? 'Buzzer appuyé!' : 'Temps écoulé!'}
+              </h1>
+              <p className="text-white/60">En attente des résultats...</p>
+
+              {selectedAnswer && (
+                <div className="mt-8 bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
+                  <p className="text-white/60 mb-2">Ta réponse</p>
+                  <p className="text-4xl font-bold" style={{ color: theme.colors.primary }}>{selectedAnswer}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </PageTransition>
       </main>
     );
   }
@@ -1375,41 +1510,62 @@ export default function PlayerHome() {
     const wasShielded = activeJoker === 'SHIELD' && !wasCorrect;
 
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-4"
+      <main
+        className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden"
         style={{
           background: wasCorrect
-            ? `linear-gradient(to bottom right, ${theme.colors.correct}, ${theme.colors.correct}99)`
+            ? `linear-gradient(135deg, ${theme.colors.correct} 0%, ${theme.colors.correct}99 100%)`
             : wasShielded
-              ? `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary})`
-              : `linear-gradient(to bottom right, ${theme.colors.wrong}, ${theme.colors.wrong}99)`
+              ? `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.secondary} 100%)`
+              : `linear-gradient(135deg, ${theme.colors.wrong} 0%, ${theme.colors.wrong}99 100%)`
         }}
       >
-        <div className="text-center">
+        {connectionOverlay}
+
+        {/* Background effects for correct answer */}
+        {wasCorrect && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-4 h-4 animate-confetti"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: '-10%',
+                  backgroundColor: ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96E6A1'][Math.floor(Math.random() * 5)],
+                  animationDelay: `${Math.random() * 2}s`,
+                  animationDuration: `${2 + Math.random() * 2}s`,
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        <PageTransition className="text-center relative z-10">
           <div className="text-8xl mb-6">
             {wasCorrect ? '🎉' : wasShielded ? '🛡️' : '😢'}
           </div>
           <h1 className="text-4xl font-black text-white mb-4">
-            {wasCorrect ? 'CORRECT!' : wasShielded ? 'PROTEGE!' : 'WRONG!'}
+            {wasCorrect ? 'CORRECT!' : wasShielded ? 'PROTÉGÉ!' : 'RATÉ!'}
           </h1>
 
-          {/* Shield protection message */}
           {wasShielded && (
             <div className="bg-white/20 backdrop-blur rounded-2xl p-4 mb-4 animate-pulse">
               <p className="text-white/90 text-lg font-bold">🛡️ Bouclier actif!</p>
-              <p className="text-white/70 text-sm">Pas de penalite</p>
+              <p className="text-white/70 text-sm">Pas de pénalité</p>
             </div>
           )}
 
           {correctAnswer && (
             <div className="bg-white/20 backdrop-blur rounded-2xl p-4 mb-4">
-              <p className="text-white/80 text-sm">Correct Answer</p>
+              <p className="text-white/80 text-sm">Bonne réponse</p>
               <p className="text-2xl font-bold text-white">{correctAnswer}</p>
             </div>
           )}
 
           {pointsEarned > 0 && (
             <div className="bg-white/20 backdrop-blur rounded-2xl p-6 mb-6">
-              <p className="text-white/80">Points Earned</p>
+              <p className="text-white/80">Points gagnés</p>
               <p className="text-5xl font-black text-white">+{pointsEarned}</p>
               {activeJoker === 'DOUBLE' && (
                 <p className="text-yellow-300 text-sm mt-2">🔥 Double actif!</p>
@@ -1419,11 +1575,11 @@ export default function PlayerHome() {
 
           <div className="bg-white rounded-2xl p-6 mt-6">
             <div className="text-center">
-              <p className="text-gray-500 text-sm">Total Score</p>
-              <p className="text-4xl font-bold text-purple-600">{team?.score || 0}</p>
+              <p className="text-gray-500 text-sm">Score total</p>
+              <p className="text-4xl font-bold" style={{ color: theme.colors.primary }}>{team?.score || 0}</p>
             </div>
           </div>
-        </div>
+        </PageTransition>
       </main>
     );
   }
@@ -1433,48 +1589,50 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen p-4"
-        style={{ background: `linear-gradient(to bottom right, ${theme.colors.primary}, ${theme.colors.secondary}, ${theme.colors.background})` }}
-      >
-        <div className="max-w-md mx-auto">
-          <div className="text-center mb-8">
-            {theme.logo && <img src={theme.logo} alt="Logo" className="h-16 mx-auto mb-4" />}
-            <div className="text-5xl mb-4">🏆</div>
-            <h1 className="text-3xl font-bold" style={{ color: theme.colors.text }}>Classement</h1>
-            <p className="mt-2" style={{ color: theme.colors.text, opacity: 0.8 }}>Ton rang: #{rank}</p>
-          </div>
+      <main className="min-h-screen relative overflow-hidden">
+        <AnimatedBackground theme={theme} />
+        {connectionOverlay}
+        <PageTransition className="relative z-10 min-h-screen p-4">
+          <div className="max-w-md mx-auto">
+            <div className="text-center mb-8 pt-4">
+              {theme.logo && <img src={theme.logo} alt="Logo" className="h-16 mx-auto mb-4" />}
+              <div className="text-5xl mb-4">🏆</div>
+              <h1 className="text-3xl font-bold text-white">Classement</h1>
+              <p className="mt-2 text-white/80">Ton rang: <span className="font-bold" style={{ color: theme.colors.accent }}>#{rank}</span></p>
+            </div>
 
-          <div className="space-y-3">
-            {leaderboard.map((t, index) => {
-              const isYou = t.id === team?.id;
-              return (
-                <div
-                  key={t.id}
-                  className="rounded-2xl p-4 flex items-center"
-                  style={{
-                    backgroundColor: isYou ? theme.colors.primary : index < 3 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)',
-                    boxShadow: isYou ? `0 0 0 2px ${theme.colors.accent}` : 'none'
-                  }}
-                >
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg mr-4 ${
-                    index === 0 ? 'bg-yellow-400 text-yellow-900' :
-                    index === 1 ? 'bg-gray-300 text-gray-700' :
-                    index === 2 ? 'bg-orange-400 text-orange-900' :
-                    'bg-gray-600 text-white'
-                  }`}>
-                    {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+            <div className="space-y-3">
+              {leaderboard.map((t, index) => {
+                const isYou = t.id === team?.id;
+                return (
+                  <div
+                    key={t.id}
+                    className={`rounded-2xl p-4 flex items-center transition-all duration-300 ${isYou ? 'scale-105' : ''}`}
+                    style={{
+                      backgroundColor: isYou ? theme.colors.primary : index < 3 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)',
+                      border: isYou ? `2px solid ${theme.colors.accent}` : '1px solid rgba(255,255,255,0.1)'
+                    }}
+                  >
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg mr-4 ${
+                      index === 0 ? 'bg-yellow-400 text-yellow-900' :
+                      index === 1 ? 'bg-gray-300 text-gray-700' :
+                      index === 2 ? 'bg-orange-400 text-orange-900' :
+                      'bg-gray-600 text-white'
+                    }`}>
+                      {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-white">
+                        {t.name} {isYou && '(Toi)'}
+                      </p>
+                    </div>
+                    <div className="text-2xl font-bold" style={{ color: isYou ? 'white' : theme.colors.primary }}>{t.score}</div>
                   </div>
-                  <div className="flex-1">
-                    <p className="font-bold" style={{ color: theme.colors.text }}>
-                      {t.name} {isYou && '(Toi)'}
-                    </p>
-                  </div>
-                  <div className="text-2xl font-bold" style={{ color: theme.colors.primary }}>{t.score}</div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </PageTransition>
       </main>
     );
   }
@@ -1484,111 +1642,40 @@ export default function PlayerHome() {
     const rank = getRank();
 
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-4"
-        style={{ background: `linear-gradient(to bottom right, ${theme.colors.accent}, ${theme.colors.secondary}, ${theme.colors.wrong})` }}
-      >
-        <div className="text-center">
-          {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mx-auto mb-6" />}
-          <div className="text-8xl mb-6">🏆</div>
-          <h1 className="text-4xl font-black mb-2" style={{ color: theme.colors.text }}>FIN DU JEU!</h1>
-          <p className="text-xl mb-8" style={{ color: theme.colors.text, opacity: 0.8 }}>Résultats finaux</p>
+      <main className="min-h-screen relative overflow-hidden">
+        <AnimatedBackground theme={theme} />
+        {connectionOverlay}
+        <PageTransition className="relative z-10 min-h-screen flex flex-col items-center justify-center p-4">
+          <div className="text-center">
+            {theme.logo && <img src={theme.logo} alt="Logo" className="h-24 mx-auto mb-6" />}
+            <div className="text-8xl mb-6">🏆</div>
+            <h1 className="text-4xl font-black text-white mb-2">FIN DU JEU!</h1>
+            <p className="text-xl text-white/80 mb-8">Résultats finaux</p>
 
-          <div className="bg-white rounded-3xl p-8 shadow-2xl">
-            <div className="flex items-center justify-center mb-4">
-              <div
-                className="w-6 h-6 rounded-full mr-2"
-                style={{ backgroundColor: team?.color || teamColor }}
-              ></div>
-              <p className="text-gray-600 font-semibold">{team?.name}</p>
-            </div>
-            <p className="text-gray-500 mb-2">Ton Score Final</p>
-            <p className="text-5xl font-black mb-4" style={{ color: theme.colors.primary }}>{team?.score || 0}</p>
-            <p className="text-gray-500 mb-2">Rang Final</p>
-            <p className="text-4xl font-bold" style={{ color: theme.colors.accent }}>#{rank}</p>
-          </div>
-
-          <button
-            onClick={() => {
-              socketRef.current?.disconnect();
-              // Clear localStorage
-              localStorage.removeItem('arena-session');
-              localStorage.removeItem('arena-team');
-              localStorage.removeItem('arena-theme');
-              setGameState('JOIN');
-              setSessionCode('');
-              setTeamName('');
-              setSession(null);
-              setTeam(null);
-              setLeaderboard([]);
-              setTheme(defaultTheme);
-            }}
-            className="mt-8 font-bold py-4 px-8 rounded-2xl shadow-lg"
-            style={{ backgroundColor: theme.colors.text, color: theme.colors.primary }}
-          >
-            Rejouer
-          </button>
-        </div>
-      </main>
-    );
-  }
-
-  // Connection Error Overlay - shows when connection is lost
-  if (showConnectionOverlay) {
-    return (
-      <div className="fixed inset-0 bg-gray-900/95 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
-          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
-            </svg>
-          </div>
-
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Connexion perdue</h2>
-          <p className="text-gray-600 mb-6">
-            {connectionError || 'Impossible de se connecter au serveur. Vérifiez votre connexion internet.'}
-          </p>
-
-          {retryCount > 0 && retryCount < maxRetries && (
-            <div className="mb-4">
-              <div className="flex items-center justify-center space-x-2 text-gray-500">
-                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                <span className="text-sm">Tentative {retryCount}/{maxRetries}...</span>
+            <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-white/20">
+              <div className="flex items-center justify-center mb-4">
+                <div
+                  className="w-6 h-6 rounded-full mr-2 shadow-lg"
+                  style={{ backgroundColor: team?.color || teamColor }}
+                />
+                <p className="text-white/80 font-semibold">{team?.name}</p>
               </div>
+              <p className="text-white/60 mb-2">Score Final</p>
+              <p className="text-5xl font-black text-white mb-4">{team?.score || 0}</p>
+              <p className="text-white/60 mb-2">Rang Final</p>
+              <p className="text-4xl font-bold" style={{ color: theme.colors.accent }}>#{rank}</p>
             </div>
-          )}
 
-          <button
-            onClick={retryConnection}
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-105 mb-4"
-          >
-            Réessayer la connexion
-          </button>
-
-          <button
-            onClick={() => {
-              socketRef.current?.disconnect();
-              // Clear localStorage
-              localStorage.removeItem('arena-session');
-              localStorage.removeItem('arena-team');
-              setShowConnectionOverlay(false);
-              setConnectionError(null);
-              setGameState('JOIN');
-              setSession(null);
-              setTeam(null);
-            }}
-            className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-xl transition"
-          >
-            Retour à l'accueil
-          </button>
-
-          <p className="text-xs text-gray-400 mt-6">
-            Si le problème persiste, contactez l'organisateur
-          </p>
-        </div>
-      </div>
+            <button
+              onClick={goBackToHome}
+              className="mt-8 font-bold py-4 px-8 rounded-2xl shadow-lg text-white"
+              style={{ background: `linear-gradient(to right, ${theme.colors.primary}, ${theme.colors.secondary})` }}
+            >
+              Rejouer
+            </button>
+          </div>
+        </PageTransition>
+      </main>
     );
   }
 
