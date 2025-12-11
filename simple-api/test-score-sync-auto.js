@@ -32,27 +32,20 @@ async function runTests() {
     const sessionsRes = await fetch(`${API_URL}/sessions`);
     const sessions = await sessionsRes.json();
     if (!sessions.length) throw new Error('No sessions');
-    testSessionId = sessions[0].id;
 
-    const teamsRes = await fetch(`${API_URL}/sessions/${testSessionId}/teams`);
-    const teams = await teamsRes.json();
-    if (!teams.length) throw new Error('No teams');
-    testTeamId = teams[0].id;
-    testTeamName = teams[0].name;
+    // Find a session with teams
+    const sessionWithTeams = sessions.find(s => s.teams && s.teams.length > 0);
+    if (!sessionWithTeams) throw new Error('No session with teams');
 
-    // Reset score to 0 for clean test
-    await fetch(`${API_URL}/sessions/${testSessionId}/teams/${testTeamId}/score`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ score: 0 })
-    });
+    testSessionId = sessionWithTeams.id;
+    testTeamId = sessionWithTeams.teams[0].id;
+    testTeamName = sessionWithTeams.teams[0].name;
 
     scores.player = 0;
     scores.studio = 0;
     scores.screen = 0;
-    console.log(`   ✓ Session: ${sessions[0].name}`);
-    console.log(`   ✓ Team: ${testTeamName}`);
-    console.log(`   ✓ Score reset to 0\n`);
+    console.log(`   ✓ Session: ${sessionWithTeams.event?.name || sessionWithTeams.code}`);
+    console.log(`   ✓ Team: ${testTeamName}\n`);
   } catch (error) {
     console.log(`❌ Setup failed: ${error.message}`);
     process.exit(1);
@@ -82,13 +75,14 @@ async function runTests() {
   await wait(2000);
   console.log('   ✓ All clients connected\n');
 
-  // Helper to emit score-update for initial sync
-  studioSocket.emit('score-update', {
+  // Reset score to 0 using socket (updates DB and broadcasts)
+  studioSocket.emit('set-score', {
     sessionId: testSessionId,
     teamId: testTeamId,
     newScore: 0
   });
-  await wait(500);
+  await wait(1000);
+  console.log('   ✓ Score reset to 0\n');
 
   // Test function
   const test = (name, condition) => {
@@ -142,21 +136,17 @@ async function runTests() {
 
   // ========== TEST 4: DB consistency ==========
   console.log('\n🧪 TEST 4: Database consistency');
-  const dbTeamRes = await fetch(`${API_URL}/sessions/${testSessionId}/teams`);
-  const dbTeams = await dbTeamRes.json();
-  const dbScore = dbTeams.find(t => t.id === testTeamId)?.score;
+  const dbSessionsRes = await fetch(`${API_URL}/sessions`);
+  const dbSessions = await dbSessionsRes.json();
+  const dbSession = dbSessions.find(s => s.id === testSessionId);
+  const dbScore = dbSession?.teams?.find(t => t.id === testTeamId)?.score;
 
   test(`DB score matches (${dbScore})`, dbScore === scores.player);
   test('All clients match DB', dbScore === scores.player && dbScore === scores.studio && dbScore === scores.screen);
 
   // ========== TEST 5: Score reset ==========
   console.log('\n🧪 TEST 5: Score reset');
-  await fetch(`${API_URL}/sessions/${testSessionId}/teams/${testTeamId}/score`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ score: 0 })
-  });
-  studioSocket.emit('score-update', {
+  studioSocket.emit('set-score', {
     sessionId: testSessionId,
     teamId: testTeamId,
     newScore: 0

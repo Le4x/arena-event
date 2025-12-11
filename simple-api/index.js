@@ -2086,6 +2086,24 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Set score - updates DB and broadcasts (for Studio manual edits and tests)
+  socket.on('set-score', async (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    try {
+      const updatedTeam = await prisma.team.update({
+        where: { id: data.teamId },
+        data: { score: data.newScore }
+      });
+      console.log(`📊 Score set: team=${data.teamId}, newScore=${updatedTeam.score}`);
+      io.to(`session:${sessionId}`).emit('score-update', {
+        teamId: data.teamId,
+        newScore: updatedTeam.score
+      });
+    } catch (error) {
+      console.error('Error setting score:', error);
+    }
+  });
+
   // ========== FINALE MODE EVENTS ==========
 
   // Start finale mode - from Studio

@@ -64,18 +64,18 @@ async function runTests() {
       process.exit(1);
     }
 
-    testSessionId = sessions[0].id;
-    console.log(`   ✓ Session: ${sessions[0].name}`);
-
-    // Get teams for this session
-    const teamsRes = await fetch(`${API_URL}/sessions/${testSessionId}/teams`);
-    const teams = await teamsRes.json();
-
-    if (!teams.length) {
-      console.log('❌ Aucune équipe trouvée. Créez une équipe dans l\'admin.');
+    // Find a session with teams
+    const sessionWithTeams = sessions.find(s => s.teams && s.teams.length > 0);
+    if (!sessionWithTeams) {
+      console.log('❌ Aucune session avec équipe trouvée. Créez une équipe dans l\'admin.');
       process.exit(1);
     }
 
+    testSessionId = sessionWithTeams.id;
+    console.log(`   ✓ Session: ${sessionWithTeams.event?.name || sessionWithTeams.code}`);
+
+    // Teams are included in the session response
+    const teams = sessionWithTeams.teams;
     testTeamId = teams[0].id;
     testTeamName = teams[0].name;
     const initialScore = teams[0].score;
@@ -214,12 +214,8 @@ async function runTests() {
 
       case '4':
         console.log('\n🔄 Réinitialisation du score à 0...');
-        await fetch(`${API_URL}/sessions/${testSessionId}/teams/${testTeamId}/score`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ score: 0 })
-        });
-        studioSocket.emit('score-update', {
+        // Use set-score which updates DB and broadcasts
+        studioSocket.emit('set-score', {
           sessionId: testSessionId,
           teamId: testTeamId,
           newScore: 0
@@ -234,9 +230,10 @@ async function runTests() {
 
       case 'd':
         console.log('\n🔍 Vérification BDD...');
-        const dbTeamRes = await fetch(`${API_URL}/sessions/${testSessionId}/teams`);
-        const dbTeams = await dbTeamRes.json();
-        const dbTeam = dbTeams.find(t => t.id === testTeamId);
+        const dbSessionsRes = await fetch(`${API_URL}/sessions`);
+        const dbSessions = await dbSessionsRes.json();
+        const dbSession = dbSessions.find(s => s.id === testSessionId);
+        const dbTeam = dbSession?.teams?.find(t => t.id === testTeamId);
         console.log(`   Score en BDD: ${dbTeam?.score}`);
         console.log(`   Score Player: ${scores.player}`);
         console.log(`   Score Studio: ${scores.studio}`);
