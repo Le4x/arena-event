@@ -90,12 +90,12 @@ async function runTests() {
   // Setup event listeners
   const setupListeners = (socket, events, name) => {
     const trackEvents = [
-      'question-start', 'question-end', 'timer-start', 'timer-end',
+      'question-start', 'question-end', 'timer-sync', 'timer-end',
       'buzzer-open', 'buzzer-lock', 'buzzer-winner', 'buzzer-correct', 'buzzer-wrong',
       'answer-result', 'answer-submitted', 'score-update',
       'show-leaderboard', 'game-paused', 'game-resumed', 'session-end',
       'blindtest-play', 'blindtest-pause', 'blindtest-stop', 'blindtest-reveal',
-      'finale-start', 'finale-state', 'finale-question-start', 'finale-eliminate', 'finale-end',
+      'finale-started', 'finale-state', 'finale-question-start', 'finale-eliminate', 'finale-ended',
       'joker-activated'
     ];
 
@@ -212,7 +212,7 @@ async function runTests() {
   });
   await wait(300);
 
-  test('Screen reçoit timer-start', screenEvents.some(e => e.event === 'timer-start'));
+  test('Screen reçoit timer-sync', screenEvents.some(e => e.event === 'timer-sync'));
 
   studioSocket.emit('timer-end', { sessionId: testSessionId });
   await wait(300);
@@ -390,8 +390,8 @@ async function runTests() {
   });
   await wait(500);
 
-  test('Player reçoit finale-start', playerEvents.some(e => e.event === 'finale-start'));
-  test('Screen reçoit finale-start', screenEvents.some(e => e.event === 'finale-start'));
+  test('Player reçoit finale-started', playerEvents.some(e => e.event === 'finale-started'));
+  test('Screen reçoit finale-started', screenEvents.some(e => e.event === 'finale-started'));
 
   // Finale question
   studioSocket.emit('finale-question-start', {
@@ -414,7 +414,7 @@ async function runTests() {
   });
   await wait(300);
 
-  test('Screen reçoit finale-end', screenEvents.some(e => e.event === 'finale-end'));
+  test('Screen reçoit finale-ended', screenEvents.some(e => e.event === 'finale-ended'));
 
   // ================== TEST 9: SCORE SYNC ==================
   console.log('\n🧪 TEST 9: Synchronisation des Scores');
