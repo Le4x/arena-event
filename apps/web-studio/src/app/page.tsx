@@ -115,6 +115,8 @@ export default function StudioHome() {
   const [audioRevealed, setAudioRevealed] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const currentQuestionRef = useRef<any>(null);
+  const selectedSessionRef = useRef<any>(null);
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
@@ -322,6 +324,30 @@ export default function StudioHome() {
       }));
     });
 
+    // Handle 50/50 joker request - automatically select 2 wrong answers to eliminate
+    socket.on('fifty-fifty-request', (data) => {
+      // Get current question choices
+      const question = currentQuestionRef.current;
+      if (!question || !question.choices || question.type !== 'MCQ') return;
+
+      const correctAnswer = question.correctAnswer;
+      const allOptions = ['A', 'B', 'C', 'D'].slice(0, question.choices.length);
+
+      // Find wrong answers
+      const wrongOptions = allOptions.filter(opt => opt !== correctAnswer);
+
+      // Randomly select 2 wrong answers to eliminate
+      const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
+      const eliminatedOptions = shuffled.slice(0, 2);
+
+      // Send the eliminated options to all clients
+      socket.emit('fifty-fifty-applied', {
+        sessionId: data.sessionId || selectedSessionRef.current?.id,
+        teamId: data.teamId,
+        eliminatedOptions
+      });
+    });
+
     socket.on('team-eliminated', (data) => {
       setFinalistTeams(prev => prev.filter(t => t.id !== data.teamId));
       setEliminatedTeams(prev => [data.team, ...prev]);
@@ -391,6 +417,15 @@ export default function StudioHome() {
   const totalQuestions = rounds.reduce((sum, r) => sum + (r.questions?.length || 0), 0);
   const currentQuestionNumber = rounds.slice(0, currentRoundIndex).reduce((sum, r) => sum + (r.questions?.length || 0), 0) + currentQuestionIndex + 1;
 
+  // Keep refs updated for socket handlers
+  useEffect(() => {
+    currentQuestionRef.current = currentQuestion;
+  }, [currentQuestion]);
+
+  useEffect(() => {
+    selectedSessionRef.current = selectedSession;
+  }, [selectedSession]);
+
   // Game controls
   const startQuestion = async () => {
     if (!currentQuestion || !selectedSession) return;
@@ -414,12 +449,20 @@ export default function StudioHome() {
       audioRef.current.currentTime = 0;
     }
 
-    // Emit to socket
-    socketRef.current?.emit('question-start', {
-      sessionId: selectedSession.id,
-      question: currentQuestion,
-      timeLimit: currentQuestion.timeLimit,
-    });
+    // Emit to socket - use finale-question-start in finale mode to handle jokers
+    if (isFinaleMode) {
+      socketRef.current?.emit('finale-question-start', {
+        sessionId: selectedSession.id,
+        question: currentQuestion,
+        timeLimit: currentQuestion.timeLimit,
+      });
+    } else {
+      socketRef.current?.emit('question-start', {
+        sessionId: selectedSession.id,
+        question: currentQuestion,
+        timeLimit: currentQuestion.timeLimit,
+      });
+    }
 
     // Update session state on server
     try {
