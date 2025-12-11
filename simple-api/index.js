@@ -790,7 +790,8 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
           questionCueStart: q.questionCueStart,
           questionCueEnd: q.questionCueEnd,
           revealCueStart: q.revealCueStart,
-          revealCueEnd: q.revealCueEnd
+          revealCueEnd: q.revealCueEnd,
+          explanation: q.explanation
         }))
       }))
     };
@@ -928,6 +929,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
       questionCueEnd: q.questionCueEnd,
       revealCueStart: q.revealCueStart,
       revealCueEnd: q.revealCueEnd,
+      explanation: q.explanation,
       roundId: q.roundId,
       round: q.round
     }));
@@ -1156,7 +1158,8 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
             questionCueStart: q.questionCueStart,
             questionCueEnd: q.questionCueEnd,
             revealCueStart: q.revealCueStart,
-            revealCueEnd: q.revealCueEnd
+            revealCueEnd: q.revealCueEnd,
+            explanation: q.explanation
           }))
         }))
       }
@@ -1317,9 +1320,15 @@ app.post('/api/sessions/:sessionId/answers', async (req, res) => {
     const points = calculateScore(isCorrect, timeRemaining || 0, question.timeLimit, question.points);
 
     if (isCorrect) {
-      await prisma.team.update({
+      const updatedTeam = await prisma.team.update({
         where: { id: teamId },
         data: { score: { increment: points } }
+      });
+
+      // Emit score-update so Studio sees the new score in real-time
+      io.to(`session:${req.params.sessionId}`).emit('score-update', {
+        teamId,
+        newScore: updatedTeam.score
       });
     }
 
@@ -1940,9 +1949,15 @@ io.on('connection', (socket) => {
       }
 
       if (isCorrect) {
-        await prisma.team.update({
+        const updatedTeam = await prisma.team.update({
           where: { id: teamId },
           data: { score: { increment: points } }
+        });
+
+        // Emit score-update so Studio sees the new score in real-time
+        io.to(`session:${sessionId}`).emit('score-update', {
+          teamId,
+          newScore: updatedTeam.score
         });
       }
 
@@ -2266,7 +2281,8 @@ app.get('/sessions/:sessionId', async (req, res) => {
             questionCueStart: q.questionCueStart,
             questionCueEnd: q.questionCueEnd,
             revealCueStart: q.revealCueStart,
-            revealCueEnd: q.revealCueEnd
+            revealCueEnd: q.revealCueEnd,
+            explanation: q.explanation
           }))
         }))
       }
@@ -2463,7 +2479,8 @@ app.get('/events/:eventId/rounds', async (req, res) => {
         questionCueStart: q.questionCueStart,
         questionCueEnd: q.questionCueEnd,
         revealCueStart: q.revealCueStart,
-        revealCueEnd: q.revealCueEnd
+        revealCueEnd: q.revealCueEnd,
+        explanation: q.explanation
       }))
     }));
 
@@ -2496,7 +2513,8 @@ app.get('/rounds/:roundId/questions', async (req, res) => {
       questionCueStart: q.questionCueStart,
       questionCueEnd: q.questionCueEnd,
       revealCueStart: q.revealCueStart,
-      revealCueEnd: q.revealCueEnd
+      revealCueEnd: q.revealCueEnd,
+      explanation: q.explanation
     }));
 
     res.json(transformed);
@@ -2524,9 +2542,15 @@ app.post('/sessions/:sessionId/answers', async (req, res) => {
     const points = isCorrect ? question.points + timeBonus : 0;
 
     if (isCorrect) {
-      await prisma.team.update({
+      const updatedTeam = await prisma.team.update({
         where: { id: teamId },
         data: { score: { increment: points } }
+      });
+
+      // Emit score-update so Studio sees the new score in real-time
+      io.to(`session:${req.params.sessionId}`).emit('score-update', {
+        teamId,
+        newScore: updatedTeam.score
       });
     }
 
