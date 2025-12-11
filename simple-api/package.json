@@ -6,7 +6,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.cjs",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --config jest.config.cjs",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --config jest.config.cjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -15,5 +18,10 @@
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "socket.io-client": "^4.7.2"
   }
 }

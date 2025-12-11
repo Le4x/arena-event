@@ -2,11 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, User } from '@prisma/client';
 
+// Type for user without password
+export type UserWithoutPassword = Omit<User, 'password'>;
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(): Promise<User[]> {
+  async findAll(): Promise<UserWithoutPassword[]> {
     return this.prisma.user.findMany({
       select: {
         id: true,
@@ -16,7 +19,6 @@ export class UsersService {
         lastName: true,
         createdAt: true,
         updatedAt: true,
-        password: false,
       },
     });
   }
