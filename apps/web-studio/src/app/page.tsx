@@ -411,9 +411,9 @@ export default function StudioHome() {
         cueEndTimerRef.current = null;
       }
 
-      // Pause game/timer
+      // Pause timer (but don't show "game paused" screen)
       setIsTimerRunning(false);
-      socketRef.current?.emit('game-paused', { sessionId: selectedSession?.id });
+      socketRef.current?.emit('timer-pause', { sessionId: selectedSession?.id });
       socketRef.current?.emit('blindtest-pause', { sessionId: selectedSession?.id });
     }
   }, [buzzerWinner, currentQuestion?.type, isAudioPlaying, selectedSession?.id]);

@@ -238,6 +238,11 @@ export default function ScreenHome() {
       }
     });
 
+    // Buzzer winner announcement from studio
+    socket.on('buzzer-winner', (data) => {
+      setBuzzerWinner(data.team || { id: data.teamId, name: data.teamName, color: '#8B5CF6', score: 0 });
+    });
+
     // Score events
     socket.on('score-update', (data) => {
       setTeams(prev => prev.map(t =>
@@ -259,7 +264,16 @@ export default function ScreenHome() {
 
     // Game state
     socket.on('game-paused', () => {
-      setDisplayMode('PAUSED');
+      // Only show pause screen if not in blindtest mode (blindtest has its own buzzer display)
+      if (displayMode !== 'BLINDTEST') {
+        setDisplayMode('PAUSED');
+      }
+    });
+
+    // Timer pause - just pause without showing pause screen (used for buzzer validation)
+    socket.on('timer-pause', () => {
+      // Timer is server-side, nothing to do here
+      // Don't change displayMode - keep showing current screen
     });
 
     socket.on('game-resumed', () => {

@@ -471,6 +471,11 @@ export default function PlayerHome() {
       stopTimer();
     });
 
+    // Timer pause - just pause timer without any UI change (used for buzzer validation)
+    socket.on('timer-pause', () => {
+      stopTimer();
+    });
+
     socket.on('game-resumed', () => {
       if (gameState === 'QUESTION' && timeRemaining > 0) {
         startTimer(timeRemaining);
