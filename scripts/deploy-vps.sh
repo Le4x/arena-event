@@ -17,7 +17,7 @@ warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # Configuration
-INSTALL_DIR="${INSTALL_DIR:-/opt/arena-event}"
+INSTALL_DIR="${INSTALL_DIR:-/root/arena-event}"
 NODE_VERSION="20"
 
 # ============================================
