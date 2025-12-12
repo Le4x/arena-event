@@ -276,18 +276,26 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * GameMaster: Start a question (client event: gm-start-question)
    * Requires GM role (ADMIN or ORGANIZER)
+   * Accepts either { questionId } or { question } (full object with id)
    */
   @SubscribeMessage('gm-start-question')
   async handleStartQuestion(
     @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() payload: { sessionId: string; questionId: string },
+    @MessageBody() payload: { sessionId: string; questionId?: string; question?: { id: string; [key: string]: unknown }; timeLimit?: number },
   ) {
     try {
       // Verify GM role
       this.requireGmRole(client);
       this.verifySessionAccess(client, payload.sessionId);
 
-      const result = await this.gameService.startQuestion(payload.sessionId, payload.questionId);
+      // Support both questionId and question.id formats from studio
+      const questionId = payload.questionId || payload.question?.id;
+
+      if (!questionId) {
+        throw new Error('questionId or question.id is required');
+      }
+
+      const result = await this.gameService.startQuestion(payload.sessionId, questionId);
 
       // Server event: question-start - Broadcast to all in session
       this.server.to(`session:${payload.sessionId}`).emit('question-start', {
