@@ -965,6 +965,48 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
   }
 });
 
+// Get questions for a round (for Admin)
+app.get('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
+  try {
+    const questions = await prisma.question.findMany({
+      where: { roundId: req.params.roundId },
+      orderBy: { order: 'asc' }
+    });
+
+    // Transform to match frontend
+    const transformed = questions.map(q => ({
+      id: q.id,
+      text: q.content,
+      type: q.type,
+      options: q.choices || [],
+      correctAnswer: q.correctAnswer || '',
+      points: q.points,
+      negativePoints: q.negativePoints || 0,
+      timeLimit: q.timeLimit,
+      order: q.order,
+      mediaUrl: q.mediaUrl,
+      questionCueStart: q.questionCueStart,
+      questionCueEnd: q.questionCueEnd,
+      revealCueStart: q.revealCueStart,
+      revealCueEnd: q.revealCueEnd,
+      explanation: q.explanation,
+      tolerance: q.tolerance,
+      // Deezer fields
+      deezerTrackId: q.deezerTrackId,
+      deezerPreviewUrl: q.deezerPreviewUrl,
+      deezerArtist: q.deezerArtist,
+      deezerTitle: q.deezerTitle,
+      deezerCover: q.deezerCover,
+      audioPlayMode: q.audioPlayMode
+    }));
+
+    res.json(transformed);
+  } catch (error) {
+    console.error('Get round questions error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
   try {
     const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd, deezerTrackId, deezerPreviewUrl, deezerArtist, deezerTitle, deezerCover, audioPlayMode } = req.body;
