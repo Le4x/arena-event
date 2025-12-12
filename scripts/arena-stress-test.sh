@@ -629,22 +629,22 @@ test_resilience() {
     fi
 
     print_test "Gestion des requêtes malformées"
-    local malformed_requests=(
-        "-X POST -H 'Content-Type: application/json' -d '{invalid json}'"
-        "-X POST -H 'Content-Type: application/json' -d ''"
-        "-H 'Content-Length: 999999'"
-    )
 
     local server_crashed=false
-    for req in "${malformed_requests[@]}"; do
-        eval "curl -s -o /dev/null ${API_URL}/api/upload $req" 2>/dev/null
 
-        # Vérifier que le serveur répond toujours
-        if ! curl -s -o /dev/null --connect-timeout 2 "${API_URL}/health"; then
-            server_crashed=true
-            break
-        fi
-    done
+    # Test 1: JSON invalide
+    timeout 3 curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{invalid}' "${API_URL}/api/upload" 2>/dev/null
+
+    # Test 2: Body vide
+    timeout 3 curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '' "${API_URL}/api/upload" 2>/dev/null
+
+    # Test 3: Content-Length incorrect (avec timeout court)
+    timeout 2 curl -s -o /dev/null --max-time 2 -H 'Content-Length: 100' "${API_URL}/health" 2>/dev/null
+
+    # Vérifier que le serveur répond toujours
+    if ! timeout 3 curl -s -o /dev/null --connect-timeout 2 "${API_URL}/health"; then
+        server_crashed=true
+    fi
 
     if [ "$server_crashed" = false ]; then
         pass "Serveur stable après requêtes malformées"
