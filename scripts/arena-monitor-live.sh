@@ -67,8 +67,16 @@ format_uptime() {
 }
 
 monitor() {
+    # Cacher le curseur et effacer l'écran une seule fois
+    tput civis 2>/dev/null  # Cacher curseur
+    clear
+
+    # Restaurer le curseur à la sortie
+    trap 'tput cnorm 2>/dev/null; echo ""; exit 0' EXIT INT TERM
+
     while true; do
-        clear
+        # Retourner en haut de l'écran sans effacer (pas de clignotement)
+        tput home 2>/dev/null || echo -e "\033[H"
 
         # Récupérer les données
         local health=$(curl -s --max-time 3 "$API_URL/health" 2>/dev/null)
