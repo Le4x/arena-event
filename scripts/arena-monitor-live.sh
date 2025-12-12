@@ -126,10 +126,11 @@ monitor() {
         echo -e "${BOLD}[$timestamp]${NC} Rafraîchissement: ${CYAN}${REFRESH_INTERVAL}s${NC} | API: ${CYAN}$API_URL${NC}"
         echo ""
 
-        # Status serveur
+        # Status serveur (ok, healthy, OK, HEALTHY sont tous valides)
         local status_color="${GREEN}"
         local status_icon="✅"
-        if [ "$status" != "ok" ]; then
+        local status_lower=$(echo "$status" | tr '[:upper:]' '[:lower:]')
+        if [ "$status_lower" != "ok" ] && [ "$status_lower" != "healthy" ]; then
             status_color="${RED}"
             status_icon="❌"
         fi
