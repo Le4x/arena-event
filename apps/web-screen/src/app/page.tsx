@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// URLs - configurable via environment variables
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
+const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 
 type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION';
 
@@ -154,7 +156,7 @@ export default function ScreenHome() {
       socketRef.current.disconnect();
     }
 
-    const socket = io(API_URL, {
+    const socket = io(WS_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,
@@ -572,7 +574,7 @@ export default function ScreenHome() {
           <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 max-w-4xl mx-auto border border-white/20 shadow-2xl">
             <p className="text-3xl text-purple-200 mb-6">Rejoins le jeu sur</p>
             <div className="text-5xl font-bold text-white mb-8">
-              http://91.134.135.247:3003
+              {PLAYER_URL}
             </div>
 
             <div className="border-t border-white/20 pt-8 mt-8">

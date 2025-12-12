@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable with HTTPS default
+// URLs - configurable via environment variables with HTTPS defaults
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
 
 type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
 
@@ -259,7 +260,7 @@ export default function PlayerHome() {
       socketRef.current.disconnect();
     }
 
-    const socket = io(API_URL, {
+    const socket = io(WS_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,

@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URLs - configurable via environment variables with HTTPS defaults
+// URLs - configurable via environment variables with HTTPS defaults
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
 const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL || 'https://admin.arena-event.fr';
 const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 const SCREEN_URL = process.env.NEXT_PUBLIC_SCREEN_URL || 'https://screen.arena-event.fr';
@@ -170,7 +171,7 @@ export default function StudioHome() {
   useEffect(() => {
     if (!selectedSession) return;
 
-    const socket = io(API_URL, {
+    const socket = io(WS_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,
