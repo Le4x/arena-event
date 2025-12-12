@@ -389,7 +389,7 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(true);
         setPointsEarned(data.points || 0);
-        setTeam(prev => prev ? { ...prev, score: prev.score + (data.points || 0) } : prev);
+        // Score update is handled by score-update event (backend is single source of truth)
         setGameState('RESULT');
       }
       setBuzzerWinner(null);
@@ -416,12 +416,12 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(data.isCorrect);
         setPointsEarned(data.points || 0);
-        if (data.points > 0) {
-          setTeam(prev => prev ? { ...prev, score: prev.score + data.points } : prev);
-        }
+        // Score update is handled by score-update event (backend is single source of truth)
       }
     });
 
+    // Server event: score-update - Single source of truth for score changes
+    // Backend emits this event whenever a team's score changes
     socket.on('score-update', (data) => {
       if (data.teamId === teamId) {
         setTeam(prev => prev ? { ...prev, score: data.newScore } : prev);

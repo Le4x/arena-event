@@ -1793,16 +1793,46 @@ io.on('connection', (socket) => {
   });
 
   // Buzzer validation - correct answer (from Studio, GM only)
-  socket.on('buzzer-correct', (data) => {
+  // Updates score in database and emits both buzzer-correct and score-update
+  socket.on('buzzer-correct', async (data) => {
     if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${data.points}`);
-    io.to(`session:${sessionId}`).emit('buzzer-correct', {
-      team: data.team,
-      teamId: data.teamId,
-      teamName: data.teamName,
-      points: data.points
-    });
+    const points = data.points || 0;
+
+    try {
+      // Update score in database if points are awarded
+      if (points > 0 && data.teamId) {
+        const updatedTeam = await prisma.team.update({
+          where: { id: data.teamId },
+          data: { score: { increment: points } }
+        });
+
+        // Emit score-update (backend is single source of truth)
+        io.to(`session:${sessionId}`).emit('score-update', {
+          teamId: data.teamId,
+          newScore: updatedTeam.score,
+          delta: points,
+          reason: 'buzzer'
+        });
+      }
+
+      console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${points}`);
+      io.to(`session:${sessionId}`).emit('buzzer-correct', {
+        team: data.team,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        points
+      });
+    } catch (error) {
+      console.error('Error updating score for buzzer-correct:', error);
+      // Still emit buzzer-correct even if database update fails
+      io.to(`session:${sessionId}`).emit('buzzer-correct', {
+        team: data.team,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        points
+      });
+    }
   });
 
   // Buzzer validation - wrong answer (from Studio, GM only)
@@ -2009,10 +2039,21 @@ io.on('connection', (socket) => {
         }
       }
 
+      // Update score if answer is correct and emit score-update event
+      let newScore = null;
       if (isCorrect) {
-        await prisma.team.update({
+        const updatedTeam = await prisma.team.update({
           where: { id: teamId },
           data: { score: { increment: points } }
+        });
+        newScore = updatedTeam.score;
+
+        // Emit score-update event (backend is single source of truth for scores)
+        io.to(`session:${sessionId}`).emit('score-update', {
+          teamId,
+          newScore,
+          delta: points,
+          reason: 'answer'
         });
       }
 
