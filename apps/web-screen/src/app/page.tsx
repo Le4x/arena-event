@@ -43,6 +43,8 @@ interface Question {
   deezerArtist?: string;
   deezerTitle?: string;
   deezerCover?: string;
+  // Audio play mode
+  audioPlayMode?: 'blindtest' | 'reveal_only';
 }
 
 interface Session {
@@ -360,6 +362,13 @@ export default function ScreenHome() {
       if (cueEndTimerRef.current) {
         clearTimeout(cueEndTimerRef.current);
         cueEndTimerRef.current = null;
+      }
+
+      // Don't play audio during question phase if mode is reveal_only
+      // (Safety check - studio should already prevent this)
+      if (currentQuestion?.audioPlayMode === 'reveal_only') {
+        console.log('Audio play mode is reveal_only - skipping playback during question phase');
+        return;
       }
 
       setIsAudioPlaying(true);

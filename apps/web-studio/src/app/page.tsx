@@ -49,6 +49,8 @@ interface Question {
   deezerArtist?: string;
   deezerTitle?: string;
   deezerCover?: string;
+  // Audio play mode
+  audioPlayMode?: 'blindtest' | 'reveal_only';
 }
 
 interface Team {
@@ -688,7 +690,15 @@ export default function StudioHome() {
   // ========== BLINDTEST CONTROLS ==========
 
   const playBlindtest = () => {
-    if (!currentQuestion?.mediaUrl) return;
+    // Check for audio source (mediaUrl or deezerPreviewUrl)
+    const audioUrl = currentQuestion?.deezerPreviewUrl || currentQuestion?.mediaUrl;
+    if (!audioUrl) return;
+
+    // Don't play during question if mode is reveal_only
+    if (currentQuestion?.audioPlayMode === 'reveal_only') {
+      console.log('Audio play mode is reveal_only - audio will play at reveal');
+      return;
+    }
 
     // Clear any existing cue end timer
     if (cueEndTimerRef.current) {
@@ -706,12 +716,19 @@ export default function StudioHome() {
 
     // Play locally for preview with cue point
     if (audioRef.current) {
-      const startTime = currentQuestion.questionCueStart || 0;
+      // Use Deezer preview or uploaded audio
+      const localAudioUrl = currentQuestion.deezerPreviewUrl || currentQuestion.mediaUrl;
+      if (localAudioUrl) {
+        audioRef.current.src = localAudioUrl;
+      }
+
+      // For Deezer previews, always start at 0; for custom audio, use cue point
+      const startTime = currentQuestion.deezerPreviewUrl ? 0 : (currentQuestion.questionCueStart || 0);
       audioRef.current.currentTime = startTime;
       audioRef.current.play();
 
-      // Set up cue end timer if there's an end point
-      if (currentQuestion.questionCueEnd && currentQuestion.questionCueEnd > startTime) {
+      // Set up cue end timer if there's an end point (only for custom audio)
+      if (!currentQuestion.deezerPreviewUrl && currentQuestion.questionCueEnd && currentQuestion.questionCueEnd > startTime) {
         const duration = (currentQuestion.questionCueEnd - startTime) * 1000;
         cueEndTimerRef.current = setTimeout(() => {
           if (audioRef.current) {
@@ -723,11 +740,12 @@ export default function StudioHome() {
     }
 
     // Emit to Screen/Player with cue points
+    const emitAudioUrl = currentQuestion.deezerPreviewUrl || currentQuestion.mediaUrl;
     socketRef.current?.emit('blindtest-play', {
       sessionId: selectedSession?.id,
-      audioUrl: currentQuestion.mediaUrl,
-      questionCueStart: currentQuestion.questionCueStart || 0,
-      questionCueEnd: currentQuestion.questionCueEnd || null
+      audioUrl: emitAudioUrl,
+      questionCueStart: currentQuestion.deezerPreviewUrl ? 0 : (currentQuestion.questionCueStart || 0),
+      questionCueEnd: currentQuestion.deezerPreviewUrl ? null : (currentQuestion.questionCueEnd || null)
     });
   };
 

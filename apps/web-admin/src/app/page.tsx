@@ -84,6 +84,8 @@ interface Question {
   deezerArtist?: string;
   deezerTitle?: string;
   deezerCover?: string;
+  // Audio play mode: 'blindtest' = play during question, 'reveal_only' = play only at reveal
+  audioPlayMode?: 'blindtest' | 'reveal_only';
 }
 
 interface DeezerTrack {
@@ -152,7 +154,9 @@ export default function Home() {
     explanation: '', tolerance: 0.8,
     // Deezer fields
     deezerTrackId: null as string | null, deezerPreviewUrl: null as string | null,
-    deezerArtist: null as string | null, deezerTitle: null as string | null, deezerCover: null as string | null
+    deezerArtist: null as string | null, deezerTitle: null as string | null, deezerCover: null as string | null,
+    // Audio play mode: 'blindtest' = play during question, 'reveal_only' = play only at reveal
+    audioPlayMode: 'blindtest' as 'blindtest' | 'reveal_only'
   });
   // Deezer search state
   const [deezerSearchQuery, setDeezerSearchQuery] = useState('');
@@ -570,7 +574,8 @@ export default function Home() {
       text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '',
       questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null,
       explanation: '', tolerance: 0.8,
-      deezerTrackId: null, deezerPreviewUrl: null, deezerArtist: null, deezerTitle: null, deezerCover: null
+      deezerTrackId: null, deezerPreviewUrl: null, deezerArtist: null, deezerTitle: null, deezerCover: null,
+      audioPlayMode: 'blindtest'
     });
     setAudioDuration(0);
     setDeezerSearchQuery('');
@@ -600,6 +605,7 @@ export default function Home() {
           deezerArtist: questionForm.deezerArtist,
           deezerTitle: questionForm.deezerTitle,
           deezerCover: questionForm.deezerCover,
+          audioPlayMode: questionForm.audioPlayMode,
         }),
       });
       if (res.ok) {
@@ -633,6 +639,7 @@ export default function Home() {
           deezerArtist: questionForm.deezerArtist,
           deezerTitle: questionForm.deezerTitle,
           deezerCover: questionForm.deezerCover,
+          audioPlayMode: questionForm.audioPlayMode,
         }),
       });
       if (res.ok) {
@@ -786,6 +793,7 @@ export default function Home() {
       deezerArtist: question.deezerArtist ?? null,
       deezerTitle: question.deezerTitle ?? null,
       deezerCover: question.deezerCover ?? null,
+      audioPlayMode: (question.audioPlayMode as 'blindtest' | 'reveal_only') ?? 'blindtest',
     });
     setAudioDuration(0);
     setDeezerSearchQuery('');
@@ -1606,6 +1614,45 @@ export default function Home() {
                         )}
                       </>
                     )}
+                  </div>
+
+                  {/* Audio Play Mode Selection */}
+                  <div className="p-4 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-xl border border-blue-500/30">
+                    <label className="block text-sm text-blue-300 mb-3 font-semibold">Mode de lecture audio</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setQuestionForm({ ...questionForm, audioPlayMode: 'blindtest' })}
+                        className={`p-4 rounded-xl border-2 transition-all ${
+                          questionForm.audioPlayMode === 'blindtest'
+                            ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                            : 'border-gray-600 bg-gray-700/30 text-gray-400 hover:border-gray-500'
+                        }`}
+                      >
+                        <div className="text-2xl mb-2">🎵</div>
+                        <div className="font-semibold text-sm">Blindtest</div>
+                        <div className="text-xs mt-1 opacity-75">Musique pendant la question</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionForm({ ...questionForm, audioPlayMode: 'reveal_only' })}
+                        className={`p-4 rounded-xl border-2 transition-all ${
+                          questionForm.audioPlayMode === 'reveal_only'
+                            ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                            : 'border-gray-600 bg-gray-700/30 text-gray-400 hover:border-gray-500'
+                        }`}
+                      >
+                        <div className="text-2xl mb-2">🎯</div>
+                        <div className="font-semibold text-sm">Quiz Musical</div>
+                        <div className="text-xs mt-1 opacity-75">Musique au reveal seulement</div>
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-3">
+                      {questionForm.audioPlayMode === 'blindtest'
+                        ? "L'extrait sera joué pendant la question (les équipes doivent identifier la musique)"
+                        : "L'extrait sera joué uniquement lors de la révélation de la réponse"
+                      }
+                    </p>
                   </div>
 
                   {/* Alternative: Upload custom audio */}

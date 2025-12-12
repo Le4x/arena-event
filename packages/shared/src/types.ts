@@ -77,6 +77,8 @@ export interface Question {
   deezerArtist?: string;
   deezerTitle?: string;
   deezerCover?: string;
+  // Audio play mode: 'blindtest' = play during question, 'reveal_only' = play only at reveal
+  audioPlayMode?: 'blindtest' | 'reveal_only';
 }
 
 /**

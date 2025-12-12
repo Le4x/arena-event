@@ -153,6 +153,10 @@ model Question {
   deezerArtist     String?   // Artist name from Deezer
   deezerTitle      String?   // Track title from Deezer
   deezerCover      String?   // Album cover URL from Deezer
+  // Audio play mode: when to play the audio
+  // 'blindtest' = play during question (for blindtest/music identification)
+  // 'reveal_only' = play only during reveal (for quiz questions with music reveal)
+  audioPlayMode    String?   @default("blindtest")
   timeLimit     Int          @default(30)
   points        Int          @default(100)
   negativePoints Int         @default(0)   // Points to deduct for wrong answer
