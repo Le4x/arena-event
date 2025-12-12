@@ -245,7 +245,14 @@ export default function ScreenHome() {
       ));
     });
 
-    // Leaderboard
+    // Leaderboard - server event: leaderboard-show
+    socket.on('leaderboard-show', (data) => {
+      if (data.teams) {
+        setTeams(data.teams);
+      }
+      setDisplayMode('LEADERBOARD');
+    });
+    // Legacy support for show-leaderboard
     socket.on('show-leaderboard', (data) => {
       if (data.teams) {
         setTeams(data.teams);
@@ -253,6 +260,11 @@ export default function ScreenHome() {
       setDisplayMode('LEADERBOARD');
     });
 
+    // Transition - server event: transition-show
+    socket.on('transition-show', () => {
+      setDisplayMode('TRANSITION');
+    });
+    // Legacy support for show-transition
     socket.on('show-transition', () => {
       setDisplayMode('TRANSITION');
     });

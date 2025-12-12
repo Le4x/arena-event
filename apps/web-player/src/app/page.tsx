@@ -428,6 +428,12 @@ export default function PlayerHome() {
       }
     });
 
+    // Server event: leaderboard-show
+    socket.on('leaderboard-show', (data) => {
+      setLeaderboard(data.teams);
+      setGameState('LEADERBOARD');
+    });
+    // Legacy support for show-leaderboard
     socket.on('show-leaderboard', (data) => {
       setLeaderboard(data.teams);
       setGameState('LEADERBOARD');

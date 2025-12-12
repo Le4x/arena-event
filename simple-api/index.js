@@ -1512,13 +1512,21 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  // ========== SESSION EVENTS ==========
-  // Support both hyphen and colon notation
+  // ========== SESSION EVENTS (kebab-case) ==========
+  // Client event: join-session
   const joinSession = ({ sessionId, teamId, role }) => {
     socket.join(`session:${sessionId}`);
     socket.sessionId = sessionId;
     socket.role = role;
     console.log(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
+
+    // Emit session-joined acknowledgment to the client
+    socket.emit('session-joined', {
+      sessionId,
+      teamId,
+      role,
+      timestamp: Date.now()
+    });
 
     if (teamId) {
       socket.teamId = teamId;
@@ -1526,8 +1534,9 @@ io.on('connection', (socket) => {
       // Track this team as connected
       trackTeamConnection(sessionId, teamId);
 
-      // Notify studio and other clients that this team is now connected
-      io.to(`session:${sessionId}`).emit('team-connected', {
+      // Notify studio and other clients that this team is now connected (team-joined)
+      io.to(`session:${sessionId}`).emit('team-joined', {
+        team: { id: teamId },
         teamId,
         sessionId,
         role,
@@ -1548,22 +1557,22 @@ io.on('connection', (socket) => {
     }
   };
   socket.on('join-session', joinSession);
-  socket.on('session:join', joinSession);
 
+  // Client event: leave-session
   const leaveSession = ({ sessionId }) => {
     socket.leave(`session:${sessionId}`);
     console.log(`Socket ${socket.id} left session ${sessionId}`);
   };
   socket.on('leave-session', leaveSession);
-  socket.on('session:leave', leaveSession);
 
-  // ========== STUDIO CONTROL EVENTS (relayed to all clients) ==========
+  // ========== STUDIO CONTROL EVENTS (GM = Game Master, kebab-case) ==========
 
-  // Question start - from Studio to Screen/Player
-  socket.on('question-start', (data) => {
+  // GM event: gm-start-question - from Studio to Screen/Player
+  // Server emits: question-start
+  const handleGmStartQuestion = (data) => {
     const sessionId = data.sessionId || socket.sessionId;
     const timeLimit = data.timeLimit || data.question?.timeLimit || 30;
-    console.log(`Question started in session ${sessionId}:`, data.question?.id, `(${timeLimit}s)`);
+    console.log(`[GM] Question started in session ${sessionId}:`, data.question?.id, `(${timeLimit}s)`);
 
     // Start server-side timer for perfect sync
     startServerTimer(sessionId, timeLimit);
@@ -1576,12 +1585,15 @@ io.on('connection', (socket) => {
       timeLimit,
       serverTime: Date.now() // Send server timestamp for sync
     });
-  });
+  };
+  socket.on('gm-start-question', handleGmStartQuestion);
+  socket.on('question-start', handleGmStartQuestion); // Legacy support
 
-  // Question end - from Studio to Screen/Player
-  socket.on('question-end', (data) => {
+  // GM event: gm-end-question - from Studio to Screen/Player
+  // Server emits: question-end
+  const handleGmEndQuestion = (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Question ended in session ${sessionId}`);
+    console.log(`[GM] Question ended in session ${sessionId}`);
 
     // Stop server-side timer
     stopServerTimer(sessionId);
@@ -1589,9 +1601,12 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('question-end', {
       questionId: data.questionId,
       correctAnswer: data.correctAnswer,
+      explanation: data.explanation,
       serverTime: Date.now()
     });
-  });
+  };
+  socket.on('gm-end-question', handleGmEndQuestion);
+  socket.on('question-end', handleGmEndQuestion); // Legacy support
 
   // Timer events - server-side timer is now authoritative
   socket.on('timer-start', (data) => {
@@ -1619,12 +1634,25 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('timer-end', { serverTime: Date.now() });
   });
 
-  // Show leaderboard
-  socket.on('show-leaderboard', (data) => {
+  // GM event: gm-show-leaderboard - from Studio to Screen/Player
+  // Server emits: leaderboard-show
+  const handleGmShowLeaderboard = (data) => {
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Showing leaderboard in session ${sessionId}`);
-    io.to(`session:${sessionId}`).emit('show-leaderboard', { teams: data.teams });
-  });
+    console.log(`[GM] Showing leaderboard in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('leaderboard-show', { teams: data.teams });
+  };
+  socket.on('gm-show-leaderboard', handleGmShowLeaderboard);
+  socket.on('show-leaderboard', handleGmShowLeaderboard); // Legacy support
+
+  // GM event: gm-show-transition - from Studio to Screen/Player
+  // Server emits: transition-show
+  const handleGmShowTransition = (data) => {
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`[GM] Showing transition in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('transition-show', { serverTime: Date.now() });
+  };
+  socket.on('gm-show-transition', handleGmShowTransition);
+  socket.on('show-transition', handleGmShowTransition); // Legacy support
 
   // Game paused/resumed
   socket.on('game-paused', (data) => {
@@ -1663,11 +1691,15 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('buzzer-lock', { serverTime: Date.now() });
   });
 
-  socket.on('buzzer-reset', (data) => {
+  // GM event: gm-reset-buzzer - from Studio to Screen/Player
+  // Server emits: buzzer-reset
+  const handleGmResetBuzzer = (data) => {
     const sessionId = data.sessionId || socket.sessionId;
     resetBuzzer(sessionId);
     io.to(`session:${sessionId}`).emit('buzzer-reset', { serverTime: Date.now() });
-  });
+  };
+  socket.on('gm-reset-buzzer', handleGmResetBuzzer);
+  socket.on('buzzer-reset', handleGmResetBuzzer); // Legacy support
 
   // Buzzer winner announcement - from Studio
   socket.on('buzzer-winner', (data) => {
@@ -1770,8 +1802,9 @@ io.on('connection', (socket) => {
       }
     }
   };
+  // Client event: buzzer-press
+  // Server emits: buzzer-pressed
   socket.on('buzzer-press', handleBuzzerPress);
-  socket.on('buzzer:press', handleBuzzerPress);
 
   // ========== BLINDTEST EVENTS ==========
 
@@ -1948,8 +1981,9 @@ io.on('connection', (socket) => {
       console.error('Socket answer error:', error);
     }
   };
+  // Client event: submit-answer
+  // Server emits: answer-submitted, answer-result
   socket.on('submit-answer', handleAnswerSubmit);
-  socket.on('answer:submit', handleAnswerSubmit);
 
   // ========== SCORE EVENTS ==========
 

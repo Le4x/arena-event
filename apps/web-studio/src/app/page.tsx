@@ -414,8 +414,8 @@ export default function StudioHome() {
       audioRef.current.currentTime = 0;
     }
 
-    // Emit to socket
-    socketRef.current?.emit('question-start', {
+    // Emit to socket (GM event: gm-start-question)
+    socketRef.current?.emit('gm-start-question', {
       sessionId: selectedSession.id,
       question: currentQuestion,
       timeLimit: currentQuestion.timeLimit,
@@ -451,23 +451,27 @@ export default function StudioHome() {
   const endQuestion = () => {
     setIsTimerRunning(false);
     setGameStatus('REVEAL');
-    socketRef.current?.emit('question-end', {
+    // GM event: gm-end-question
+    socketRef.current?.emit('gm-end-question', {
       sessionId: selectedSession?.id,
       questionId: currentQuestion?.id,
       correctAnswer: currentQuestion?.correctAnswer,
+      explanation: currentQuestion?.explanation,
     });
   };
 
   const showLeaderboard = () => {
     setGameStatus('LEADERBOARD');
-    socketRef.current?.emit('show-leaderboard', {
+    // GM event: gm-show-leaderboard
+    socketRef.current?.emit('gm-show-leaderboard', {
       sessionId: selectedSession?.id,
       teams: [...teams].sort((a, b) => b.score - a.score),
     });
   };
 
   const showTransition = () => {
-    socketRef.current?.emit('show-transition', {
+    // GM event: gm-show-transition
+    socketRef.current?.emit('gm-show-transition', {
       sessionId: selectedSession?.id,
     });
   };
@@ -580,7 +584,8 @@ export default function StudioHome() {
     setBuzzerWinner(null);
     setBuzzerQueue([]);
     setBuzzerLocked(false);
-    socketRef.current?.emit('buzzer-reset', { sessionId: selectedSession?.id });
+    // GM event: gm-reset-buzzer
+    socketRef.current?.emit('gm-reset-buzzer', { sessionId: selectedSession?.id });
   };
 
   // Score management
