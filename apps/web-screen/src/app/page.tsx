@@ -208,6 +208,10 @@ export default function ScreenHome() {
 
     socket.on('question-end', (data) => {
       setCorrectAnswer(data.correctAnswer);
+      // Update question with explanation from server
+      if (data.explanation) {
+        setCurrentQuestion(prev => prev ? { ...prev, explanation: data.explanation } : prev);
+      }
       setDisplayMode('REVEAL');
     });
 
@@ -772,11 +776,14 @@ export default function ScreenHome() {
           </div>
         </div>
 
-        {/* Explanation / Anecdote */}
+        {/* Explanation / Anecdote - "Le saviez-vous?" */}
         {currentQuestion.explanation && (
-          <div className="max-w-4xl w-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/50 rounded-2xl p-8 text-center animate-fade-in">
-            <div className="text-4xl mb-4">💡</div>
-            <p className="text-2xl text-yellow-100 leading-relaxed">{currentQuestion.explanation}</p>
+          <div className="max-w-4xl w-full bg-gradient-to-r from-amber-600/30 to-yellow-600/30 border-2 border-amber-400/60 rounded-2xl p-8 text-center animate-fade-in shadow-lg">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <span className="text-4xl">💡</span>
+              <h3 className="text-3xl font-bold text-amber-300">Le saviez-vous ?</h3>
+            </div>
+            <p className="text-2xl text-amber-100 leading-relaxed italic">{currentQuestion.explanation}</p>
           </div>
         )}
       </main>
