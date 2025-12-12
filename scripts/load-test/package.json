@@ -1,0 +1,16 @@
+{
+  "name": "arena-load-test",
+  "version": "1.0.0",
+  "description": "Load testing and performance simulation for Arena Event",
+  "main": "load-test.js",
+  "scripts": {
+    "test": "node load-test.js",
+    "monitor": "node monitor.js"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.2",
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "cli-progress": "^3.12.0"
+  }
+}
