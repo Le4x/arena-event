@@ -230,6 +230,10 @@ export default function ScreenHome() {
 
     socket.on('buzzer-reset', () => {
       setBuzzerWinner(null);
+      // For blindtest, make sure we stay in BLINDTEST mode (not switch to something else)
+      if (currentQuestion?.type === 'BLIND_TEST') {
+        setDisplayMode('BLINDTEST');
+      }
     });
 
     socket.on('buzzer-pressed', (data) => {
@@ -264,10 +268,9 @@ export default function ScreenHome() {
 
     // Game state
     socket.on('game-paused', () => {
-      // Only show pause screen if not in blindtest mode (blindtest has its own buzzer display)
-      if (displayMode !== 'BLINDTEST') {
-        setDisplayMode('PAUSED');
-      }
+      // Don't change to PAUSED if we're in blindtest - blindtest has its own buzzer display
+      // Use setDisplayMode callback to get current value (avoid stale closure)
+      setDisplayMode(prev => prev === 'BLINDTEST' ? prev : 'PAUSED');
     });
 
     // Timer pause - just pause without showing pause screen (used for buzzer validation)
@@ -278,7 +281,12 @@ export default function ScreenHome() {
 
     socket.on('game-resumed', () => {
       if (currentQuestion) {
-        setDisplayMode('QUESTION');
+        // Return to BLINDTEST mode if it's a blindtest question, otherwise QUESTION
+        if (currentQuestion.type === 'BLIND_TEST') {
+          setDisplayMode('BLINDTEST');
+        } else {
+          setDisplayMode('QUESTION');
+        }
       }
     });
 

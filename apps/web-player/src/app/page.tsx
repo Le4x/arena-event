@@ -490,9 +490,11 @@ export default function PlayerHome() {
     socket.on('blindtest-play', () => {
       setIsBlindtestPlaying(true);
       setBlindtestRevealed(false);
-      // Open buzzer for blindtest
-      setBuzzerOpen(true);
-      setBuzzerPressed(false);
+      // Open buzzer for blindtest (only if not locked)
+      if (!isTeamLockedRef.current) {
+        setBuzzerOpen(true);
+        setBuzzerPressed(false);
+      }
     });
 
     socket.on('blindtest-pause', () => {
