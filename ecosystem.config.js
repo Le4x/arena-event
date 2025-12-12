@@ -21,7 +21,9 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3001
+        PORT: 3001,
+        DATABASE_URL: process.env.DATABASE_URL || 'postgresql://arena:arena123@localhost:5432/arena_event?schema=public',
+        JWT_SECRET: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production'
       }
     },
 
