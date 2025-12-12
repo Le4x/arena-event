@@ -1,12 +1,40 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 // URLs - configurable via environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
 const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL || 'https://studio.arena-event.fr';
 const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 const SCREEN_URL = process.env.NEXT_PUBLIC_SCREEN_URL || 'https://screen.arena-event.fr';
+
+// Monitoring event interface
+interface MonitoringEvent {
+  id: string;
+  type: string;
+  sessionId: string;
+  sessionCode?: string;
+  teamName?: string;
+  message: string;
+  timestamp: Date;
+}
+
+interface ConnectedTeam {
+  id: string;
+  name: string;
+  sessionId: string;
+  connectedAt: Date;
+}
+
+interface SessionState {
+  sessionId: string;
+  currentQuestion?: string;
+  gameStatus: string;
+  connectedTeams: string[];
+  answersCount: number;
+}
 
 interface User {
   id: string;
@@ -104,6 +132,13 @@ export default function Home() {
   });
   const [audioDuration, setAudioDuration] = useState(0);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+
+  // Monitoring state
+  const monitoringSocketRef = useRef<Socket | null>(null);
+  const [monitoringEvents, setMonitoringEvents] = useState<MonitoringEvent[]>([]);
+  const [connectedTeams, setConnectedTeams] = useState<Map<string, ConnectedTeam>>(new Map());
+  const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
+  const [isMonitoringConnected, setIsMonitoringConnected] = useState(false);
   const [modalError, setModalError] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
 
@@ -125,6 +160,123 @@ export default function Home() {
       loadUsers();
     }
   }, [token]);
+
+  // Monitoring WebSocket connection
+  useEffect(() => {
+    if (activeTab !== 'monitoring' || !token) return;
+
+    const socket = io(WS_URL, {
+      transports: ['websocket', 'polling'],
+      auth: { token },
+    });
+
+    socket.on('connect', () => {
+      console.log('Monitoring WebSocket connected');
+      setIsMonitoringConnected(true);
+      // Join all active sessions for monitoring
+      sessions.filter(s => s.status === 'ACTIVE' || s.status === 'WAITING').forEach(session => {
+        socket.emit('join-session', { sessionId: session.id, role: 'monitor' });
+      });
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Monitoring WebSocket disconnected');
+      setIsMonitoringConnected(false);
+    });
+
+    // Monitor team connections
+    socket.on('team-joined', (data) => {
+      const event: MonitoringEvent = {
+        id: Date.now().toString(),
+        type: 'team-joined',
+        sessionId: data.sessionId,
+        teamName: data.teamName || data.team?.name,
+        message: `${data.teamName || data.team?.name || 'Unknown team'} s'est connectée`,
+        timestamp: new Date(),
+      };
+      setMonitoringEvents(prev => [event, ...prev].slice(0, 100));
+      setConnectedTeams(prev => {
+        const newMap = new Map(prev);
+        newMap.set(data.teamId || data.team?.id, {
+          id: data.teamId || data.team?.id,
+          name: data.teamName || data.team?.name,
+          sessionId: data.sessionId,
+          connectedAt: new Date(),
+        });
+        return newMap;
+      });
+    });
+
+    socket.on('team-left', (data) => {
+      const event: MonitoringEvent = {
+        id: Date.now().toString(),
+        type: 'team-left',
+        sessionId: data.sessionId,
+        teamName: data.teamName,
+        message: `${data.teamName || 'Une équipe'} s'est déconnectée`,
+        timestamp: new Date(),
+      };
+      setMonitoringEvents(prev => [event, ...prev].slice(0, 100));
+      setConnectedTeams(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(data.teamId);
+        return newMap;
+      });
+    });
+
+    // Monitor game events
+    socket.on('question-start', (data) => {
+      const event: MonitoringEvent = {
+        id: Date.now().toString(),
+        type: 'question-start',
+        sessionId: data.sessionId || '',
+        message: `Question démarrée: ${data.question?.text?.substring(0, 50)}...`,
+        timestamp: new Date(),
+      };
+      setMonitoringEvents(prev => [event, ...prev].slice(0, 100));
+    });
+
+    socket.on('question-end', (data) => {
+      const event: MonitoringEvent = {
+        id: Date.now().toString(),
+        type: 'question-end',
+        sessionId: data.sessionId || '',
+        message: `Question terminée (réponse: ${data.correctAnswer})`,
+        timestamp: new Date(),
+      };
+      setMonitoringEvents(prev => [event, ...prev].slice(0, 100));
+    });
+
+    socket.on('answer-submitted', (data) => {
+      const event: MonitoringEvent = {
+        id: Date.now().toString(),
+        type: 'answer-submitted',
+        sessionId: data.sessionId || '',
+        message: `Réponse reçue de ${data.teamName || 'une équipe'}`,
+        timestamp: new Date(),
+      };
+      setMonitoringEvents(prev => [event, ...prev].slice(0, 100));
+    });
+
+    socket.on('buzzer-pressed', (data) => {
+      const event: MonitoringEvent = {
+        id: Date.now().toString(),
+        type: 'buzzer-pressed',
+        sessionId: data.sessionId || '',
+        teamName: data.teamName || data.team?.name,
+        message: `🔔 Buzzer de ${data.teamName || data.team?.name || 'une équipe'}!`,
+        timestamp: new Date(),
+      };
+      setMonitoringEvents(prev => [event, ...prev].slice(0, 100));
+    });
+
+    monitoringSocketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      monitoringSocketRef.current = null;
+    };
+  }, [activeTab, token, sessions]);
 
   const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -909,8 +1061,16 @@ export default function Home() {
         {/* Monitoring Tab */}
         {activeTab === 'monitoring' && (
           <div className="space-y-6">
-            <h2 className="text-3xl font-bold text-white">Monitoring</h2>
-            <p className="text-gray-400">Surveillance en temps réel des sessions actives</p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-3xl font-bold text-white">Monitoring</h2>
+                <p className="text-gray-400">Surveillance en temps réel des sessions actives</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-3 h-3 rounded-full ${isMonitoringConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                <span className="text-sm text-gray-400">{isMonitoringConnected ? 'Connecté' : 'Déconnecté'}</span>
+              </div>
+            </div>
 
             {sessions.filter(s => s.status === 'ACTIVE' || s.status === 'WAITING').length === 0 ? (
               <div className="bg-gray-800 rounded-xl p-12 text-center">
@@ -919,47 +1079,102 @@ export default function Home() {
                 <p className="text-gray-500 text-sm mt-2">Créez une session depuis l'onglet Sessions pour commencer.</p>
               </div>
             ) : (
-              <div className="grid gap-6">
-                {sessions.filter(s => s.status === 'ACTIVE' || s.status === 'WAITING').map((session) => (
-                  <div key={session.id} className="bg-gray-800 rounded-xl p-6">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="text-xl font-bold text-white">{session.event?.name || 'Session'}</h3>
-                        <p className="text-gray-400 text-sm">Code: <span className="font-mono text-purple-400">{session.code}</span></p>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        session.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
-                      }`}>
-                        {session.status}
-                      </span>
-                    </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Sessions actives */}
+                <div className="lg:col-span-2 space-y-4">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="text-2xl">🎮</span> Sessions Actives
+                  </h3>
+                  {sessions.filter(s => s.status === 'ACTIVE' || s.status === 'WAITING').map((session) => {
+                    const sessionTeams = Array.from(connectedTeams.values()).filter(t => t.sessionId === session.id);
+                    return (
+                      <div key={session.id} className="bg-gray-800 rounded-xl p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-xl font-bold text-white">{session.event?.name || 'Session'}</h3>
+                            <p className="text-gray-400 text-sm">Code: <span className="font-mono text-purple-400 text-lg">{session.code}</span></p>
+                          </div>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                            session.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {session.status}
+                          </span>
+                        </div>
 
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="bg-gray-700/50 rounded-lg p-4 text-center">
-                        <p className="text-3xl font-bold text-blue-400">{session._count?.teams || 0}</p>
-                        <p className="text-gray-400 text-sm">Équipes</p>
-                      </div>
-                      <div className="bg-gray-700/50 rounded-lg p-4 text-center">
-                        <p className="text-3xl font-bold text-green-400">-</p>
-                        <p className="text-gray-400 text-sm">Question actuelle</p>
-                      </div>
-                      <div className="bg-gray-700/50 rounded-lg p-4 text-center">
-                        <p className="text-3xl font-bold text-purple-400">-</p>
-                        <p className="text-gray-400 text-sm">Réponses</p>
-                      </div>
-                    </div>
+                        <div className="grid grid-cols-3 gap-4 mb-4">
+                          <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                            <p className="text-3xl font-bold text-blue-400">{session._count?.teams || 0}</p>
+                            <p className="text-gray-400 text-sm">Équipes inscrites</p>
+                          </div>
+                          <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                            <p className="text-3xl font-bold text-green-400">{sessionTeams.length}</p>
+                            <p className="text-gray-400 text-sm">Connectées</p>
+                          </div>
+                          <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                            <p className="text-3xl font-bold text-purple-400">
+                              {sessionTeams.length > 0 && session._count?.teams ? Math.round((sessionTeams.length / session._count.teams) * 100) : 0}%
+                            </p>
+                            <p className="text-gray-400 text-sm">Taux connexion</p>
+                          </div>
+                        </div>
 
-                    <div className="flex justify-between items-center">
-                      <p className="text-gray-400 text-sm">
-                        Créée le {new Date(session.createdAt).toLocaleDateString('fr-FR')} à {new Date(session.createdAt).toLocaleTimeString('fr-FR')}
-                      </p>
-                      <a href={`http://91.134.135.247:3002?session=${session.id}`} target="_blank" rel="noopener noreferrer"
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
-                        Ouvrir Studio →
-                      </a>
-                    </div>
+                        {/* Connected teams list */}
+                        {sessionTeams.length > 0 && (
+                          <div className="bg-gray-700/30 rounded-lg p-3 mb-4">
+                            <p className="text-sm text-gray-400 mb-2">Équipes connectées:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {sessionTeams.map(team => (
+                                <span key={team.id} className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-sm">
+                                  {team.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between items-center">
+                          <p className="text-gray-400 text-sm">
+                            Créée le {new Date(session.createdAt).toLocaleDateString('fr-FR')} à {new Date(session.createdAt).toLocaleTimeString('fr-FR')}
+                          </p>
+                          <a href={`${STUDIO_URL}?session=${session.id}`} target="_blank" rel="noopener noreferrer"
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                            Ouvrir Studio →
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Events Log */}
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="text-2xl">📜</span> Événements récents
+                  </h3>
+                  <div className="bg-gray-800 rounded-xl p-4 max-h-[600px] overflow-y-auto">
+                    {monitoringEvents.length === 0 ? (
+                      <p className="text-gray-500 text-center py-8">En attente d'événements...</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {monitoringEvents.slice(0, 50).map(event => (
+                          <div key={event.id} className={`p-3 rounded-lg text-sm ${
+                            event.type === 'team-joined' ? 'bg-green-500/10 border-l-2 border-green-500' :
+                            event.type === 'team-left' ? 'bg-red-500/10 border-l-2 border-red-500' :
+                            event.type === 'buzzer-pressed' ? 'bg-yellow-500/10 border-l-2 border-yellow-500' :
+                            event.type === 'question-start' ? 'bg-blue-500/10 border-l-2 border-blue-500' :
+                            event.type === 'question-end' ? 'bg-purple-500/10 border-l-2 border-purple-500' :
+                            'bg-gray-700/50 border-l-2 border-gray-500'
+                          }`}>
+                            <p className="text-gray-200">{event.message}</p>
+                            <p className="text-gray-500 text-xs mt-1">
+                              {new Date(event.timestamp).toLocaleTimeString('fr-FR')}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
             )}
           </div>
