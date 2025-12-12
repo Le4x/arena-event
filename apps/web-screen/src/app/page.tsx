@@ -5,7 +5,7 @@ import { io, Socket } from 'socket.io-client';
 
 // URLs - configurable via environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://api.arena-event.fr';
 const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 
 type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION';
@@ -37,6 +37,12 @@ interface Question {
   questionCueEnd?: number;
   revealCueStart?: number;
   revealCueEnd?: number;
+  // Deezer integration
+  deezerTrackId?: string;
+  deezerPreviewUrl?: string;
+  deezerArtist?: string;
+  deezerTitle?: string;
+  deezerCover?: string;
 }
 
 interface Session {
@@ -80,6 +86,7 @@ export default function ScreenHome() {
   const [blindtestRevealed, setBlindtestRevealed] = useState(false);
   const [revealedArtist, setRevealedArtist] = useState('');
   const [revealedSong, setRevealedSong] = useState('');
+  const [revealedCover, setRevealedCover] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -110,6 +117,21 @@ export default function ScreenHome() {
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Initialize global audio element for Deezer playback
+  useEffect(() => {
+    if (!audioRef.current) {
+      const audio = new Audio();
+      audio.addEventListener('ended', () => setIsAudioPlaying(false));
+      audioRef.current = audio;
+    }
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+    };
   }, []);
 
   // Fetch sessions
@@ -243,6 +265,19 @@ export default function ScreenHome() {
       if (data.explanation) {
         setCurrentQuestion(prev => prev ? { ...prev, explanation: data.explanation } : prev);
       }
+
+      // Play Deezer audio on reveal if available (for non-blindtest questions)
+      if (data.deezerPreviewUrl && audioRef.current) {
+        audioRef.current.src = data.deezerPreviewUrl;
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(console.error);
+        setIsAudioPlaying(true);
+        // Store Deezer info for display
+        if (data.deezerArtist) setRevealedArtist(data.deezerArtist);
+        if (data.deezerTitle) setRevealedSong(data.deezerTitle);
+        if (data.deezerCover) setRevealedCover(data.deezerCover);
+      }
+
       setDisplayMode('REVEAL');
     });
 
@@ -329,6 +364,9 @@ export default function ScreenHome() {
 
       setIsAudioPlaying(true);
       setBlindtestRevealed(false);
+      setRevealedCover('');
+      setRevealedArtist('');
+      setRevealedSong('');
       if (currentQuestion?.type === 'BLIND_TEST') {
         setDisplayMode('BLINDTEST');
       }
@@ -388,6 +426,7 @@ export default function ScreenHome() {
       setBlindtestRevealed(true);
       setRevealedArtist(data.artist);
       setRevealedSong(data.songTitle);
+      if (data.deezerCover) setRevealedCover(data.deezerCover);
 
       // Play reveal cue if set
       if (audioRef.current && data.audioUrl) {
@@ -1044,8 +1083,7 @@ export default function ScreenHome() {
   if (displayMode === 'BLINDTEST') {
     return (
       <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black flex flex-col items-center justify-center relative overflow-hidden">
-        {/* Hidden audio element */}
-        <audio ref={audioRef} onEnded={() => setIsAudioPlaying(false)} />
+        {/* Audio element is now created globally via useEffect */}
 
         {/* Animated background circles */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -1080,7 +1118,11 @@ export default function ScreenHome() {
           {blindtestRevealed ? (
             // Revealed state
             <div className="animate-fade-in">
-              <div className="text-8xl mb-8">🎵</div>
+              {revealedCover ? (
+                <img src={revealedCover} alt="Album cover" className="w-48 h-48 mx-auto mb-8 rounded-2xl shadow-2xl" />
+              ) : (
+                <div className="text-8xl mb-8">🎵</div>
+              )}
               <h1 className="text-5xl font-bold text-purple-300 mb-4">C'ETAIT...</h1>
               <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 border border-white/20">
                 <p className="text-7xl font-black text-white mb-4">{revealedSong || currentQuestion?.songTitle}</p>

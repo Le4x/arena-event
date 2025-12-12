@@ -493,6 +493,54 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================
+// DEEZER API ROUTES
+// ============================================
+
+app.get('/api/deezer/search', async (req, res) => {
+  try {
+    const { q, limit = 25 } = req.query;
+
+    if (!q || q.trim().length === 0) {
+      return res.json({ data: [], total: 0 });
+    }
+
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=${limit}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Deezer API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    res.json({ data: data.data || [], total: data.data?.length || 0 });
+  } catch (error) {
+    console.error('Deezer search error:', error);
+    res.status(500).json({ error: 'Failed to search Deezer' });
+  }
+});
+
+app.get('/api/deezer/track/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const url = `https://api.deezer.com/track/${id}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return res.status(404).json({ error: 'Track not found' });
+      }
+      throw new Error(`Deezer API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Deezer get track error:', error);
+    res.status(500).json({ error: 'Failed to get track' });
+  }
+});
+
+// ============================================
 // AUTH ROUTES
 // ============================================
 
