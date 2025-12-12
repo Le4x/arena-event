@@ -36,7 +36,7 @@ export class WsJwtAuthGuard implements CanActivate {
       this.logger.debug(`WS authenticated: ${payload.email} (${payload.role})`);
       return true;
     } catch (error) {
-      this.logger.warn(`WS auth failed: ${error.message}`);
+      this.logger.warn(`WS auth failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw new WsException('Unauthorized');
     }
   }
