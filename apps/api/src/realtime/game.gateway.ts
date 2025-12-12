@@ -6,18 +6,22 @@ import {
   OnGatewayDisconnect,
   ConnectedSocket,
   MessageBody,
+  WsException,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { RoomsService } from './rooms.service';
 import { GameService } from '../game/game.service';
 import { TeamsService } from '../teams/teams.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { JwtPayload } from '../auth/auth.service';
 
 interface JoinSessionPayload {
   sessionId: string;
   teamId?: string;
   role?: 'player' | 'gamemaster' | 'screen';
+  token?: string; // JWT token for authenticated users
 }
 
 interface SubmitAnswerPayload {
@@ -29,6 +33,17 @@ interface SubmitAnswerPayload {
 interface BuzzerPayload {
   questionId: string;
   teamId: string;
+}
+
+// Extended socket interface with user data
+interface AuthenticatedSocket extends Socket {
+  user?: {
+    id: string;
+    email: string;
+    role: string;
+  };
+  sessionId?: string;
+  wsRole?: 'player' | 'gamemaster' | 'screen';
 }
 
 @WebSocketGateway({
@@ -48,10 +63,77 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private gameService: GameService,
     private teamsService: TeamsService,
     private sessionsService: SessionsService,
+    private jwtService: JwtService,
   ) {}
 
-  async handleConnection(client: Socket) {
+  async handleConnection(client: AuthenticatedSocket) {
     this.logger.log(`Client connected: ${client.id}`);
+
+    // Try to authenticate via handshake
+    try {
+      const token = this.extractToken(client);
+      if (token) {
+        const payload = await this.verifyToken(token);
+        client.user = {
+          id: payload.sub,
+          email: payload.email,
+          role: payload.role,
+        };
+        this.logger.log(`Authenticated WS connection: ${payload.email} (${payload.role})`);
+      }
+    } catch (error) {
+      // Token invalid but allow connection (players/screens don't need auth)
+      this.logger.debug(`Unauthenticated WS connection: ${client.id}`);
+    }
+  }
+
+  private extractToken(client: Socket): string | undefined {
+    // Try to get token from handshake auth
+    const authHeader = client.handshake?.auth?.token;
+    if (authHeader) return authHeader;
+
+    // Try to get token from query params
+    const queryToken = client.handshake?.query?.token as string;
+    if (queryToken) return queryToken;
+
+    // Try to get token from Authorization header
+    const authorizationHeader = client.handshake?.headers?.authorization;
+    if (authorizationHeader && authorizationHeader.startsWith('Bearer ')) {
+      return authorizationHeader.substring(7);
+    }
+
+    return undefined;
+  }
+
+  private async verifyToken(token: string): Promise<JwtPayload> {
+    try {
+      return this.jwtService.verify(token);
+    } catch (error) {
+      throw new WsException('Invalid token');
+    }
+  }
+
+  /**
+   * Check if the socket has GM (Game Master) privileges
+   * Required for gm-* events
+   */
+  private requireGmRole(client: AuthenticatedSocket): void {
+    if (!client.user) {
+      throw new WsException('Authentication required for GM events');
+    }
+    // Allow ADMIN or ORGANIZER roles to act as GM
+    if (client.user.role !== 'ADMIN' && client.user.role !== 'ORGANIZER') {
+      throw new WsException('Insufficient permissions: GM role required');
+    }
+  }
+
+  /**
+   * Verify the socket is authorized for the given session
+   */
+  private verifySessionAccess(client: AuthenticatedSocket, sessionId: string): void {
+    if (client.sessionId && client.sessionId !== sessionId) {
+      throw new WsException('Not authorized for this session');
+    }
   }
 
   async handleDisconnect(client: Socket) {
@@ -60,9 +142,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Join a game session
+   * Join a game session (client event: join-session)
    */
-  @SubscribeMessage('join_session')
+  @SubscribeMessage('join-session')
   async handleJoinSession(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinSessionPayload,
@@ -82,17 +164,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(`session:${sessionId}`);
       await this.roomsService.addClient(client.id, sessionId, teamId, role);
 
-      // Emit success
-      client.emit('joined_session', {
+      // Emit success (server event: session-joined)
+      client.emit('session-joined', {
         sessionId,
         teamId,
         role,
       });
 
-      // Notify others in the room
+      // Notify others in the room (server event: team-joined)
       if (teamId && role === 'player') {
         const team = await this.teamsService.findOne(teamId);
-        this.server.to(`session:${sessionId}`).emit('player_joined', {
+        this.server.to(`session:${sessionId}`).emit('team-joined', {
+          team: { id: teamId, name: team.name },
           teamId,
           teamName: team.name,
         });
@@ -106,9 +189,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Leave a session
+   * Leave a session (client event: leave-session)
    */
-  @SubscribeMessage('leave_session')
+  @SubscribeMessage('leave-session')
   async handleLeaveSession(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { sessionId: string },
@@ -117,13 +200,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(`session:${sessionId}`);
     await this.roomsService.removeClient(client.id);
 
-    client.emit('left_session', { sessionId });
+    // Server event: team-left
+    client.emit('team-left', { sessionId });
   }
 
   /**
-   * Submit an answer
+   * Submit an answer (client event: submit-answer)
    */
-  @SubscribeMessage('submit_answer')
+  @SubscribeMessage('submit-answer')
   async handleSubmitAnswer(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: SubmitAnswerPayload,
@@ -139,14 +223,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      // Emit to gamemaster only (not to all players)
-      this.server.to(`session:${clientMeta.sessionId}`).emit('answer_submitted', {
+      // Server event: answer-submitted - Emit to gamemaster and screen
+      this.server.to(`session:${clientMeta.sessionId}`).emit('answer-submitted', {
         teamId: payload.teamId,
         questionId: payload.questionId,
         timestamp: new Date(),
       });
 
-      client.emit('answer_received', { answerId: answer.id });
+      // Server event: answer-result - Emit to the player who submitted
+      client.emit('answer-result', { answerId: answer.id, success: true });
     } catch (error) {
       this.logger.error('Error submitting answer:', error);
       client.emit('error', { message: error.message });
@@ -154,9 +239,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Press buzzer
+   * Press buzzer (client event: buzzer-press)
    */
-  @SubscribeMessage('buzzer_press')
+  @SubscribeMessage('buzzer-press')
   async handleBuzzerPress(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: BuzzerPayload,
@@ -174,8 +259,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const team = await this.teamsService.findOne(payload.teamId);
 
-      // Broadcast to all in session
-      this.server.to(`session:${clientMeta.sessionId}`).emit('buzz', {
+      // Server event: buzzer-pressed - Broadcast to all in session
+      this.server.to(`session:${clientMeta.sessionId}`).emit('buzzer-pressed', {
+        team: { id: payload.teamId, name: team.name },
         teamId: payload.teamId,
         teamName: team.name,
         rank: buzzerPress.rank,
@@ -188,18 +274,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: Start a question
+   * GameMaster: Start a question (client event: gm-start-question)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('start_question')
+  @SubscribeMessage('gm-start-question')
   async handleStartQuestion(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string; questionId: string },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       const result = await this.gameService.startQuestion(payload.sessionId, payload.questionId);
 
-      // Broadcast to all in session
-      this.server.to(`session:${payload.sessionId}`).emit('question_started', {
+      // Server event: question-start - Broadcast to all in session
+      this.server.to(`session:${payload.sessionId}`).emit('question-start', {
         question: result.question,
         endsAt: result.endsAt,
       });
@@ -210,19 +301,26 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: End a question
+   * GameMaster: End a question (client event: gm-end-question)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('end_question')
+  @SubscribeMessage('gm-end-question')
   async handleEndQuestion(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { sessionId: string; questionId: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() payload: { sessionId: string; questionId: string; correctAnswer?: string; explanation?: string },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       await this.gameService.endQuestion(payload.sessionId, payload.questionId);
 
-      // Broadcast to all in session
-      this.server.to(`session:${payload.sessionId}`).emit('question_ended', {
+      // Server event: question-end - Broadcast to all in session
+      this.server.to(`session:${payload.sessionId}`).emit('question-end', {
         questionId: payload.questionId,
+        correctAnswer: payload.correctAnswer,
+        explanation: payload.explanation,
       });
     } catch (error) {
       this.logger.error('Error ending question:', error);
@@ -231,18 +329,24 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: Show leaderboard
+   * GameMaster: Show leaderboard (client event: gm-show-leaderboard)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('show_leaderboard')
+  @SubscribeMessage('gm-show-leaderboard')
   async handleShowLeaderboard(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       const leaderboard = await this.gameService.getLeaderboard(payload.sessionId);
 
-      this.server.to(`session:${payload.sessionId}`).emit('leaderboard_shown', {
-        leaderboard,
+      // Server event: leaderboard-show
+      this.server.to(`session:${payload.sessionId}`).emit('leaderboard-show', {
+        teams: leaderboard,
         isIntermediate: true,
       });
     } catch (error) {
@@ -252,17 +356,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: Update score manually
+   * GameMaster: Update score manually (client event: gm-update-score)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('update_score')
+  @SubscribeMessage('gm-update-score')
   async handleUpdateScore(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string; teamId: string; delta: number; reason?: string },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       const team = await this.teamsService.updateScore(payload.teamId, payload.delta);
 
-      this.server.to(`session:${payload.sessionId}`).emit('score_updated', {
+      // Server event: score-update
+      this.server.to(`session:${payload.sessionId}`).emit('score-update', {
         teamId: team.id,
         teamName: team.name,
         newScore: team.score,
@@ -276,17 +386,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: Reset buzzer
+   * GameMaster: Reset buzzer (client event: gm-reset-buzzer)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('reset_buzzer')
+  @SubscribeMessage('gm-reset-buzzer')
   async handleResetBuzzer(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string; questionId: string },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       await this.gameService.resetBuzzer(payload.sessionId, payload.questionId);
 
-      this.server.to(`session:${payload.sessionId}`).emit('buzzer_reset', {
+      // Server event: buzzer-reset
+      this.server.to(`session:${payload.sessionId}`).emit('buzzer-reset', {
         questionId: payload.questionId,
       });
     } catch (error) {
@@ -297,13 +413,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * GameMaster: Validate buzzer answer (correct or wrong)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('buzzer-validate')
+  @SubscribeMessage('gm-buzzer-validate')
   async handleBuzzerValidate(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string; teamId: string; isCorrect: boolean; points?: number },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       const team = await this.teamsService.findOne(payload.teamId);
 
       if (payload.isCorrect) {
@@ -333,25 +454,36 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: Show transition screen
+   * GameMaster: Show transition screen (client event: gm-show-transition)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('show-transition')
+  @SubscribeMessage('gm-show-transition')
   async handleShowTransition(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string },
   ) {
-    this.server.to(`session:${payload.sessionId}`).emit('show-transition', {});
+    // Verify GM role
+    this.requireGmRole(client);
+    this.verifySessionAccess(client, payload.sessionId);
+
+    // Server event: transition-show
+    this.server.to(`session:${payload.sessionId}`).emit('transition-show', {});
   }
 
   /**
-   * GameMaster: Start finale mode
+   * GameMaster: Start finale mode (client event: gm-finale-start)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('finale-start')
+  @SubscribeMessage('gm-finale-start')
   async handleFinaleStart(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string; finalistTeams: string[] },
   ) {
     try {
+      // Verify GM role
+      this.requireGmRole(client);
+      this.verifySessionAccess(client, payload.sessionId);
+
       // Initialize jokers for each finalist team
       const jokers: Record<string, Record<string, number>> = {};
       for (const teamId of payload.finalistTeams) {
@@ -426,13 +558,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * GameMaster: End finale mode
+   * GameMaster: End finale mode (client event: gm-finale-end)
+   * Requires GM role (ADMIN or ORGANIZER)
    */
-  @SubscribeMessage('finale-end')
+  @SubscribeMessage('gm-finale-end')
   async handleFinaleEnd(
-    @ConnectedSocket() client: Socket,
+    @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() payload: { sessionId: string },
   ) {
+    // Verify GM role
+    this.requireGmRole(client);
+    this.verifySessionAccess(client, payload.sessionId);
+
     this.server.to(`session:${payload.sessionId}`).emit('finale-ended', {});
   }
 }

@@ -352,6 +352,18 @@ if (!existsSync(audioDir)) {
 
 app.post('/api/upload', async (req, res) => {
   try {
+    // Verify upload token if configured
+    if (UPLOAD_TOKEN) {
+      const authHeader = req.headers.authorization;
+      const providedToken = authHeader?.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : req.body.uploadToken || req.query.uploadToken;
+
+      if (!providedToken || providedToken !== UPLOAD_TOKEN) {
+        return res.status(401).json({ error: 'Invalid or missing upload token' });
+      }
+    }
+
     const { filename, data, type } = req.body;
 
     if (!filename || !data) {
@@ -394,6 +406,8 @@ app.post('/api/upload', async (req, res) => {
 const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
+// Upload token for media upload security (set in environment)
+const UPLOAD_TOKEN = process.env.SIMPLE_API_UPLOAD_TOKEN || null;
 
 // ============================================
 // RATE LIMITING (Anti-spam protection)
@@ -1509,16 +1523,82 @@ app.post('/api/sessions/:sessionId/end', authenticateToken, async (req, res) => 
 // SOCKET.IO
 // ============================================
 
+// WebSocket JWT Authentication Helper
+const authenticateWsSocket = (socket) => {
+  const token = socket.handshake?.auth?.token ||
+                socket.handshake?.query?.token ||
+                (socket.handshake?.headers?.authorization?.startsWith('Bearer ')
+                  ? socket.handshake.headers.authorization.substring(7)
+                  : null);
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      socket.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role
+      };
+      console.log(`WS authenticated: ${decoded.email} (${decoded.role})`);
+      return true;
+    } catch (error) {
+      console.log(`WS auth failed: ${error.message}`);
+      return false;
+    }
+  }
+  return false; // No token provided
+};
+
+// Check if socket has GM (Game Master) privileges
+const requireGmRole = (socket) => {
+  if (!socket.user) {
+    socket.emit('error', { message: 'Authentication required for GM events' });
+    return false;
+  }
+  // Allow ADMIN or ORGANIZER roles to act as GM
+  if (socket.user.role !== 'ADMIN' && socket.user.role !== 'ORGANIZER') {
+    socket.emit('error', { message: 'Insufficient permissions: GM role required' });
+    return false;
+  }
+  return true;
+};
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  // ========== SESSION EVENTS ==========
-  // Support both hyphen and colon notation
-  const joinSession = ({ sessionId, teamId, role }) => {
+  // Try to authenticate on connection
+  authenticateWsSocket(socket);
+
+  // ========== SESSION EVENTS (kebab-case) ==========
+  // Client event: join-session
+  const joinSession = ({ sessionId, teamId, role, token }) => {
+    // Try to authenticate with provided token
+    if (token && !socket.user) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        socket.user = {
+          id: decoded.sub,
+          email: decoded.email,
+          role: decoded.role
+        };
+        console.log(`WS authenticated via join-session: ${decoded.email} (${decoded.role})`);
+      } catch (error) {
+        console.log(`WS auth via join-session failed: ${error.message}`);
+      }
+    }
+
     socket.join(`session:${sessionId}`);
     socket.sessionId = sessionId;
-    socket.role = role;
+    socket.wsRole = role;
     console.log(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
+
+    // Emit session-joined acknowledgment to the client
+    socket.emit('session-joined', {
+      sessionId,
+      teamId,
+      role,
+      timestamp: Date.now()
+    });
 
     if (teamId) {
       socket.teamId = teamId;
@@ -1526,8 +1606,9 @@ io.on('connection', (socket) => {
       // Track this team as connected
       trackTeamConnection(sessionId, teamId);
 
-      // Notify studio and other clients that this team is now connected
-      io.to(`session:${sessionId}`).emit('team-connected', {
+      // Notify studio and other clients that this team is now connected (team-joined)
+      io.to(`session:${sessionId}`).emit('team-joined', {
+        team: { id: teamId },
         teamId,
         sessionId,
         role,
@@ -1548,22 +1629,26 @@ io.on('connection', (socket) => {
     }
   };
   socket.on('join-session', joinSession);
-  socket.on('session:join', joinSession);
 
+  // Client event: leave-session
   const leaveSession = ({ sessionId }) => {
     socket.leave(`session:${sessionId}`);
     console.log(`Socket ${socket.id} left session ${sessionId}`);
   };
   socket.on('leave-session', leaveSession);
-  socket.on('session:leave', leaveSession);
 
-  // ========== STUDIO CONTROL EVENTS (relayed to all clients) ==========
+  // ========== STUDIO CONTROL EVENTS (GM = Game Master, kebab-case) ==========
+  // GM events require authentication and GM role (ADMIN or ORGANIZER)
 
-  // Question start - from Studio to Screen/Player
-  socket.on('question-start', (data) => {
+  // GM event: gm-start-question - from Studio to Screen/Player
+  // Server emits: question-start
+  const handleGmStartQuestion = (data) => {
+    // Verify GM role for protected event
+    if (!requireGmRole(socket)) return;
+
     const sessionId = data.sessionId || socket.sessionId;
     const timeLimit = data.timeLimit || data.question?.timeLimit || 30;
-    console.log(`Question started in session ${sessionId}:`, data.question?.id, `(${timeLimit}s)`);
+    console.log(`[GM] Question started in session ${sessionId}:`, data.question?.id, `(${timeLimit}s)`);
 
     // Start server-side timer for perfect sync
     startServerTimer(sessionId, timeLimit);
@@ -1576,12 +1661,18 @@ io.on('connection', (socket) => {
       timeLimit,
       serverTime: Date.now() // Send server timestamp for sync
     });
-  });
+  };
+  socket.on('gm-start-question', handleGmStartQuestion);
+  socket.on('question-start', handleGmStartQuestion); // Legacy support
 
-  // Question end - from Studio to Screen/Player
-  socket.on('question-end', (data) => {
+  // GM event: gm-end-question - from Studio to Screen/Player
+  // Server emits: question-end
+  const handleGmEndQuestion = (data) => {
+    // Verify GM role for protected event
+    if (!requireGmRole(socket)) return;
+
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Question ended in session ${sessionId}`);
+    console.log(`[GM] Question ended in session ${sessionId}`);
 
     // Stop server-side timer
     stopServerTimer(sessionId);
@@ -1589,9 +1680,12 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('question-end', {
       questionId: data.questionId,
       correctAnswer: data.correctAnswer,
+      explanation: data.explanation,
       serverTime: Date.now()
     });
-  });
+  };
+  socket.on('gm-end-question', handleGmEndQuestion);
+  socket.on('question-end', handleGmEndQuestion); // Legacy support
 
   // Timer events - server-side timer is now authoritative
   socket.on('timer-start', (data) => {
@@ -1619,26 +1713,48 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('timer-end', { serverTime: Date.now() });
   });
 
-  // Show leaderboard
-  socket.on('show-leaderboard', (data) => {
-    const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Showing leaderboard in session ${sessionId}`);
-    io.to(`session:${sessionId}`).emit('show-leaderboard', { teams: data.teams });
-  });
+  // GM event: gm-show-leaderboard - from Studio to Screen/Player
+  // Server emits: leaderboard-show
+  const handleGmShowLeaderboard = (data) => {
+    // Verify GM role for protected event
+    if (!requireGmRole(socket)) return;
 
-  // Game paused/resumed
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`[GM] Showing leaderboard in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('leaderboard-show', { teams: data.teams });
+  };
+  socket.on('gm-show-leaderboard', handleGmShowLeaderboard);
+  socket.on('show-leaderboard', handleGmShowLeaderboard); // Legacy support
+
+  // GM event: gm-show-transition - from Studio to Screen/Player
+  // Server emits: transition-show
+  const handleGmShowTransition = (data) => {
+    // Verify GM role for protected event
+    if (!requireGmRole(socket)) return;
+
+    const sessionId = data.sessionId || socket.sessionId;
+    console.log(`[GM] Showing transition in session ${sessionId}`);
+    io.to(`session:${sessionId}`).emit('transition-show', { serverTime: Date.now() });
+  };
+  socket.on('gm-show-transition', handleGmShowTransition);
+  socket.on('show-transition', handleGmShowTransition); // Legacy support
+
+  // Game paused/resumed (GM only)
   socket.on('game-paused', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     io.to(`session:${sessionId}`).emit('game-paused', {});
   });
 
   socket.on('game-resumed', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     io.to(`session:${sessionId}`).emit('game-resumed', {});
   });
 
-  // Session end
+  // Session end (GM only)
   socket.on('session-end', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     console.log(`Session ${sessionId} ended`);
     io.to(`session:${sessionId}`).emit('session-end', {});
@@ -1647,6 +1763,7 @@ io.on('connection', (socket) => {
   // ========== BUZZER EVENTS (with server-side lock for fairness) ==========
 
   socket.on('buzzer-open', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     console.log(`Buzzer opened in session ${sessionId}`);
     // Reset buzzer state when opening
@@ -1655,6 +1772,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('buzzer-lock', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     // Force lock (manual lock from studio)
     const state = buzzerState.get(sessionId) || { locked: false, winner: null, timestamp: null };
@@ -1663,14 +1781,22 @@ io.on('connection', (socket) => {
     io.to(`session:${sessionId}`).emit('buzzer-lock', { serverTime: Date.now() });
   });
 
-  socket.on('buzzer-reset', (data) => {
+  // GM event: gm-reset-buzzer - from Studio to Screen/Player
+  // Server emits: buzzer-reset
+  const handleGmResetBuzzer = (data) => {
+    // Verify GM role for protected event
+    if (!requireGmRole(socket)) return;
+
     const sessionId = data.sessionId || socket.sessionId;
     resetBuzzer(sessionId);
     io.to(`session:${sessionId}`).emit('buzzer-reset', { serverTime: Date.now() });
-  });
+  };
+  socket.on('gm-reset-buzzer', handleGmResetBuzzer);
+  socket.on('buzzer-reset', handleGmResetBuzzer); // Legacy support
 
-  // Buzzer winner announcement - from Studio
+  // Buzzer winner announcement - from Studio (GM only)
   socket.on('buzzer-winner', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     console.log(`Buzzer winner in session ${sessionId}: ${data.teamName}`);
     io.to(`session:${sessionId}`).emit('buzzer-winner', {
@@ -1680,20 +1806,52 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Buzzer validation - correct answer (from Studio)
-  socket.on('buzzer-correct', (data) => {
+  // Buzzer validation - correct answer (from Studio, GM only)
+  // Updates score in database and emits both buzzer-correct and score-update
+  socket.on('buzzer-correct', async (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
-    console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${data.points}`);
-    io.to(`session:${sessionId}`).emit('buzzer-correct', {
-      team: data.team,
-      teamId: data.teamId,
-      teamName: data.teamName,
-      points: data.points
-    });
+    const points = data.points || 0;
+
+    try {
+      // Update score in database if points are awarded
+      if (points > 0 && data.teamId) {
+        const updatedTeam = await prisma.team.update({
+          where: { id: data.teamId },
+          data: { score: { increment: points } }
+        });
+
+        // Emit score-update (backend is single source of truth)
+        io.to(`session:${sessionId}`).emit('score-update', {
+          teamId: data.teamId,
+          newScore: updatedTeam.score,
+          delta: points,
+          reason: 'buzzer'
+        });
+      }
+
+      console.log(`Buzzer correct in session ${sessionId}: team=${data.teamName}, points=${points}`);
+      io.to(`session:${sessionId}`).emit('buzzer-correct', {
+        team: data.team,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        points
+      });
+    } catch (error) {
+      console.error('Error updating score for buzzer-correct:', error);
+      // Still emit buzzer-correct even if database update fails
+      io.to(`session:${sessionId}`).emit('buzzer-correct', {
+        team: data.team,
+        teamId: data.teamId,
+        teamName: data.teamName,
+        points
+      });
+    }
   });
 
-  // Buzzer validation - wrong answer (from Studio)
+  // Buzzer validation - wrong answer (from Studio, GM only)
   socket.on('buzzer-wrong', (data) => {
+    if (!requireGmRole(socket)) return;
     const sessionId = data.sessionId || socket.sessionId;
     console.log(`Buzzer wrong in session ${sessionId}: team=${data.teamName}`);
     io.to(`session:${sessionId}`).emit('buzzer-wrong', {
@@ -1770,8 +1928,9 @@ io.on('connection', (socket) => {
       }
     }
   };
+  // Client event: buzzer-press
+  // Server emits: buzzer-pressed
   socket.on('buzzer-press', handleBuzzerPress);
-  socket.on('buzzer:press', handleBuzzerPress);
 
   // ========== BLINDTEST EVENTS ==========
 
@@ -1894,10 +2053,21 @@ io.on('connection', (socket) => {
         }
       }
 
+      // Update score if answer is correct and emit score-update event
+      let newScore = null;
       if (isCorrect) {
-        await prisma.team.update({
+        const updatedTeam = await prisma.team.update({
           where: { id: teamId },
           data: { score: { increment: points } }
+        });
+        newScore = updatedTeam.score;
+
+        // Emit score-update event (backend is single source of truth for scores)
+        io.to(`session:${sessionId}`).emit('score-update', {
+          teamId,
+          newScore,
+          delta: points,
+          reason: 'answer'
         });
       }
 
@@ -1948,8 +2118,9 @@ io.on('connection', (socket) => {
       console.error('Socket answer error:', error);
     }
   };
+  // Client event: submit-answer
+  // Server emits: answer-submitted, answer-result
   socket.on('submit-answer', handleAnswerSubmit);
-  socket.on('answer:submit', handleAnswerSubmit);
 
   // ========== SCORE EVENTS ==========
 

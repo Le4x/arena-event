@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable with HTTPS default
+// URLs - configurable via environment variables with HTTPS defaults
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
 
 type GameState = 'JOIN' | 'TEAM_SELECT' | 'LOBBY' | 'QUESTION' | 'BUZZER' | 'WAITING' | 'RESULT' | 'LEADERBOARD' | 'FINISHED';
 
@@ -259,7 +260,7 @@ export default function PlayerHome() {
       socketRef.current.disconnect();
     }
 
-    const socket = io(API_URL, {
+    const socket = io(WS_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,
@@ -389,7 +390,7 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(true);
         setPointsEarned(data.points || 0);
-        setTeam(prev => prev ? { ...prev, score: prev.score + (data.points || 0) } : prev);
+        // Score update is handled by score-update event (backend is single source of truth)
         setGameState('RESULT');
       }
       setBuzzerWinner(null);
@@ -416,18 +417,24 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(data.isCorrect);
         setPointsEarned(data.points || 0);
-        if (data.points > 0) {
-          setTeam(prev => prev ? { ...prev, score: prev.score + data.points } : prev);
-        }
+        // Score update is handled by score-update event (backend is single source of truth)
       }
     });
 
+    // Server event: score-update - Single source of truth for score changes
+    // Backend emits this event whenever a team's score changes
     socket.on('score-update', (data) => {
       if (data.teamId === teamId) {
         setTeam(prev => prev ? { ...prev, score: data.newScore } : prev);
       }
     });
 
+    // Server event: leaderboard-show
+    socket.on('leaderboard-show', (data) => {
+      setLeaderboard(data.teams);
+      setGameState('LEADERBOARD');
+    });
+    // Legacy support for show-leaderboard
     socket.on('show-leaderboard', (data) => {
       setLeaderboard(data.teams);
       setGameState('LEADERBOARD');

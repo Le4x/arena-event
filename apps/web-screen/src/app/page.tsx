@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-// API URL - configurable via environment variable or defaults to the VPS
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://91.134.135.247:3001';
+// URLs - configurable via environment variables
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
+const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 
 type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION';
 
@@ -81,6 +83,35 @@ export default function ScreenHome() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Fullscreen toggle function
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error('Error attempting to enable fullscreen:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      }).catch((err) => {
+        console.error('Error attempting to exit fullscreen:', err);
+      });
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   // Fetch sessions
   useEffect(() => {
     const fetchSessions = async () => {
@@ -125,7 +156,7 @@ export default function ScreenHome() {
       socketRef.current.disconnect();
     }
 
-    const socket = io(API_URL, {
+    const socket = io(WS_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 500,
@@ -208,6 +239,10 @@ export default function ScreenHome() {
 
     socket.on('question-end', (data) => {
       setCorrectAnswer(data.correctAnswer);
+      // Update question with explanation from server
+      if (data.explanation) {
+        setCurrentQuestion(prev => prev ? { ...prev, explanation: data.explanation } : prev);
+      }
       setDisplayMode('REVEAL');
     });
 
@@ -245,7 +280,14 @@ export default function ScreenHome() {
       ));
     });
 
-    // Leaderboard
+    // Leaderboard - server event: leaderboard-show
+    socket.on('leaderboard-show', (data) => {
+      if (data.teams) {
+        setTeams(data.teams);
+      }
+      setDisplayMode('LEADERBOARD');
+    });
+    // Legacy support for show-leaderboard
     socket.on('show-leaderboard', (data) => {
       if (data.teams) {
         setTeams(data.teams);
@@ -253,6 +295,11 @@ export default function ScreenHome() {
       setDisplayMode('LEADERBOARD');
     });
 
+    // Transition - server event: transition-show
+    socket.on('transition-show', () => {
+      setDisplayMode('TRANSITION');
+    });
+    // Legacy support for show-transition
     socket.on('show-transition', () => {
       setDisplayMode('TRANSITION');
     });
@@ -379,7 +426,24 @@ export default function ScreenHome() {
   // SESSION SELECT
   if (displayMode === 'SELECT') {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center p-8">
+      <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center p-8 relative">
+        {/* Fullscreen button */}
+        <button
+          onClick={toggleFullscreen}
+          className="absolute top-4 right-4 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-colors"
+          title={isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+        >
+          {isFullscreen ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M9 15v4.5M9 15H4.5M9 15l-5.5 5.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+          )}
+        </button>
+
         <div className="text-center mb-12">
           <div className="text-8xl mb-6">🎮</div>
           <h1 className="text-6xl font-black text-white mb-4">Arena Event</h1>
@@ -473,6 +537,23 @@ export default function ScreenHome() {
   if (displayMode === 'LOBBY') {
     return (
       <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-blue-900 flex flex-col items-center justify-center p-8 overflow-hidden relative">
+        {/* Fullscreen button */}
+        <button
+          onClick={toggleFullscreen}
+          className="absolute top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-colors"
+          title={isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+        >
+          {isFullscreen ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M9 15v4.5M9 15H4.5M9 15l-5.5 5.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+          )}
+        </button>
+
         {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-40 -right-40 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
@@ -493,7 +574,7 @@ export default function ScreenHome() {
           <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-12 max-w-4xl mx-auto border border-white/20 shadow-2xl">
             <p className="text-3xl text-purple-200 mb-6">Rejoins le jeu sur</p>
             <div className="text-5xl font-bold text-white mb-8">
-              http://91.134.135.247:3003
+              {PLAYER_URL}
             </div>
 
             <div className="border-t border-white/20 pt-8 mt-8">
@@ -760,11 +841,14 @@ export default function ScreenHome() {
           </div>
         </div>
 
-        {/* Explanation / Anecdote */}
+        {/* Explanation / Anecdote - "Le saviez-vous?" */}
         {currentQuestion.explanation && (
-          <div className="max-w-4xl w-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/50 rounded-2xl p-8 text-center animate-fade-in">
-            <div className="text-4xl mb-4">💡</div>
-            <p className="text-2xl text-yellow-100 leading-relaxed">{currentQuestion.explanation}</p>
+          <div className="max-w-4xl w-full bg-gradient-to-r from-amber-600/30 to-yellow-600/30 border-2 border-amber-400/60 rounded-2xl p-8 text-center animate-fade-in shadow-lg">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <span className="text-4xl">💡</span>
+              <h3 className="text-3xl font-bold text-amber-300">Le saviez-vous ?</h3>
+            </div>
+            <p className="text-2xl text-amber-100 leading-relaxed italic">{currentQuestion.explanation}</p>
           </div>
         )}
       </main>
