@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # URLs par défaut (local)
-API_URL="${API_URL:-http://localhost:3000}"
+API_URL="${API_URL:-http://localhost:3001}"
 
 PASSED=0
 FAILED=0
