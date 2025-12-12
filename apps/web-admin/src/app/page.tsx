@@ -652,7 +652,7 @@ export default function Home() {
   const openAddQuestion = (roundId: string) => {
     setSelectedRoundId(roundId);
     setEditingQuestion(null);
-    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null });
+    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0 });
     setAudioDuration(0);
     setShowQuestionModal(true);
   };
