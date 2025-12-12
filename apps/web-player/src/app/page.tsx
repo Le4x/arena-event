@@ -116,6 +116,7 @@ export default function PlayerHome() {
   const [buzzerOpen, setBuzzerOpen] = useState(false);
   const [buzzerWinner, setBuzzerWinner] = useState<string | null>(null);
   const [buzzerWrongFeedback, setBuzzerWrongFeedback] = useState(false);
+  const [isTeamLocked, setIsTeamLocked] = useState(false); // Team locked from buzzing this question
 
   // Blindtest state
   const [isBlindtestPlaying, setIsBlindtestPlaying] = useState(false);
@@ -331,6 +332,7 @@ export default function PlayerHome() {
       setBuzzerPressed(false);
       setBuzzerOpen(data.question.type === 'BUZZER');
       setBuzzerWinner(null);
+      setIsTeamLocked(false); // Reset locked status for new question
       questionStartTime.current = Date.now();
       setGameState('QUESTION');
       startTimer(data.timeLimit || data.question.timeLimit || 30);
@@ -370,10 +372,23 @@ export default function PlayerHome() {
       setBuzzerOpen(false);
     });
 
-    socket.on('buzzer-reset', () => {
+    socket.on('buzzer-reset', (data) => {
       setBuzzerPressed(false);
       setBuzzerWinner(null);
-      setBuzzerOpen(true);
+      // Check if this team is in the locked list
+      if (data?.lockedTeamIds && data.lockedTeamIds.includes(teamId)) {
+        setIsTeamLocked(true);
+        setBuzzerOpen(false);
+      } else {
+        setBuzzerOpen(true);
+      }
+    });
+
+    socket.on('buzzer-team-locked', (data) => {
+      if (data.teamId === teamId) {
+        setIsTeamLocked(true);
+        setBuzzerOpen(false);
+      }
     });
 
     socket.on('buzzer-winner', (data) => {
@@ -400,14 +415,22 @@ export default function PlayerHome() {
       if (data.teamId === teamId) {
         setIsCorrect(false);
         setPointsEarned(0);
-        // Show wrong feedback briefly then allow another try
+        // Show wrong feedback briefly
         setBuzzerWrongFeedback(true);
         setTimeout(() => setBuzzerWrongFeedback(false), 2000);
         setBuzzerPressed(false);
-        setBuzzerOpen(true);
+        // Check if team is locked from this question
+        if (data.teamLocked) {
+          setIsTeamLocked(true);
+          setBuzzerOpen(false);
+        } else {
+          setBuzzerOpen(true);
+        }
       } else {
-        // Other teams can try again
-        setBuzzerOpen(true);
+        // Other teams can try again (if not locked)
+        if (!isTeamLocked) {
+          setBuzzerOpen(true);
+        }
       }
       setBuzzerWinner(null);
     });
@@ -1035,8 +1058,16 @@ export default function PlayerHome() {
           {/* Buzzer */}
           {currentQuestion.type === 'BUZZER' && (
             <div className="flex-1 flex flex-col items-center justify-center">
+              {/* Locked feedback */}
+              {isTeamLocked && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
+                  <p className="text-red-400 text-xl font-bold">🔒 BLOQUE</p>
+                  <p className="text-red-300 text-sm">Tu ne peux plus buzzer cette question</p>
+                </div>
+              )}
+
               {/* Wrong answer feedback */}
-              {buzzerWrongFeedback && (
+              {buzzerWrongFeedback && !isTeamLocked && (
                 <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
                   <p className="text-red-400 text-xl font-bold">❌ Wrong! Try again!</p>
                 </div>
@@ -1054,17 +1085,19 @@ export default function PlayerHome() {
               ) : (
                 <button
                   onClick={handleBuzzer}
-                  disabled={buzzerPressed || !buzzerOpen}
+                  disabled={buzzerPressed || !buzzerOpen || isTeamLocked}
                   className={`w-56 h-56 rounded-full shadow-2xl transition transform active:scale-90 ${
-                    buzzerPressed
-                      ? 'bg-gray-600'
-                      : buzzerOpen
-                        ? 'bg-gradient-to-br from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 animate-pulse'
-                        : 'bg-gray-600 opacity-50'
+                    isTeamLocked
+                      ? 'bg-gray-700 border-4 border-red-500'
+                      : buzzerPressed
+                        ? 'bg-gray-600'
+                        : buzzerOpen
+                          ? 'bg-gradient-to-br from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 animate-pulse'
+                          : 'bg-gray-600 opacity-50'
                   }`}
                 >
                   <span className="text-white text-3xl font-black">
-                    {buzzerPressed ? 'BUZZED!' : buzzerOpen ? 'BUZZ!' : 'WAIT...'}
+                    {isTeamLocked ? '🔒 BLOQUE' : buzzerPressed ? 'BUZZED!' : buzzerOpen ? 'BUZZ!' : 'WAIT...'}
                   </span>
                 </button>
               )}
@@ -1119,8 +1152,16 @@ export default function PlayerHome() {
                 </div>
               )}
 
+              {/* Locked feedback */}
+              {isTeamLocked && !blindtestRevealed && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
+                  <p className="text-red-400 text-xl font-bold">🔒 BLOQUE</p>
+                  <p className="text-red-300 text-sm">Tu ne peux plus buzzer cette question</p>
+                </div>
+              )}
+
               {/* Wrong answer feedback */}
-              {buzzerWrongFeedback && (
+              {buzzerWrongFeedback && !isTeamLocked && (
                 <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
                   <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
                 </div>
@@ -1136,10 +1177,10 @@ export default function PlayerHome() {
                     <p className="text-gray-400">En attente de validation...</p>
                   )}
                 </div>
-              ) : !blindtestRevealed && (
+              ) : !blindtestRevealed && !isTeamLocked && (
                 <button
                   onClick={handleBuzzer}
-                  disabled={buzzerPressed || !buzzerOpen || !isBlindtestPlaying}
+                  disabled={buzzerPressed || !buzzerOpen || !isBlindtestPlaying || isTeamLocked}
                   className={`w-56 h-56 rounded-full shadow-2xl transition transform active:scale-90 ${
                     buzzerPressed
                       ? 'bg-gray-600'

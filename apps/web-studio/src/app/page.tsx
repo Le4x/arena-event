@@ -110,6 +110,11 @@ export default function StudioHome() {
   const [buzzerPressTime, setBuzzerPressTime] = useState<number>(0);
   const questionStartTimeRef = useRef<number>(0);
 
+  // Buzzer settings
+  const [autoLockOnWrong, setAutoLockOnWrong] = useState(true); // Auto-lock team after wrong answer
+  const [autoRevealOnCorrect, setAutoRevealOnCorrect] = useState(true); // Auto-reveal on correct answer for blindtest
+  const [lockedTeamIds, setLockedTeamIds] = useState<string[]>([]); // Teams locked from buzzing this question
+
   // Blindtest audio
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioRevealed, setAudioRevealed] = useState(false);
@@ -402,6 +407,7 @@ export default function StudioHome() {
     setBuzzerQueue([]);
     setBuzzerPressTime(0);
     setBuzzerLocked(currentQuestion.type !== 'BUZZER' && currentQuestion.type !== 'BLIND_TEST');
+    setLockedTeamIds([]); // Reset locked teams for new question
     setAnswers(prev => prev.filter(a => a.questionId !== currentQuestion.id));
     setTeams(prev => prev.map(t => ({ ...t, lastAnswer: undefined })));
     questionStartTimeRef.current = Date.now();
@@ -549,6 +555,7 @@ export default function StudioHome() {
     setTimeRemaining(30);
     setBuzzerWinner(null);
     setBuzzerQueue([]);
+    setLockedTeamIds([]); // Reset locked teams
   };
 
   const prevQuestion = () => {
@@ -642,21 +649,47 @@ export default function StudioHome() {
     });
 
     // Reset buzzer state
-    resetBuzzer();
+    setBuzzerWinner(null);
+    setBuzzerQueue([]);
+    setBuzzerLocked(true);
+
+    // Auto-reveal for blindtest if enabled
+    if (autoRevealOnCorrect && currentQuestion?.type === 'BLIND_TEST') {
+      revealBlindtest();
+      setGameStatus('REVEAL');
+    }
   };
 
   // Mark buzzer answer as wrong
   const markBuzzerWrong = (team: Team) => {
+    // If autoLockOnWrong is enabled, lock this team from buzzing again this question
+    if (autoLockOnWrong) {
+      setLockedTeamIds(prev => [...prev, team.id]);
+      // Notify players about the locked team
+      socketRef.current?.emit('buzzer-team-locked', {
+        sessionId: selectedSession?.id,
+        teamId: team.id,
+        lockedTeamIds: [...lockedTeamIds, team.id]
+      });
+    }
+
     // Emit buzzer-wrong event to notify players
     socketRef.current?.emit('buzzer-wrong', {
       sessionId: selectedSession?.id,
       team,
       teamId: team.id,
-      teamName: team.name
+      teamName: team.name,
+      teamLocked: autoLockOnWrong
     });
 
     // Reset buzzer to allow others to try
-    resetBuzzer();
+    setBuzzerWinner(null);
+    setBuzzerQueue([]);
+    setBuzzerLocked(false);
+    socketRef.current?.emit('buzzer-reset', {
+      sessionId: selectedSession?.id,
+      lockedTeamIds: autoLockOnWrong ? [...lockedTeamIds, team.id] : lockedTeamIds
+    });
   };
 
   // ========== BLINDTEST CONTROLS ==========
@@ -1335,7 +1368,21 @@ export default function StudioHome() {
               {/* Buzzer Controls */}
               {(currentQuestion?.type === 'BUZZER' || currentQuestion?.type === 'OPEN') && (
                 <div className="bg-gray-800 rounded-xl p-6 mb-6">
-                  <h3 className="text-xl font-semibold mb-4">🔔 Buzzer Control</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-semibold">🔔 Buzzer Control</h3>
+                    {/* Buzzer Options */}
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={autoLockOnWrong}
+                          onChange={(e) => setAutoLockOnWrong(e.target.checked)}
+                          className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-purple-500 focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-300">🔒 Auto-lock on wrong</span>
+                      </label>
+                    </div>
+                  </div>
 
                   <div className="flex items-center space-x-4 mb-4">
                     <button
@@ -1359,6 +1406,23 @@ export default function StudioHome() {
                       Reset
                     </button>
                   </div>
+
+                  {/* Locked teams indicator */}
+                  {lockedTeamIds.length > 0 && (
+                    <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                      <p className="text-sm text-red-400 font-medium mb-2">🔒 Locked teams ({lockedTeamIds.length}):</p>
+                      <div className="flex flex-wrap gap-2">
+                        {lockedTeamIds.map(teamId => {
+                          const team = teams.find(t => t.id === teamId);
+                          return team ? (
+                            <span key={teamId} className="bg-red-500/20 text-red-300 px-2 py-1 rounded text-sm">
+                              {team.name}
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {buzzerWinner && (
                     <div className="bg-red-500/20 border-2 border-red-500 rounded-xl p-6 text-center animate-pulse">
@@ -1462,7 +1526,30 @@ export default function StudioHome() {
 
                   {/* Buzzer for blindtest */}
                   <div className="mt-6 pt-4 border-t border-gray-700">
-                    <h4 className="text-lg font-medium mb-3">🔔 Buzzer</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-lg font-medium">🔔 Buzzer</h4>
+                      {/* Buzzer Options */}
+                      <div className="flex items-center space-x-3">
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={autoLockOnWrong}
+                            onChange={(e) => setAutoLockOnWrong(e.target.checked)}
+                            className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-purple-500 focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-300">🔒 Lock on wrong</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={autoRevealOnCorrect}
+                            onChange={(e) => setAutoRevealOnCorrect(e.target.checked)}
+                            className="w-4 h-4 rounded bg-gray-700 border-gray-600 text-purple-500 focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-300">🎤 Auto-reveal</span>
+                        </label>
+                      </div>
+                    </div>
                     <div className="flex items-center space-x-4">
                       <button
                         onClick={openBuzzer}
@@ -1478,6 +1565,23 @@ export default function StudioHome() {
                         Reset
                       </button>
                     </div>
+
+                    {/* Locked teams indicator */}
+                    {lockedTeamIds.length > 0 && (
+                      <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded-lg p-2">
+                        <p className="text-xs text-red-400 font-medium mb-1">🔒 Locked ({lockedTeamIds.length}):</p>
+                        <div className="flex flex-wrap gap-1">
+                          {lockedTeamIds.map(teamId => {
+                            const team = teams.find(t => t.id === teamId);
+                            return team ? (
+                              <span key={teamId} className="bg-red-500/20 text-red-300 px-2 py-0.5 rounded text-xs">
+                                {team.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {buzzerWinner && (
                       <div className="mt-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
