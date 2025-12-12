@@ -5,7 +5,7 @@ import { io, Socket } from 'socket.io-client';
 
 // URLs - configurable via environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://api.arena-event.fr';
 const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 
 type DisplayMode = 'SELECT' | 'LOBBY' | 'QUESTION' | 'REVEAL' | 'LEADERBOARD' | 'BUZZER' | 'PODIUM' | 'PAUSED' | 'BLINDTEST' | 'TRANSITION';
@@ -117,6 +117,21 @@ export default function ScreenHome() {
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // Initialize global audio element for Deezer playback
+  useEffect(() => {
+    if (!audioRef.current) {
+      const audio = new Audio();
+      audio.addEventListener('ended', () => setIsAudioPlaying(false));
+      audioRef.current = audio;
+    }
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+    };
   }, []);
 
   // Fetch sessions
@@ -1068,8 +1083,7 @@ export default function ScreenHome() {
   if (displayMode === 'BLINDTEST') {
     return (
       <main className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black flex flex-col items-center justify-center relative overflow-hidden">
-        {/* Hidden audio element */}
-        <audio ref={audioRef} onEnded={() => setIsAudioPlaying(false)} />
+        {/* Audio element is now created globally via useEffect */}
 
         {/* Animated background circles */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">

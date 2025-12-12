@@ -5,7 +5,7 @@ import { io, Socket } from 'socket.io-client';
 
 // URLs - configurable via environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.arena-event.fr';
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://ws.arena-event.fr';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'https://api.arena-event.fr';
 const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL || 'https://studio.arena-event.fr';
 const PLAYER_URL = process.env.NEXT_PUBLIC_PLAYER_URL || 'https://player.arena-event.fr';
 const SCREEN_URL = process.env.NEXT_PUBLIC_SCREEN_URL || 'https://screen.arena-event.fr';
