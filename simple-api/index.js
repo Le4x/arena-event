@@ -948,7 +948,14 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
       revealCueStart: q.revealCueStart,
       revealCueEnd: q.revealCueEnd,
       roundId: q.roundId,
-      round: q.round
+      round: q.round,
+      // Deezer fields
+      deezerTrackId: q.deezerTrackId,
+      deezerPreviewUrl: q.deezerPreviewUrl,
+      deezerArtist: q.deezerArtist,
+      deezerTitle: q.deezerTitle,
+      deezerCover: q.deezerCover,
+      audioPlayMode: q.audioPlayMode
     }));
 
     res.json({ questions: transformed });
@@ -2694,7 +2701,14 @@ app.get('/rounds/:roundId/questions', async (req, res) => {
       questionCueStart: q.questionCueStart,
       questionCueEnd: q.questionCueEnd,
       revealCueStart: q.revealCueStart,
-      revealCueEnd: q.revealCueEnd
+      revealCueEnd: q.revealCueEnd,
+      // Deezer fields
+      deezerTrackId: q.deezerTrackId,
+      deezerPreviewUrl: q.deezerPreviewUrl,
+      deezerArtist: q.deezerArtist,
+      deezerTitle: q.deezerTitle,
+      deezerCover: q.deezerCover,
+      audioPlayMode: q.audioPlayMode
     }));
 
     res.json(transformed);
