@@ -484,6 +484,14 @@ export default function StudioHome() {
     } catch (error) {
       console.error('Failed to update question:', error);
     }
+
+    // Auto-play blindtest music when starting a BLIND_TEST question
+    if (currentQuestion.type === 'BLIND_TEST' && currentQuestion.mediaUrl) {
+      // Small delay to ensure all state is properly set up
+      setTimeout(() => {
+        playBlindtest();
+      }, 200);
+    }
   };
 
   const pauseGame = () => {
