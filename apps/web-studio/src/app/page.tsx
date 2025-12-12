@@ -427,6 +427,14 @@ export default function StudioHome() {
       timeLimit: currentQuestion.timeLimit,
     });
 
+    // Auto-play blindtest music when starting a blindtest question
+    if (currentQuestion.type === 'BLIND_TEST' && currentQuestion.mediaUrl) {
+      // Small delay to ensure socket event is sent first
+      setTimeout(() => {
+        playBlindtest();
+      }, 500);
+    }
+
     // Update session state on server
     try {
       await fetch(`${API_URL}/sessions/${selectedSession.id}/question`, {

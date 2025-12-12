@@ -405,10 +405,15 @@ export default function PlayerHome() {
         setIsCorrect(true);
         setPointsEarned(data.points || 0);
         setTeam(prev => prev ? { ...prev, score: prev.score + (data.points || 0) } : prev);
-        setGameState('RESULT');
+        // For blindtest, stay on question screen to see the reveal
+        // For other types, go to result screen
+        if (currentQuestion?.type !== 'BLIND_TEST') {
+          setGameState('RESULT');
+        }
       }
       setBuzzerWinner(null);
       setBuzzerPressed(false);
+      setBuzzerOpen(false); // Lock buzzer after correct answer
     });
 
     socket.on('buzzer-wrong', (data) => {
@@ -1152,6 +1157,14 @@ export default function PlayerHome() {
                 </div>
               )}
 
+              {/* Correct answer feedback for blindtest */}
+              {isCorrect === true && !blindtestRevealed && (
+                <div className="mb-4 bg-green-500/20 border-2 border-green-500 rounded-xl p-4 text-center animate-pulse">
+                  <p className="text-green-400 text-xl font-bold">🎉 BRAVO!</p>
+                  <p className="text-green-300 text-sm">+{pointsEarned} points</p>
+                </div>
+              )}
+
               {/* Locked feedback */}
               {isTeamLocked && !blindtestRevealed && (
                 <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
@@ -1177,7 +1190,7 @@ export default function PlayerHome() {
                     <p className="text-gray-400">En attente de validation...</p>
                   )}
                 </div>
-              ) : !blindtestRevealed && !isTeamLocked && (
+              ) : !blindtestRevealed && !isTeamLocked && isCorrect !== true && (
                 <button
                   onClick={handleBuzzer}
                   disabled={buzzerPressed || !buzzerOpen || !isBlindtestPlaying || isTeamLocked}
