@@ -803,13 +803,23 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
           options: q.choices || [],
           correctAnswer: q.correctAnswer || '',
           points: q.points,
+          negativePoints: q.negativePoints || 0,
           timeLimit: q.timeLimit,
           order: q.order,
           mediaUrl: q.mediaUrl,
           questionCueStart: q.questionCueStart,
           questionCueEnd: q.questionCueEnd,
           revealCueStart: q.revealCueStart,
-          revealCueEnd: q.revealCueEnd
+          revealCueEnd: q.revealCueEnd,
+          explanation: q.explanation,
+          tolerance: q.tolerance,
+          // Deezer fields
+          deezerTrackId: q.deezerTrackId,
+          deezerPreviewUrl: q.deezerPreviewUrl,
+          deezerArtist: q.deezerArtist,
+          deezerTitle: q.deezerTitle,
+          deezerCover: q.deezerCover,
+          audioPlayMode: q.audioPlayMode
         }))
       }))
     };
