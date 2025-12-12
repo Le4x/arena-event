@@ -352,6 +352,18 @@ if (!existsSync(audioDir)) {
 
 app.post('/api/upload', async (req, res) => {
   try {
+    // Verify upload token if configured
+    if (UPLOAD_TOKEN) {
+      const authHeader = req.headers.authorization;
+      const providedToken = authHeader?.startsWith('Bearer ')
+        ? authHeader.substring(7)
+        : req.body.uploadToken || req.query.uploadToken;
+
+      if (!providedToken || providedToken !== UPLOAD_TOKEN) {
+        return res.status(401).json({ error: 'Invalid or missing upload token' });
+      }
+    }
+
     const { filename, data, type } = req.body;
 
     if (!filename || !data) {
@@ -394,6 +406,8 @@ app.post('/api/upload', async (req, res) => {
 const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
+// Upload token for media upload security (set in environment)
+const UPLOAD_TOKEN = process.env.SIMPLE_API_UPLOAD_TOKEN || null;
 
 // ============================================
 // RATE LIMITING (Anti-spam protection)
