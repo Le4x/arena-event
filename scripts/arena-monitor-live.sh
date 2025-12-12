@@ -83,22 +83,37 @@ monitor() {
         local metrics=$(curl -s --max-time 3 "$API_URL/metrics" 2>/dev/null)
         local timestamp=$(date '+%H:%M:%S')
 
-        # Parser les métriques
-        local status=$(echo "$health" | jq -r '.status // "unknown"' 2>/dev/null)
-        local uptime=$(echo "$metrics" | jq -r '.uptime // 0' 2>/dev/null)
-        local uptime_fmt=$(echo "$metrics" | jq -r '.uptimeFormatted // "N/A"' 2>/dev/null)
-        local heap=$(echo "$metrics" | jq -r '.memory.heapUsedMB // 0' 2>/dev/null)
-        local rss=$(echo "$metrics" | jq -r '.memory.rssMB // 0' 2>/dev/null)
-        local ws_connections=$(echo "$metrics" | jq -r '.websocket.activeConnections // 0' 2>/dev/null)
-        local ws_messages_in=$(echo "$metrics" | jq -r '.websocket.totalMessagesIn // 0' 2>/dev/null)
-        local ws_messages_out=$(echo "$metrics" | jq -r '.websocket.totalMessagesOut // 0' 2>/dev/null)
-        local total_requests=$(echo "$metrics" | jq -r '.requests.total // 0' 2>/dev/null)
-        local total_errors=$(echo "$metrics" | jq -r '.requests.errors // 0' 2>/dev/null)
-        local error_rate=$(echo "$metrics" | jq -r '.requests.errorRate // "0"' 2>/dev/null)
-        local avg_latency=$(echo "$metrics" | jq -r '.latency.avgMs // 0' 2>/dev/null)
-        local max_latency=$(echo "$metrics" | jq -r '.latency.maxMs // 0' 2>/dev/null)
-        local active_timers=$(echo "$metrics" | jq -r '.sessions.activeTimers // 0' 2>/dev/null)
-        local active_buzzers=$(echo "$metrics" | jq -r '.sessions.activeBuzzerStates // 0' 2>/dev/null)
+        # Parser les métriques avec valeurs par défaut sécurisées
+        local status=$(echo "$health" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+        local uptime_fmt=$(echo "$metrics" | jq -r '.uptimeFormatted // "N/A"' 2>/dev/null || echo "N/A")
+
+        # Valeurs numériques avec défaut à 0 et nettoyage
+        local heap=$(echo "$metrics" | jq -r '.memory.heapUsedMB // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local rss=$(echo "$metrics" | jq -r '.memory.rssMB // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local ws_connections=$(echo "$metrics" | jq -r '.websocket.activeConnections // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local ws_messages_in=$(echo "$metrics" | jq -r '.websocket.totalMessagesIn // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local ws_messages_out=$(echo "$metrics" | jq -r '.websocket.totalMessagesOut // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local total_requests=$(echo "$metrics" | jq -r '.requests.total // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local total_errors=$(echo "$metrics" | jq -r '.requests.errors // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local error_rate=$(echo "$metrics" | jq -r '.requests.errorRate // "0"' 2>/dev/null | grep -oE '[0-9.]+' | head -1)
+        local avg_latency=$(echo "$metrics" | jq -r '.latency.avgMs // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local max_latency=$(echo "$metrics" | jq -r '.latency.maxMs // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local active_timers=$(echo "$metrics" | jq -r '.sessions.activeTimers // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        local active_buzzers=$(echo "$metrics" | jq -r '.sessions.activeBuzzerStates // 0' 2>/dev/null | grep -oE '[0-9]+' | head -1)
+
+        # Valeurs par défaut si vides
+        [ -z "$heap" ] && heap=0
+        [ -z "$rss" ] && rss=0
+        [ -z "$ws_connections" ] && ws_connections=0
+        [ -z "$ws_messages_in" ] && ws_messages_in=0
+        [ -z "$ws_messages_out" ] && ws_messages_out=0
+        [ -z "$total_requests" ] && total_requests=0
+        [ -z "$total_errors" ] && total_errors=0
+        [ -z "$error_rate" ] && error_rate=0
+        [ -z "$avg_latency" ] && avg_latency=0
+        [ -z "$max_latency" ] && max_latency=0
+        [ -z "$active_timers" ] && active_timers=0
+        [ -z "$active_buzzers" ] && active_buzzers=0
 
         # Header
         echo -e "${BOLD}${CYAN}"
@@ -169,16 +184,20 @@ monitor() {
         printf "  │ Requêtes totales:  ${CYAN}%10s${NC}              │\n" "$total_requests"
         printf "  │ Erreurs:           ${RED}%10s${NC}              │\n" "$total_errors"
 
-        # Taux d'erreur avec alerte
+        # Taux d'erreur avec alerte (comparaison sécurisée)
         local err_color="${GREEN}"
-        [ "$(echo "$error_rate >= $ERROR_RATE_WARNING" | bc -l)" -eq 1 ] && err_color="${YELLOW}"
-        [ "$(echo "$error_rate >= $ERROR_RATE_CRITICAL" | bc -l)" -eq 1 ] && err_color="${RED}"
-        printf "  │ Taux d'erreur:     ${err_color}%9s%%${NC}              │\n" "$error_rate"
+        local err_cmp=$(echo "$error_rate >= $ERROR_RATE_WARNING" | bc -l 2>/dev/null || echo "0")
+        [ "$err_cmp" = "1" ] && err_color="${YELLOW}"
+        err_cmp=$(echo "$error_rate >= $ERROR_RATE_CRITICAL" | bc -l 2>/dev/null || echo "0")
+        [ "$err_cmp" = "1" ] && err_color="${RED}"
+        printf "  │ Taux d'erreur:     ${err_color}%8s${NC}%%              │\n" "$error_rate"
 
-        # Latence avec alerte
+        # Latence avec alerte (comparaison sécurisée)
         local lat_color="${GREEN}"
-        [ "$(echo "$avg_latency >= $LATENCY_WARNING" | bc -l 2>/dev/null)" -eq 1 ] && lat_color="${YELLOW}"
-        [ "$(echo "$avg_latency >= $LATENCY_CRITICAL" | bc -l 2>/dev/null)" -eq 1 ] && lat_color="${RED}"
+        local lat_cmp=$(echo "$avg_latency >= $LATENCY_WARNING" | bc -l 2>/dev/null || echo "0")
+        [ "$lat_cmp" = "1" ] && lat_color="${YELLOW}"
+        lat_cmp=$(echo "$avg_latency >= $LATENCY_CRITICAL" | bc -l 2>/dev/null || echo "0")
+        [ "$lat_cmp" = "1" ] && lat_color="${RED}"
         printf "  │ Latence moyenne:   ${lat_color}%8sms${NC}              │\n" "$avg_latency"
         printf "  │ Latence max:       ${CYAN}%8sms${NC}              │\n" "$max_latency"
         echo -e "  └─────────────────────────────────────────────┘"
@@ -196,8 +215,10 @@ monitor() {
         local heap_bar=$(printf "%${heap_filled}s" | tr ' ' '█')$(printf "%${heap_empty}s" | tr ' ' '░')
 
         local heap_color="${GREEN}"
-        [ "$(echo "$heap >= $HEAP_WARNING" | bc -l)" -eq 1 ] && heap_color="${YELLOW}"
-        [ "$(echo "$heap >= $HEAP_CRITICAL" | bc -l)" -eq 1 ] && heap_color="${RED}"
+        local heap_cmp=$(echo "$heap >= $HEAP_WARNING" | bc -l 2>/dev/null || echo "0")
+        [ "$heap_cmp" = "1" ] && heap_color="${YELLOW}"
+        heap_cmp=$(echo "$heap >= $HEAP_CRITICAL" | bc -l 2>/dev/null || echo "0")
+        [ "$heap_cmp" = "1" ] && heap_color="${RED}"
 
         printf "  Heap:  ${heap_color}%3sMB${NC} [${heap_bar}] %sMB\n" "$heap" "$heap_max"
         echo -e "  RSS:   ${CYAN}${rss}MB${NC}"
@@ -218,18 +239,24 @@ monitor() {
         echo -e "${BOLD}═══ 🚨 ALERTES ═══${NC}"
         local has_alerts=false
 
-        if [ "$(echo "$heap >= $HEAP_CRITICAL" | bc -l)" -eq 1 ]; then
+        # Alerte mémoire (comparaison sécurisée)
+        local alert_heap_crit=$(echo "$heap >= $HEAP_CRITICAL" | bc -l 2>/dev/null || echo "0")
+        local alert_heap_warn=$(echo "$heap >= $HEAP_WARNING" | bc -l 2>/dev/null || echo "0")
+        if [ "$alert_heap_crit" = "1" ]; then
             echo -e "  ${RED}⚠️  MÉMOIRE CRITIQUE: ${heap}MB${NC}"
             has_alerts=true
-        elif [ "$(echo "$heap >= $HEAP_WARNING" | bc -l)" -eq 1 ]; then
+        elif [ "$alert_heap_warn" = "1" ]; then
             echo -e "  ${YELLOW}⚡ Mémoire haute: ${heap}MB${NC}"
             has_alerts=true
         fi
 
-        if [ "$(echo "$error_rate >= $ERROR_RATE_CRITICAL" | bc -l)" -eq 1 ]; then
+        # Alerte erreurs (comparaison sécurisée)
+        local alert_err_crit=$(echo "$error_rate >= $ERROR_RATE_CRITICAL" | bc -l 2>/dev/null || echo "0")
+        local alert_err_warn=$(echo "$error_rate >= $ERROR_RATE_WARNING" | bc -l 2>/dev/null || echo "0")
+        if [ "$alert_err_crit" = "1" ]; then
             echo -e "  ${RED}⚠️  TAUX D'ERREUR CRITIQUE: ${error_rate}%${NC}"
             has_alerts=true
-        elif [ "$(echo "$error_rate >= $ERROR_RATE_WARNING" | bc -l)" -eq 1 ]; then
+        elif [ "$alert_err_warn" = "1" ]; then
             echo -e "  ${YELLOW}⚡ Taux d'erreur élevé: ${error_rate}%${NC}"
             has_alerts=true
         fi
