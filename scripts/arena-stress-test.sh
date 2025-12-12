@@ -366,6 +366,10 @@ test_concurrent_load() {
     # Métriques avant
     local mem_before=$(curl -s "${API_URL}/metrics" | grep -o '"heapUsedMB":[0-9]*' | cut -d':' -f2)
 
+    # Initialiser les fichiers de comptage
+    > "$TEMP_DIR/success.txt"
+    > "$TEMP_DIR/errors.txt"
+
     # Lancer les requêtes en parallèle
     local start_time=$(date +%s%N)
     local success=0
@@ -442,6 +446,10 @@ test_websocket_stress() {
 
     local ws_clients=20
     local pids=()
+
+    # Initialiser les fichiers de comptage
+    > "$TEMP_DIR/ws_success.txt"
+    > "$TEMP_DIR/ws_errors.txt"
 
     # Créer plusieurs connexions Socket.IO
     for i in $(seq 1 $ws_clients); do
