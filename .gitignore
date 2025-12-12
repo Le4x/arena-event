@@ -43,3 +43,6 @@ yarn-error.log*
 
 # Prisma
 apps/api/prisma/migrations/migration_lock.toml
+
+# Media uploads (runtime)
+simple-api/media/
