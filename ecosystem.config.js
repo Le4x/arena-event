@@ -29,8 +29,8 @@ module.exports = {
     {
       name: 'arena-admin',
       cwd: './apps/web-admin',
-      script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3002',
+      script: 'npm',
+      args: 'run start',
       instances: 1,
       autorestart: true,
       watch: false,
@@ -45,8 +45,8 @@ module.exports = {
     {
       name: 'arena-player',
       cwd: './apps/web-player',
-      script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3003',
+      script: 'npm',
+      args: 'run start',
       instances: 1,
       autorestart: true,
       watch: false,
@@ -61,8 +61,8 @@ module.exports = {
     {
       name: 'arena-screen',
       cwd: './apps/web-screen',
-      script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3004',
+      script: 'npm',
+      args: 'run start',
       instances: 1,
       autorestart: true,
       watch: false,
@@ -77,8 +77,8 @@ module.exports = {
     {
       name: 'arena-studio',
       cwd: './apps/web-studio',
-      script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3005',
+      script: 'npm',
+      args: 'run start',
       instances: 1,
       autorestart: true,
       watch: false,
