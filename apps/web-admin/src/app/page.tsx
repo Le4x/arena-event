@@ -78,6 +78,30 @@ interface Question {
   revealCueEnd?: number;
   explanation?: string;
   tolerance?: number;
+  // Deezer integration
+  deezerTrackId?: string;
+  deezerPreviewUrl?: string;
+  deezerArtist?: string;
+  deezerTitle?: string;
+  deezerCover?: string;
+}
+
+interface DeezerTrack {
+  id: number;
+  title: string;
+  duration: number;
+  preview: string;
+  artist: {
+    id: number;
+    name: string;
+  };
+  album: {
+    id: number;
+    title: string;
+    cover: string;
+    cover_medium: string;
+    cover_big: string;
+  };
 }
 
 interface Session {
@@ -125,8 +149,17 @@ export default function Home() {
     text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
     revealCueStart: null as number | null, revealCueEnd: null as number | null,
-    explanation: '', tolerance: 0.8
+    explanation: '', tolerance: 0.8,
+    // Deezer fields
+    deezerTrackId: null as string | null, deezerPreviewUrl: null as string | null,
+    deezerArtist: null as string | null, deezerTitle: null as string | null, deezerCover: null as string | null
   });
+  // Deezer search state
+  const [deezerSearchQuery, setDeezerSearchQuery] = useState('');
+  const [deezerSearchResults, setDeezerSearchResults] = useState<DeezerTrack[]>([]);
+  const [deezerSearching, setDeezerSearching] = useState(false);
+  const [showDeezerSearch, setShowDeezerSearch] = useState(false);
+  const deezerAudioRef = useRef<HTMLAudioElement | null>(null);
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' as string
   });
@@ -289,6 +322,58 @@ export default function Home() {
     });
     return response;
   }, [token]);
+
+  // Deezer search function
+  const searchDeezer = async (query: string) => {
+    if (!query.trim()) {
+      setDeezerSearchResults([]);
+      return;
+    }
+    setDeezerSearching(true);
+    try {
+      const res = await fetch(`${API_URL}/api/deezer/search?q=${encodeURIComponent(query)}&limit=10`);
+      if (res.ok) {
+        const data = await res.json();
+        setDeezerSearchResults(data.data || []);
+      }
+    } catch (err) {
+      console.error('Deezer search error:', err);
+    } finally {
+      setDeezerSearching(false);
+    }
+  };
+
+  // Select a Deezer track
+  const selectDeezerTrack = (track: DeezerTrack) => {
+    setQuestionForm(prev => ({
+      ...prev,
+      deezerTrackId: track.id.toString(),
+      deezerPreviewUrl: track.preview,
+      deezerArtist: track.artist.name,
+      deezerTitle: track.title,
+      deezerCover: track.album.cover_medium,
+      correctAnswer: `${track.artist.name} - ${track.title}`,
+    }));
+    setShowDeezerSearch(false);
+    setDeezerSearchQuery('');
+    setDeezerSearchResults([]);
+    // Stop any preview playing
+    if (deezerAudioRef.current) {
+      deezerAudioRef.current.pause();
+    }
+  };
+
+  // Clear Deezer selection
+  const clearDeezerTrack = () => {
+    setQuestionForm(prev => ({
+      ...prev,
+      deezerTrackId: null,
+      deezerPreviewUrl: null,
+      deezerArtist: null,
+      deezerTitle: null,
+      deezerCover: null,
+    }));
+  };
 
   const loadEvents = async () => {
     try {
@@ -480,6 +565,19 @@ export default function Home() {
     }
   };
 
+  const resetQuestionForm = () => {
+    setQuestionForm({
+      text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '',
+      questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null,
+      explanation: '', tolerance: 0.8,
+      deezerTrackId: null, deezerPreviewUrl: null, deezerArtist: null, deezerTitle: null, deezerCover: null
+    });
+    setAudioDuration(0);
+    setDeezerSearchQuery('');
+    setDeezerSearchResults([]);
+    setShowDeezerSearch(false);
+  };
+
   const createQuestion = async () => {
     if (!selectedRoundId) return;
     try {
@@ -496,12 +594,17 @@ export default function Home() {
           negativePoints: questionForm.negativePoints,
           explanation: questionForm.explanation || null,
           tolerance: questionForm.tolerance,
+          // Deezer fields
+          deezerTrackId: questionForm.deezerTrackId,
+          deezerPreviewUrl: questionForm.deezerPreviewUrl,
+          deezerArtist: questionForm.deezerArtist,
+          deezerTitle: questionForm.deezerTitle,
+          deezerCover: questionForm.deezerCover,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8 });
-        setAudioDuration(0);
+        resetQuestionForm();
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
     } catch (err) {
@@ -524,13 +627,18 @@ export default function Home() {
           negativePoints: questionForm.negativePoints,
           explanation: questionForm.explanation || null,
           tolerance: questionForm.tolerance,
+          // Deezer fields
+          deezerTrackId: questionForm.deezerTrackId,
+          deezerPreviewUrl: questionForm.deezerPreviewUrl,
+          deezerArtist: questionForm.deezerArtist,
+          deezerTitle: questionForm.deezerTitle,
+          deezerCover: questionForm.deezerCover,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
         setEditingQuestion(null);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8 });
-        setAudioDuration(0);
+        resetQuestionForm();
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
     } catch (err) {
@@ -1407,8 +1515,96 @@ export default function Home() {
               )}
               {questionForm.type === 'BLIND_TEST' && (
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm text-gray-300 mb-2">Audio File</label>
+                  {/* Deezer Search Section */}
+                  <div className="p-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-500/30">
+                    <label className="block text-sm text-purple-300 mb-3 font-semibold">Recherche Deezer (30s preview)</label>
+
+                    {/* Selected Track Display */}
+                    {questionForm.deezerTrackId && (
+                      <div className="mb-4 p-3 bg-gray-700/50 rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          {questionForm.deezerCover && (
+                            <img src={questionForm.deezerCover} alt="Album" className="w-16 h-16 rounded-lg" />
+                          )}
+                          <div className="flex-1">
+                            <p className="text-white font-medium">{questionForm.deezerTitle}</p>
+                            <p className="text-gray-400 text-sm">{questionForm.deezerArtist}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={clearDeezerTrack}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-lg text-xs text-white"
+                          >Supprimer</button>
+                        </div>
+                        {questionForm.deezerPreviewUrl && (
+                          <audio
+                            controls
+                            src={questionForm.deezerPreviewUrl}
+                            className="w-full mt-3"
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Search Input */}
+                    {!questionForm.deezerTrackId && (
+                      <>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="text"
+                            value={deezerSearchQuery}
+                            onChange={(e) => setDeezerSearchQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && searchDeezer(deezerSearchQuery)}
+                            className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white"
+                            placeholder="Rechercher un artiste ou une chanson..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => searchDeezer(deezerSearchQuery)}
+                            disabled={deezerSearching}
+                            className="px-4 py-3 bg-purple-600 hover:bg-purple-700 rounded-xl text-white disabled:opacity-50"
+                          >
+                            {deezerSearching ? '...' : 'Rechercher'}
+                          </button>
+                        </div>
+
+                        {/* Search Results */}
+                        {deezerSearchResults.length > 0 && (
+                          <div className="mt-3 max-h-64 overflow-y-auto space-y-2">
+                            <audio ref={deezerAudioRef} className="hidden" />
+                            {deezerSearchResults.map((track) => (
+                              <div
+                                key={track.id}
+                                className="flex items-center space-x-3 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 cursor-pointer"
+                                onClick={() => selectDeezerTrack(track)}
+                              >
+                                <img src={track.album.cover} alt="" className="w-12 h-12 rounded" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-white text-sm truncate">{track.title}</p>
+                                  <p className="text-gray-400 text-xs truncate">{track.artist.name}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (deezerAudioRef.current) {
+                                      deezerAudioRef.current.src = track.preview;
+                                      deezerAudioRef.current.play();
+                                    }
+                                  }}
+                                  className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs"
+                                >Preview</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Alternative: Upload custom audio */}
+                  <div className="p-4 bg-gray-700/30 rounded-xl border border-gray-600">
+                    <label className="block text-sm text-gray-300 mb-2">OU Uploader un fichier audio</label>
                     <div className="flex items-center space-x-4">
                       <input
                         type="file"
@@ -1420,7 +1616,14 @@ export default function Home() {
                     </div>
                     {questionForm.mediaUrl && (
                       <div className="mt-2 p-3 bg-gray-700/50 rounded-lg space-y-3">
-                        <p className="text-green-400 text-sm">Audio uploaded!</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-green-400 text-sm">Audio uploaded!</p>
+                          <button
+                            type="button"
+                            onClick={() => setQuestionForm({ ...questionForm, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null })}
+                            className="text-red-400 hover:text-red-300 text-xs"
+                          >Supprimer</button>
+                        </div>
                         <audio
                           id="cuePointAudio"
                           controls
@@ -1452,7 +1655,6 @@ export default function Home() {
                                       if (audio) setQuestionForm({ ...questionForm, questionCueStart: Math.round(audio.currentTime * 10) / 10 });
                                     }}
                                     className="px-2 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs"
-                                    title="Set to current time"
                                   >Now</button>
                                 </div>
                               </div>
@@ -1476,14 +1678,13 @@ export default function Home() {
                                       if (audio) setQuestionForm({ ...questionForm, questionCueEnd: Math.round(audio.currentTime * 10) / 10 });
                                     }}
                                     className="px-2 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-xs"
-                                    title="Set to current time"
                                   >Now</button>
                                 </div>
                               </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <label className="block text-xs text-gray-400 mb-1">Reveal Start (refrain)</label>
+                                <label className="block text-xs text-gray-400 mb-1">Reveal Start</label>
                                 <div className="flex items-center space-x-2">
                                   <input
                                     type="number"
@@ -1502,7 +1703,6 @@ export default function Home() {
                                       if (audio) setQuestionForm({ ...questionForm, revealCueStart: Math.round(audio.currentTime * 10) / 10 });
                                     }}
                                     className="px-2 py-2 bg-pink-600 hover:bg-pink-700 rounded-lg text-xs"
-                                    title="Set to current time"
                                   >Now</button>
                                 </div>
                               </div>
@@ -1526,19 +1726,18 @@ export default function Home() {
                                       if (audio) setQuestionForm({ ...questionForm, revealCueEnd: Math.round(audio.currentTime * 10) / 10 });
                                     }}
                                     className="px-2 py-2 bg-pink-600 hover:bg-pink-700 rounded-lg text-xs"
-                                    title="Set to current time"
                                   >Now</button>
                                 </div>
                               </div>
                             </div>
-                            <p className="text-gray-500 text-xs">Duration: {audioDuration.toFixed(1)}s - Use audio player to seek, then click "Now" to set cue points</p>
                           </div>
                         )}
                       </div>
                     )}
                   </div>
+
                   <div>
-                    <label className="block text-sm text-gray-300 mb-2">Correct Answer (Artist - Song Title)</label>
+                    <label className="block text-sm text-gray-300 mb-2">Bonne Reponse (Artiste - Titre)</label>
                     <input
                       type="text"
                       value={questionForm.correctAnswer}
@@ -1546,6 +1745,7 @@ export default function Home() {
                       className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white"
                       placeholder="A-ha - Take On Me"
                     />
+                    <p className="text-xs text-gray-500 mt-1">Rempli automatiquement si vous selectionnez un morceau Deezer</p>
                   </div>
                 </div>
               )}
@@ -1624,15 +1824,105 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Optional Deezer sound for reveal (non-BLIND_TEST types) */}
+              {questionForm.type !== 'BLIND_TEST' && (
+                <div className="p-4 bg-gradient-to-r from-green-500/10 to-teal-500/10 rounded-xl border border-green-500/30">
+                  <label className="block text-sm text-green-300 mb-3 font-semibold">Son Deezer au Reveal (optionnel)</label>
+                  <p className="text-xs text-gray-400 mb-3">Ajouter un extrait musical de 30s qui sera joue lors de la revelation de la reponse</p>
+
+                  {/* Selected Track Display */}
+                  {questionForm.deezerTrackId && (
+                    <div className="mb-4 p-3 bg-gray-700/50 rounded-lg">
+                      <div className="flex items-center space-x-4">
+                        {questionForm.deezerCover && (
+                          <img src={questionForm.deezerCover} alt="Album" className="w-12 h-12 rounded-lg" />
+                        )}
+                        <div className="flex-1">
+                          <p className="text-white text-sm font-medium">{questionForm.deezerTitle}</p>
+                          <p className="text-gray-400 text-xs">{questionForm.deezerArtist}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={clearDeezerTrack}
+                          className="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs text-white"
+                        >Supprimer</button>
+                      </div>
+                      {questionForm.deezerPreviewUrl && (
+                        <audio
+                          controls
+                          src={questionForm.deezerPreviewUrl}
+                          className="w-full mt-2 h-8"
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Search Input */}
+                  {!questionForm.deezerTrackId && (
+                    <>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={deezerSearchQuery}
+                          onChange={(e) => setDeezerSearchQuery(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && searchDeezer(deezerSearchQuery)}
+                          className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+                          placeholder="Rechercher sur Deezer..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => searchDeezer(deezerSearchQuery)}
+                          disabled={deezerSearching}
+                          className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white text-sm disabled:opacity-50"
+                        >
+                          {deezerSearching ? '...' : 'Rechercher'}
+                        </button>
+                      </div>
+
+                      {/* Search Results */}
+                      {deezerSearchResults.length > 0 && (
+                        <div className="mt-3 max-h-48 overflow-y-auto space-y-1">
+                          <audio ref={deezerAudioRef} className="hidden" />
+                          {deezerSearchResults.map((track) => (
+                            <div
+                              key={track.id}
+                              className="flex items-center space-x-2 p-2 bg-gray-700/50 rounded-lg hover:bg-gray-700 cursor-pointer"
+                              onClick={() => selectDeezerTrack(track)}
+                            >
+                              <img src={track.album.cover} alt="" className="w-10 h-10 rounded" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white text-xs truncate">{track.title}</p>
+                                <p className="text-gray-400 text-xs truncate">{track.artist.name}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (deezerAudioRef.current) {
+                                    deezerAudioRef.current.src = track.preview;
+                                    deezerAudioRef.current.play();
+                                  }
+                                }}
+                                className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs"
+                              >Preview</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Explanation / Anecdote field */}
               <div className="p-4 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-xl border border-yellow-500/30">
-                <label className="block text-sm text-yellow-300 mb-2">💡 Explication / Anecdote (optionnel)</label>
+                <label className="block text-sm text-yellow-300 mb-2">Explication / Anecdote (optionnel)</label>
                 <textarea
                   value={questionForm.explanation}
                   onChange={(e) => setQuestionForm({ ...questionForm, explanation: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 h-20"
                   placeholder="Ajoutez une petite explication ou anecdote à afficher lors du reveal..." />
-                <p className="text-xs text-gray-400 mt-1">Ce texte sera affiché sur l'écran public lors de la révélation de la bonne réponse</p>
+                <p className="text-xs text-gray-400 mt-1">Ce texte sera affiche sur l'ecran public lors de la revelation de la bonne reponse</p>
               </div>
             </div>
             <div className="flex space-x-4 mt-6">

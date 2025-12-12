@@ -43,6 +43,12 @@ interface Question {
   // Blindtest specific
   artist?: string;
   songTitle?: string;
+  // Deezer integration
+  deezerTrackId?: string;
+  deezerPreviewUrl?: string;
+  deezerArtist?: string;
+  deezerTitle?: string;
+  deezerCover?: string;
 }
 
 interface Team {
@@ -452,12 +458,26 @@ export default function StudioHome() {
   const endQuestion = () => {
     setIsTimerRunning(false);
     setGameStatus('REVEAL');
+
+    // Play Deezer audio on reveal for non-blindtest questions
+    if (currentQuestion?.type !== 'BLIND_TEST' && currentQuestion?.deezerPreviewUrl && audioRef.current) {
+      audioRef.current.src = currentQuestion.deezerPreviewUrl;
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+      setIsAudioPlaying(true);
+    }
+
     // GM event: gm-end-question
     socketRef.current?.emit('gm-end-question', {
       sessionId: selectedSession?.id,
       questionId: currentQuestion?.id,
       correctAnswer: currentQuestion?.correctAnswer,
       explanation: currentQuestion?.explanation,
+      // Deezer data for reveal audio
+      deezerPreviewUrl: currentQuestion?.deezerPreviewUrl,
+      deezerArtist: currentQuestion?.deezerArtist,
+      deezerTitle: currentQuestion?.deezerTitle,
+      deezerCover: currentQuestion?.deezerCover,
     });
   };
 
@@ -751,28 +771,42 @@ export default function StudioHome() {
       cueEndTimerRef.current = null;
     }
 
-    // Parse artist and songTitle from correctAnswer or question fields
-    const artist = currentQuestion?.artist || currentQuestion?.correctAnswer?.split(' - ')[0] || 'Unknown Artist';
-    const songTitle = currentQuestion?.songTitle || currentQuestion?.correctAnswer?.split(' - ')[1] || currentQuestion?.correctAnswer || 'Unknown Song';
+    // Parse artist and songTitle - prefer Deezer data if available
+    const artist = currentQuestion?.deezerArtist || currentQuestion?.artist || currentQuestion?.correctAnswer?.split(' - ')[0] || 'Unknown Artist';
+    const songTitle = currentQuestion?.deezerTitle || currentQuestion?.songTitle || currentQuestion?.correctAnswer?.split(' - ')[1] || currentQuestion?.correctAnswer || 'Unknown Song';
 
-    // Play reveal cue if set
-    if (audioRef.current && currentQuestion?.revealCueStart !== undefined) {
-      audioRef.current.currentTime = currentQuestion.revealCueStart;
-      audioRef.current.play();
-      setIsAudioPlaying(true);
+    // Determine which audio source to use for reveal
+    const hasDeezerPreview = !!currentQuestion?.deezerPreviewUrl;
+    const hasCustomAudio = !!currentQuestion?.mediaUrl;
 
-      // Set up cue end timer for reveal
-      if (currentQuestion.revealCueEnd && currentQuestion.revealCueEnd > currentQuestion.revealCueStart) {
-        const duration = (currentQuestion.revealCueEnd - currentQuestion.revealCueStart) * 1000;
-        cueEndTimerRef.current = setTimeout(() => {
-          if (audioRef.current) {
-            audioRef.current.pause();
-          }
-          setIsAudioPlaying(false);
-        }, duration);
+    if (hasDeezerPreview) {
+      // Use Deezer 30s preview - plays from start (no cue points needed)
+      if (audioRef.current) {
+        audioRef.current.src = currentQuestion.deezerPreviewUrl!;
+        audioRef.current.currentTime = 0;
+        audioRef.current.play();
+        setIsAudioPlaying(true);
+      }
+    } else if (hasCustomAudio && currentQuestion?.revealCueStart !== undefined) {
+      // Use custom audio with reveal cue point
+      if (audioRef.current) {
+        audioRef.current.currentTime = currentQuestion.revealCueStart;
+        audioRef.current.play();
+        setIsAudioPlaying(true);
+
+        // Set up cue end timer for reveal
+        if (currentQuestion.revealCueEnd && currentQuestion.revealCueEnd > currentQuestion.revealCueStart) {
+          const duration = (currentQuestion.revealCueEnd - currentQuestion.revealCueStart) * 1000;
+          cueEndTimerRef.current = setTimeout(() => {
+            if (audioRef.current) {
+              audioRef.current.pause();
+            }
+            setIsAudioPlaying(false);
+          }, duration);
+        }
       }
     } else {
-      // No reveal cue, just stop
+      // No reveal audio, just stop any playing audio
       if (audioRef.current) {
         audioRef.current.pause();
       }
@@ -783,9 +817,11 @@ export default function StudioHome() {
       sessionId: selectedSession?.id,
       artist,
       songTitle,
-      audioUrl: currentQuestion?.mediaUrl,
-      revealCueStart: currentQuestion?.revealCueStart || 0,
-      revealCueEnd: currentQuestion?.revealCueEnd || null
+      audioUrl: currentQuestion?.deezerPreviewUrl || currentQuestion?.mediaUrl,
+      deezerPreviewUrl: currentQuestion?.deezerPreviewUrl,
+      deezerCover: currentQuestion?.deezerCover,
+      revealCueStart: hasDeezerPreview ? 0 : (currentQuestion?.revealCueStart || 0),
+      revealCueEnd: hasDeezerPreview ? null : (currentQuestion?.revealCueEnd || null)
     });
   };
 

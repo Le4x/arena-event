@@ -71,6 +71,33 @@ export interface Question {
   order: number;
   choices?: string[];
   correctAnswer?: string;
+  // Deezer integration
+  deezerTrackId?: string;
+  deezerPreviewUrl?: string;
+  deezerArtist?: string;
+  deezerTitle?: string;
+  deezerCover?: string;
+}
+
+/**
+ * Deezer track search result
+ */
+export interface DeezerTrack {
+  id: number;
+  title: string;
+  duration: number;
+  preview: string;
+  artist: {
+    id: number;
+    name: string;
+  };
+  album: {
+    id: number;
+    title: string;
+    cover: string;
+    cover_medium: string;
+    cover_big: string;
+  };
 }
 
 /**

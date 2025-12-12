@@ -147,6 +147,12 @@ model Question {
   questionCueEnd   Float?    // End time for question phase audio
   revealCueStart   Float?    // Start time for reveal phase (BLIND_TEST)
   revealCueEnd     Float?    // End time for reveal phase (BLIND_TEST)
+  // Deezer integration for audio (30s preview)
+  deezerTrackId    String?   // Deezer track ID
+  deezerPreviewUrl String?   // URL to 30s preview MP3
+  deezerArtist     String?   // Artist name from Deezer
+  deezerTitle      String?   // Track title from Deezer
+  deezerCover      String?   // Album cover URL from Deezer
   timeLimit     Int          @default(30)
   points        Int          @default(100)
   negativePoints Int         @default(0)   // Points to deduct for wrong answer
