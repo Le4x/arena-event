@@ -760,8 +760,7 @@ export default function Home() {
   const openAddQuestion = (roundId: string) => {
     setSelectedRoundId(roundId);
     setEditingQuestion(null);
-    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0 });
-    setAudioDuration(0);
+    resetQuestionForm();
     setShowQuestionModal(true);
   };
 
@@ -782,8 +781,15 @@ export default function Home() {
       revealCueEnd: question.revealCueEnd ?? null,
       explanation: question.explanation || '',
       tolerance: question.tolerance ?? 0.8,
+      deezerTrackId: question.deezerTrackId ?? null,
+      deezerPreviewUrl: question.deezerPreviewUrl ?? null,
+      deezerArtist: question.deezerArtist ?? null,
+      deezerTitle: question.deezerTitle ?? null,
+      deezerCover: question.deezerCover ?? null,
     });
     setAudioDuration(0);
+    setDeezerSearchQuery('');
+    setDeezerSearchResults([]);
     setShowQuestionModal(true);
   };
 
