@@ -1063,18 +1063,29 @@ export default function PlayerHome() {
           {/* Buzzer */}
           {currentQuestion.type === 'BUZZER' && (
             <div className="flex-1 flex flex-col items-center justify-center">
-              {/* Locked feedback */}
-              {isTeamLocked && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
-                  <p className="text-red-400 text-xl font-bold">🔒 BLOQUE</p>
-                  <p className="text-red-300 text-sm">Tu ne peux plus buzzer cette question</p>
+              {/* Correct answer feedback */}
+              {isCorrect === true && (
+                <div className="mb-4 bg-green-500/20 border-2 border-green-500 rounded-xl p-4 text-center animate-pulse">
+                  <p className="text-green-400 text-xl font-bold">🎉 BRAVO!</p>
+                  <p className="text-green-300 text-sm">+{pointsEarned} points</p>
                 </div>
               )}
 
-              {/* Wrong answer feedback */}
-              {buzzerWrongFeedback && !isTeamLocked && (
+              {/* Wrong answer feedback - show briefly */}
+              {buzzerWrongFeedback && (
                 <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
-                  <p className="text-red-400 text-xl font-bold">❌ Wrong! Try again!</p>
+                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
+                  {isTeamLocked && (
+                    <p className="text-red-300 text-sm mt-1">Tu es bloque pour cette question</p>
+                  )}
+                </div>
+              )}
+
+              {/* Locked feedback - show after wrong feedback disappears */}
+              {isTeamLocked && !buzzerWrongFeedback && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
+                  <p className="text-red-400 text-xl font-bold">🔒 BLOQUE</p>
+                  <p className="text-red-300 text-sm">Tu ne peux plus buzzer cette question</p>
                 </div>
               )}
 
@@ -1165,18 +1176,21 @@ export default function PlayerHome() {
                 </div>
               )}
 
-              {/* Locked feedback */}
-              {isTeamLocked && !blindtestRevealed && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
-                  <p className="text-red-400 text-xl font-bold">🔒 BLOQUE</p>
-                  <p className="text-red-300 text-sm">Tu ne peux plus buzzer cette question</p>
+              {/* Wrong answer feedback - show briefly then locked message */}
+              {buzzerWrongFeedback && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
+                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
+                  {isTeamLocked && (
+                    <p className="text-red-300 text-sm mt-1">Tu es bloque pour cette question</p>
+                  )}
                 </div>
               )}
 
-              {/* Wrong answer feedback */}
-              {buzzerWrongFeedback && !isTeamLocked && (
-                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center animate-pulse">
-                  <p className="text-red-400 text-xl font-bold">❌ Mauvaise reponse!</p>
+              {/* Locked feedback - show after wrong feedback disappears */}
+              {isTeamLocked && !blindtestRevealed && !buzzerWrongFeedback && (
+                <div className="mb-4 bg-red-500/20 border-2 border-red-500 rounded-xl p-4 text-center">
+                  <p className="text-red-400 text-xl font-bold">🔒 BLOQUE</p>
+                  <p className="text-red-300 text-sm">Tu ne peux plus buzzer cette question</p>
                 </div>
               )}
 

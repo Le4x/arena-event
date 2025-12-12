@@ -120,6 +120,7 @@ export default function StudioHome() {
   const [audioRevealed, setAudioRevealed] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioPausedPositionRef = useRef<number>(0); // Save position when buzzer is pressed
 
   // UI state
   const [showScoreModal, setShowScoreModal] = useState(false);
@@ -393,6 +394,29 @@ export default function StudioHome() {
   // Current question and round
   const currentRound = rounds[currentRoundIndex];
   const currentQuestion = currentRound?.questions?.[currentQuestionIndex];
+
+  // Pause blindtest music and timer when someone buzzes
+  useEffect(() => {
+    if (buzzerWinner && currentQuestion?.type === 'BLIND_TEST' && isAudioPlaying) {
+      // Save current audio position
+      if (audioRef.current) {
+        audioPausedPositionRef.current = audioRef.current.currentTime;
+        audioRef.current.pause();
+      }
+      setIsAudioPlaying(false);
+
+      // Clear cue end timer
+      if (cueEndTimerRef.current) {
+        clearTimeout(cueEndTimerRef.current);
+        cueEndTimerRef.current = null;
+      }
+
+      // Pause game/timer
+      setIsTimerRunning(false);
+      socketRef.current?.emit('game-paused', { sessionId: selectedSession?.id });
+      socketRef.current?.emit('blindtest-pause', { sessionId: selectedSession?.id });
+    }
+  }, [buzzerWinner, currentQuestion?.type, isAudioPlaying, selectedSession?.id]);
   const totalQuestions = rounds.reduce((sum, r) => sum + (r.questions?.length || 0), 0);
   const currentQuestionNumber = rounds.slice(0, currentRoundIndex).reduce((sum, r) => sum + (r.questions?.length || 0), 0) + currentQuestionIndex + 1;
 
@@ -698,6 +722,38 @@ export default function StudioHome() {
       sessionId: selectedSession?.id,
       lockedTeamIds: autoLockOnWrong ? [...lockedTeamIds, team.id] : lockedTeamIds
     });
+
+    // For blindtest: Resume music from where it was paused and resume timer
+    if (currentQuestion?.type === 'BLIND_TEST' && audioPausedPositionRef.current > 0) {
+      // Resume audio from saved position
+      if (audioRef.current) {
+        audioRef.current.currentTime = audioPausedPositionRef.current;
+        audioRef.current.play();
+        setIsAudioPlaying(true);
+
+        // Set up remaining cue end timer if needed
+        if (currentQuestion.questionCueEnd && currentQuestion.questionCueEnd > audioPausedPositionRef.current) {
+          const remainingDuration = (currentQuestion.questionCueEnd - audioPausedPositionRef.current) * 1000;
+          cueEndTimerRef.current = setTimeout(() => {
+            if (audioRef.current) {
+              audioRef.current.pause();
+            }
+            setIsAudioPlaying(false);
+          }, remainingDuration);
+        }
+      }
+
+      // Resume timer
+      setIsTimerRunning(true);
+      socketRef.current?.emit('game-resumed', { sessionId: selectedSession?.id });
+      socketRef.current?.emit('blindtest-play', {
+        sessionId: selectedSession?.id,
+        audioUrl: currentQuestion.mediaUrl,
+        questionCueStart: audioPausedPositionRef.current,
+        questionCueEnd: currentQuestion.questionCueEnd || null,
+        resumeFromPosition: audioPausedPositionRef.current
+      });
+    }
   };
 
   // ========== BLINDTEST CONTROLS ==========
