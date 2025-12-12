@@ -99,10 +99,11 @@ export default function StudioHome() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [answers, setAnswers] = useState<Answer[]>([]);
 
-  // Timer
+  // Timer with client-side interpolation
   const [timeRemaining, setTimeRemaining] = useState(30);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const serverTimerData = useRef<{ startTime: number; duration: number } | null>(null);
 
   // Buzzer
   const [buzzerWinner, setBuzzerWinner] = useState<Team | null>(null);
@@ -292,13 +293,41 @@ export default function StudioHome() {
       ));
     });
 
-    // Listen for server-side timer sync (authoritative)
+    // Server-side timer sync with client-side interpolation for smooth display
     socket.on('timer-sync', (data) => {
+      // Store server data and start local interpolation
+      if (data.startTime && data.duration) {
+        serverTimerData.current = { startTime: data.startTime, duration: data.duration };
+
+        // Clear existing interpolation timer
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+
+        // Start local interpolation for smooth countdown
+        timerRef.current = setInterval(() => {
+          if (!serverTimerData.current) return;
+          const elapsed = Date.now() - serverTimerData.current.startTime;
+          const remaining = Math.max(0, Math.ceil((serverTimerData.current.duration - elapsed) / 1000));
+          setTimeRemaining(remaining);
+          if (remaining <= 0 && timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+            setIsTimerRunning(false);
+          }
+        }, 100);
+      }
+      // Always update with server value for sync
       setTimeRemaining(data.remaining);
     });
 
     // Listen for timer end from server
     socket.on('timer-end', () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      serverTimerData.current = null;
       setTimeRemaining(0);
       setIsTimerRunning(false);
     });
@@ -377,8 +406,7 @@ export default function StudioHome() {
     }
   }, []);
 
-  // Timer is now server-side - no client-side interval needed
-  // The server emits 'timer-sync' events every 100ms for smooth updates
+  // Timer syncs from server every 500ms, client interpolates locally for smooth display
   // Timer cleanup ref kept for legacy code compatibility
   useEffect(() => {
     return () => {

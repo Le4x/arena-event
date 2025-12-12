@@ -8,6 +8,8 @@ import { Server } from 'socket.io';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { Redis } from 'ioredis';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,10 +22,19 @@ if (!existsSync(mediaDir)) {
 
 const app = express();
 const httpServer = createServer(app);
+
+// CORS configuration - use explicit origins in production
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+  : (process.env.NODE_ENV === 'production'
+      ? ['https://admin.arena-event.fr', 'https://player.arena-event.fr', 'https://screen.arena-event.fr', 'https://studio.arena-event.fr']
+      : true); // Allow all in development
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: CORS_ORIGINS,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   },
   // Optimized for low latency
   transports: ['websocket', 'polling'],
@@ -37,6 +48,28 @@ const io = new Server(httpServer, {
 });
 
 // ============================================
+// REDIS ADAPTER FOR HORIZONTAL SCALING
+// ============================================
+const REDIS_URL = process.env.REDIS_URL;
+
+if (REDIS_URL) {
+  try {
+    const pubClient = new Redis(REDIS_URL);
+    const subClient = pubClient.duplicate();
+
+    pubClient.on('error', (err) => console.error('Redis Pub Client Error:', err.message));
+    subClient.on('error', (err) => console.error('Redis Sub Client Error:', err.message));
+
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log('✅ Redis adapter enabled for Socket.IO horizontal scaling');
+  } catch (err) {
+    console.warn('⚠️ Redis adapter not configured, running in standalone mode:', err.message);
+  }
+} else {
+  console.log('ℹ️ REDIS_URL not set, Socket.IO running in standalone mode (no horizontal scaling)');
+}
+
+// ============================================
 // SERVER-SIDE TIMER MANAGER (for sync across all clients)
 // ============================================
 const activeTimers = new Map(); // sessionId -> { interval, startTime, duration, remaining }
@@ -44,6 +77,7 @@ const activeTimers = new Map(); // sessionId -> { interval, startTime, duration,
 const startServerTimer = (sessionId, duration) => {
   // Clear existing timer
   stopServerTimer(sessionId);
+  updateSessionActivity(sessionId); // Track activity for cleanup
 
   const startTime = Date.now();
   const timerData = {
@@ -52,23 +86,28 @@ const startServerTimer = (sessionId, duration) => {
     remaining: duration
   };
 
-  // Emit sync every 100ms for smooth countdown
+  // Emit sync every 500ms - clients use interpolation for smooth display
+  // This reduces network load by 80% (from 10 msgs/sec to 2 msgs/sec per client)
   const interval = setInterval(() => {
     const elapsed = Date.now() - startTime;
-    const remaining = Math.max(0, Math.ceil((timerData.duration - elapsed) / 1000));
+    const remainingMs = Math.max(0, timerData.duration - elapsed);
+    const remaining = Math.ceil(remainingMs / 1000);
     timerData.remaining = remaining;
 
-    // Emit timer sync to all clients
+    // Emit timer sync to all clients with precise milliseconds for interpolation
     io.to(`session:${sessionId}`).emit('timer-sync', {
       remaining,
-      serverTime: Date.now()
+      remainingMs,
+      serverTime: Date.now(),
+      startTime,
+      duration: timerData.duration
     });
 
     if (remaining <= 0) {
       stopServerTimer(sessionId);
       io.to(`session:${sessionId}`).emit('timer-end', { serverTime: Date.now() });
     }
-  }, 100); // 100ms for smooth updates
+  }, 500); // 500ms - clients interpolate for smooth display
 
   timerData.interval = interval;
   activeTimers.set(sessionId, timerData);
@@ -89,6 +128,17 @@ const stopServerTimer = (sessionId) => {
 const getTimerRemaining = (sessionId) => {
   const timer = activeTimers.get(sessionId);
   return timer ? timer.remaining : 0;
+};
+
+// ============================================
+// SESSION ACTIVITY TRACKING (for cleanup)
+// ============================================
+const sessionLastActivity = new Map(); // sessionId -> timestamp
+
+const updateSessionActivity = (sessionId) => {
+  if (sessionId) {
+    sessionLastActivity.set(sessionId, Date.now());
+  }
 };
 
 // ============================================
@@ -165,6 +215,7 @@ const resetBuzzer = (sessionId, questionId = null) => {
 };
 
 const tryPressBuzzer = (sessionId, team, timestamp) => {
+  updateSessionActivity(sessionId); // Track activity for cleanup
   const state = buzzerState.get(sessionId) || { locked: false, winner: null, timestamp: null, queue: [] };
 
   // Check if this team already buzzed
@@ -333,7 +384,12 @@ const endFinale = (sessionId) => {
 
 const prisma = new PrismaClient();
 
-app.use(cors());
+app.use(cors({
+  origin: CORS_ORIGINS,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -347,8 +403,45 @@ if (!existsSync(audioDir)) {
 }
 
 // ============================================
-// FILE UPLOAD ENDPOINT
+// FILE UPLOAD ENDPOINT WITH VALIDATION
 // ============================================
+
+// Allowed MIME types and their extensions
+const ALLOWED_MEDIA_TYPES = {
+  audio: {
+    mimeTypes: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/m4a'],
+    extensions: ['.mp3', '.wav', '.ogg', '.webm', '.aac', '.m4a']
+  },
+  images: {
+    mimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
+    extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
+  }
+};
+
+// Max file sizes (in bytes)
+const MAX_FILE_SIZES = {
+  audio: 50 * 1024 * 1024,   // 50MB for audio
+  images: 10 * 1024 * 1024   // 10MB for images
+};
+
+// Extract MIME type from base64 data URI
+const extractMimeType = (dataUri) => {
+  const match = dataUri.match(/^data:([^;]+);base64,/);
+  return match ? match[1] : null;
+};
+
+// Validate file extension
+const isValidExtension = (filename, type) => {
+  const ext = extname(filename).toLowerCase();
+  const allowedExts = ALLOWED_MEDIA_TYPES[type]?.extensions || [];
+  return allowedExts.includes(ext);
+};
+
+// Validate MIME type
+const isValidMimeType = (mimeType, type) => {
+  const allowedMimes = ALLOWED_MEDIA_TYPES[type]?.mimeTypes || [];
+  return allowedMimes.includes(mimeType);
+};
 
 app.post('/api/upload', async (req, res) => {
   try {
@@ -370,17 +463,46 @@ app.post('/api/upload', async (req, res) => {
       return res.status(400).json({ error: 'Filename and data are required' });
     }
 
+    // Determine media type
+    const mediaType = type === 'audio' ? 'audio' : 'images';
+
+    // Validate file extension
+    if (!isValidExtension(filename, mediaType)) {
+      const allowedExts = ALLOWED_MEDIA_TYPES[mediaType]?.extensions.join(', ');
+      return res.status(400).json({
+        error: `Invalid file extension. Allowed: ${allowedExts}`
+      });
+    }
+
+    // Extract and validate MIME type from data URI
+    const mimeType = extractMimeType(data);
+    if (mimeType && !isValidMimeType(mimeType, mediaType)) {
+      const allowedMimes = ALLOWED_MEDIA_TYPES[mediaType]?.mimeTypes.join(', ');
+      return res.status(400).json({
+        error: `Invalid file type: ${mimeType}. Allowed: ${allowedMimes}`
+      });
+    }
+
     // Extract base64 data
     const base64Data = data.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Generate unique filename
-    const ext = extname(filename) || '.mp3';
+    // Validate file size
+    const maxSize = MAX_FILE_SIZES[mediaType];
+    if (buffer.length > maxSize) {
+      const maxSizeMB = (maxSize / (1024 * 1024)).toFixed(0);
+      const actualSizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
+      return res.status(400).json({
+        error: `File too large: ${actualSizeMB}MB. Maximum allowed: ${maxSizeMB}MB`
+      });
+    }
+
+    // Generate unique filename with sanitized extension
+    const ext = extname(filename).toLowerCase() || '.mp3';
     const uniqueFilename = `${Date.now()}-${Math.random().toString(36).substring(7)}${ext}`;
 
     // Determine subdirectory based on type
-    const subdir = type === 'audio' ? 'audio' : 'images';
-    const targetDir = join(mediaDir, subdir);
+    const targetDir = join(mediaDir, mediaType);
     if (!existsSync(targetDir)) {
       mkdirSync(targetDir, { recursive: true });
     }
@@ -390,9 +512,9 @@ app.post('/api/upload', async (req, res) => {
 
     // Use environment variable or construct from request host
     const baseUrl = process.env.API_BASE_URL || `http://${req.headers.host}`;
-    const mediaUrl = `${baseUrl}/media/${subdir}/${uniqueFilename}`;
+    const mediaUrl = `${baseUrl}/media/${mediaType}/${uniqueFilename}`;
 
-    console.log(`File uploaded: ${mediaUrl}`);
+    console.log(`File uploaded: ${mediaUrl} (${(buffer.length / 1024).toFixed(1)}KB)`);
     res.json({ url: mediaUrl, filename: uniqueFilename });
   } catch (error) {
     console.error('Upload error:', error);
@@ -401,11 +523,94 @@ app.post('/api/upload', async (req, res) => {
 });
 
 // ============================================
+// MONITORING METRICS
+// ============================================
+const metrics = {
+  startTime: Date.now(),
+  requests: { total: 0, errors: 0 },
+  websocket: { connections: 0, messagesIn: 0, messagesOut: 0 },
+  latency: { samples: [], max: 0, avg: 0 }
+};
+
+// Track request latency
+const trackLatency = (duration) => {
+  metrics.latency.samples.push(duration);
+  if (metrics.latency.samples.length > 100) {
+    metrics.latency.samples.shift(); // Keep only last 100 samples
+  }
+  metrics.latency.max = Math.max(metrics.latency.max, duration);
+  metrics.latency.avg = metrics.latency.samples.reduce((a, b) => a + b, 0) / metrics.latency.samples.length;
+};
+
+// Request tracking middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  metrics.requests.total++;
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    trackLatency(duration);
+    if (res.statusCode >= 400) {
+      metrics.requests.errors++;
+    }
+  });
+
+  next();
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    uptime: Math.floor((Date.now() - metrics.startTime) / 1000),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Metrics endpoint
+app.get('/metrics', (req, res) => {
+  const uptimeSeconds = Math.floor((Date.now() - metrics.startTime) / 1000);
+
+  res.json({
+    uptime: uptimeSeconds,
+    uptimeFormatted: `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m ${uptimeSeconds % 60}s`,
+    requests: {
+      total: metrics.requests.total,
+      errors: metrics.requests.errors,
+      errorRate: metrics.requests.total > 0
+        ? ((metrics.requests.errors / metrics.requests.total) * 100).toFixed(2) + '%'
+        : '0%'
+    },
+    websocket: {
+      activeConnections: io.engine.clientsCount,
+      totalMessagesIn: metrics.websocket.messagesIn,
+      totalMessagesOut: metrics.websocket.messagesOut
+    },
+    sessions: {
+      activeTimers: activeTimers.size,
+      activeBuzzerStates: buzzerState.size,
+      activeFinaleStates: finaleState.size,
+      connectedTeamSessions: connectedTeams.size,
+      trackedSessions: sessionLastActivity.size
+    },
+    latency: {
+      avgMs: Math.round(metrics.latency.avg),
+      maxMs: metrics.latency.max,
+      samples: metrics.latency.samples.length
+    },
+    memory: {
+      heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      heapTotalMB: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024)
+    }
+  });
+});
+
+// ============================================
 // CONFIGURATION (Environment Variables)
 // ============================================
 const JWT_SECRET = process.env.JWT_SECRET || 'arena-event-super-secret-jwt-key-2024';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-const CORS_ORIGINS = process.env.CORS_ORIGINS || '*';
 // Upload token for media upload security (set in environment)
 const UPLOAD_TOKEN = process.env.SIMPLE_API_UPLOAD_TOKEN || null;
 
@@ -1565,6 +1770,17 @@ const requireGmRole = (socket) => {
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
+  metrics.websocket.connections++;
+
+  // Track incoming messages
+  socket.onAny(() => {
+    metrics.websocket.messagesIn++;
+  });
+
+  // Track disconnections
+  socket.on('disconnect', () => {
+    metrics.websocket.connections--;
+  });
 
   // Try to authenticate on connection
   authenticateWsSocket(socket);
@@ -1590,6 +1806,7 @@ io.on('connection', (socket) => {
     socket.join(`session:${sessionId}`);
     socket.sessionId = sessionId;
     socket.wsRole = role;
+    updateSessionActivity(sessionId); // Track activity for cleanup
     console.log(`Socket ${socket.id} (${role || 'unknown'}) joined session ${sessionId}`);
 
     // Emit session-joined acknowledgment to the client
@@ -2779,6 +2996,66 @@ app.post('/sessions/:sessionId/emit', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ============================================
+// SESSION CLEANUP MECHANISM
+// ============================================
+
+// Cleanup stale sessions - runs every 5 minutes
+const SESSION_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const SESSION_INACTIVE_TIMEOUT = 60 * 60 * 1000; // 1 hour of inactivity
+
+const cleanupStaleSessions = async () => {
+  const now = Date.now();
+  let cleanedCount = 0;
+
+  for (const [sessionId, lastActivity] of sessionLastActivity.entries()) {
+    if (now - lastActivity > SESSION_INACTIVE_TIMEOUT) {
+      // Clean up in-memory state
+      stopServerTimer(sessionId);
+      buzzerState.delete(sessionId);
+      finaleState.delete(sessionId);
+      connectedTeams.delete(sessionId);
+      sessionLastActivity.delete(sessionId);
+      cleanedCount++;
+      console.log(`🧹 Cleaned up stale session: ${sessionId}`);
+    }
+  }
+
+  // Also check for finished sessions in database
+  try {
+    const finishedSessions = await prisma.session.findMany({
+      where: {
+        status: 'FINISHED',
+        updatedAt: {
+          lt: new Date(now - SESSION_INACTIVE_TIMEOUT)
+        }
+      },
+      select: { id: true }
+    });
+
+    for (const session of finishedSessions) {
+      if (buzzerState.has(session.id) || finaleState.has(session.id) || activeTimers.has(session.id)) {
+        stopServerTimer(session.id);
+        buzzerState.delete(session.id);
+        finaleState.delete(session.id);
+        connectedTeams.delete(session.id);
+        sessionLastActivity.delete(session.id);
+        cleanedCount++;
+        console.log(`🧹 Cleaned up finished session from DB: ${session.id}`);
+      }
+    }
+  } catch (error) {
+    console.error('Session cleanup DB error:', error.message);
+  }
+
+  if (cleanedCount > 0) {
+    console.log(`🧹 Session cleanup complete: ${cleanedCount} sessions cleaned`);
+  }
+};
+
+// Start cleanup interval
+setInterval(cleanupStaleSessions, SESSION_CLEANUP_INTERVAL);
 
 // ============================================
 // START SERVER

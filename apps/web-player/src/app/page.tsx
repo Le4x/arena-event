@@ -134,9 +134,10 @@ export default function PlayerHome() {
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [timePlusActive, setTimePlusActive] = useState(false);
 
-  // Timer ref
+  // Timer ref for client-side interpolation
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const questionStartTime = useRef<number>(0);
+  const serverTimerData = useRef<{ startTime: number; duration: number; serverTime: number } | null>(null);
 
   // Game state ref for socket callbacks (avoid stale closure)
   const gameStateRef = useRef<GameState>(gameState);
@@ -343,8 +344,17 @@ export default function PlayerHome() {
       setGameState('RESULT');
     });
 
-    // Server-side timer sync (authoritative)
+    // Server-side timer sync (authoritative) with client-side interpolation
     socket.on('timer-sync', (data) => {
+      // Store server data for interpolation
+      if (data.startTime && data.duration) {
+        serverTimerData.current = {
+          startTime: data.startTime,
+          duration: data.duration,
+          serverTime: data.serverTime
+        };
+      }
+      // Update with server value, local interpolation will smooth it
       setTimeRemaining(data.remaining);
     });
 
@@ -523,11 +533,25 @@ export default function PlayerHome() {
     });
   };
 
-  // Timer is now server-side - no client-side interval needed
-  // The server emits 'timer-sync' events every 100ms for smooth synchronized updates
+  // Timer with client-side interpolation for smooth display
+  // Server syncs every 500ms, client interpolates every 100ms for smooth countdown
   const startTimer = (seconds: number) => {
-    // Only set initial time, server will sync the rest
+    stopTimer(); // Clear any existing timer
     setTimeRemaining(seconds);
+
+    // Start local interpolation for smooth display between server syncs
+    const startTime = Date.now();
+    const duration = seconds * 1000;
+
+    timerRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, Math.ceil((duration - elapsed) / 1000));
+      setTimeRemaining(remaining);
+
+      if (remaining <= 0) {
+        stopTimer();
+      }
+    }, 100); // 100ms local updates for smooth display
   };
 
   const stopTimer = () => {
@@ -535,6 +559,7 @@ export default function PlayerHome() {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    serverTimerData.current = null;
   };
 
   // Submit answer (Socket only for lower latency - no duplicate REST call)

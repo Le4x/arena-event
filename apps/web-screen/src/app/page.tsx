@@ -82,6 +82,8 @@ export default function ScreenHome() {
   const [revealedSong, setRevealedSong] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cueEndTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const serverTimerData = useRef<{ startTime: number; duration: number } | null>(null);
 
   // Fullscreen state
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -223,8 +225,30 @@ export default function ScreenHome() {
       setDisplayMode('QUESTION');
     });
 
-    // Server-side timer sync (authoritative)
+    // Server-side timer sync with client-side interpolation for smooth display
     socket.on('timer-sync', (data) => {
+      // Store server data and start local interpolation
+      if (data.startTime && data.duration) {
+        serverTimerData.current = { startTime: data.startTime, duration: data.duration };
+
+        // Clear existing interpolation timer
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+
+        // Start local interpolation for smooth countdown
+        timerRef.current = setInterval(() => {
+          if (!serverTimerData.current) return;
+          const elapsed = Date.now() - serverTimerData.current.startTime;
+          const remaining = Math.max(0, Math.ceil((serverTimerData.current.duration - elapsed) / 1000));
+          setTimeRemaining(remaining);
+          if (remaining <= 0 && timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+        }, 100);
+      }
+      // Always update with server value for sync
       setTimeRemaining(data.remaining);
     });
 
@@ -234,6 +258,11 @@ export default function ScreenHome() {
     });
 
     socket.on('timer-end', () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      serverTimerData.current = null;
       setTimeRemaining(0);
     });
 
@@ -417,8 +446,7 @@ export default function ScreenHome() {
     });
   };
 
-  // Timer is now server-side - no client-side interval needed
-  // The server emits 'timer-sync' events every 100ms for smooth synchronized updates
+  // Timer syncs from server every 500ms, client interpolates locally for smooth display
 
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
   const answeredCount = teams.filter(t => t.hasAnswered).length;
