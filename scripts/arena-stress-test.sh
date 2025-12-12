@@ -21,7 +21,8 @@ set -o pipefail
 # ============================================
 API_URL="${API_URL:-http://localhost:3001}"
 WS_URL="${WS_URL:-http://localhost:3001}"
-CONCURRENT_CLIENTS="${CONCURRENT_CLIENTS:-50}"
+CONCURRENT_CLIENTS="${CONCURRENT_CLIENTS:-200}"
+WS_CLIENTS="${WS_CLIENTS:-100}"
 TEST_DURATION="${TEST_DURATION:-30}"
 VERBOSE="${VERBOSE:-false}"
 
@@ -80,7 +81,8 @@ EOF
     echo -e "${NC}"
     echo -e "${DIM}Date: $(date)${NC}"
     echo -e "${DIM}API: ${API_URL}${NC}"
-    echo -e "${DIM}Clients simulés: ${CONCURRENT_CLIENTS}${NC}"
+    echo -e "${DIM}Clients HTTP simulés: ${CONCURRENT_CLIENTS}${NC}"
+    echo -e "${DIM}Clients WebSocket simulés: ${WS_CLIENTS}${NC}"
     echo ""
 }
 
@@ -442,9 +444,9 @@ test_concurrent_load() {
 test_websocket_stress() {
     print_section "🔌 TEST 6: STRESS WEBSOCKET"
 
-    print_test "Connexions WebSocket multiples"
+    print_test "Connexions WebSocket multiples ($WS_CLIENTS clients)"
 
-    local ws_clients=20
+    local ws_clients=$WS_CLIENTS
     local pids=()
 
     # Initialiser les fichiers de comptage
@@ -768,6 +770,10 @@ while [[ $# -gt 0 ]]; do
             CONCURRENT_CLIENTS="$2"
             shift 2
             ;;
+        --ws-clients)
+            WS_CLIENTS="$2"
+            shift 2
+            ;;
         --duration)
             TEST_DURATION="$2"
             shift 2
@@ -781,7 +787,8 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --url URL          URL de l'API (défaut: http://localhost:3001)"
-            echo "  --clients N        Nombre de clients simulés (défaut: 50)"
+            echo "  --clients N        Nombre de clients HTTP simulés (défaut: 200)"
+            echo "  --ws-clients N     Nombre de clients WebSocket simulés (défaut: 100)"
             echo "  --duration N       Durée du test mémoire en secondes (défaut: 30)"
             echo "  --verbose          Mode verbeux"
             echo "  --help             Afficher cette aide"
