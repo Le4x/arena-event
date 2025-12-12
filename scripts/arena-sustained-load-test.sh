@@ -39,6 +39,14 @@ MEMORY_SAMPLES=()
 CPU_SAMPLES=()
 CONNECTION_SAMPLES=()
 
+# Initialiser les fichiers de log immédiatement
+touch "$TEMP_DIR/http_success.log"
+touch "$TEMP_DIR/http_errors.log"
+touch "$TEMP_DIR/http_latencies.log"
+touch "$TEMP_DIR/ws_reconnects.log"
+touch "$TEMP_DIR/ws_success.log"
+touch "$TEMP_DIR/samples.csv"
+
 # Nettoyage à la sortie
 cleanup() {
     echo -e "\n${YELLOW}Arrêt des tests...${NC}"
@@ -53,8 +61,8 @@ cleanup() {
         kill "$HTTP_PID" 2>/dev/null || true
     fi
 
-    # Tuer tous les processus websocat restants
-    pkill -f "websocat.*$API_URL" 2>/dev/null || true
+    # Tuer tous les processus curl restants du test
+    pkill -f "curl.*socket.io.*load-test" 2>/dev/null || true
 
     # Générer le rapport final
     generate_report
@@ -93,17 +101,13 @@ check_dependencies() {
     command -v jq &>/dev/null || missing+=("jq")
     command -v bc &>/dev/null || missing+=("bc")
 
-    # Vérifier websocat ou wscat
-    if ! command -v websocat &>/dev/null && ! command -v wscat &>/dev/null; then
-        missing+=("websocat ou wscat")
-    fi
-
     if [ ${#missing[@]} -gt 0 ]; then
         echo -e "${RED}Dépendances manquantes: ${missing[*]}${NC}"
         echo "Installation: apt-get install curl jq bc"
-        echo "Pour websocat: cargo install websocat"
         exit 1
     fi
+
+    # Note: websocat est optionnel, on utilise le polling Socket.IO avec curl
 }
 
 # Récupérer les métriques du serveur
@@ -120,26 +124,45 @@ get_server_health() {
     echo "$health"
 }
 
-# Client WebSocket persistant
+# Client Socket.IO persistant (utilise le polling HTTP, pas besoin de websocat)
 start_ws_client() {
     local client_id=$1
     local session_id="load-test-session-$client_id"
-    local ws_url="${API_URL/https:/wss:}/socket.io/?EIO=4&transport=websocket"
-
-    # Fichier de log pour ce client
-    local log_file="$TEMP_DIR/ws_client_$client_id.log"
 
     while true; do
-        # Connexion WebSocket avec timeout
-        if command -v websocat &>/dev/null; then
-            echo "40" | timeout 30 websocat -t "$ws_url" >> "$log_file" 2>&1 || true
-        fi
+        # Handshake Socket.IO - obtenir le SID
+        local handshake
+        handshake=$(curl -s --max-time 10 "${API_URL}/socket.io/?EIO=4&transport=polling" 2>/dev/null || echo "")
 
-        # Petite pause avant reconnexion
-        sleep 1
+        if [ -n "$handshake" ]; then
+            local sid
+            sid=$(echo "$handshake" | grep -o '"sid":"[^"]*"' | cut -d'"' -f4 2>/dev/null || echo "")
+
+            if [ -n "$sid" ]; then
+                echo "success" >> "$TEMP_DIR/ws_success.log"
+
+                # Maintenir la connexion avec des polling réguliers
+                local poll_count=0
+                while [ $poll_count -lt 30 ]; do
+                    # Poll pour maintenir la connexion
+                    local poll_result
+                    poll_result=$(curl -s --max-time 5 "${API_URL}/socket.io/?EIO=4&transport=polling&sid=$sid" 2>/dev/null || echo "error")
+
+                    if [ "$poll_result" == "error" ] || [ -z "$poll_result" ]; then
+                        break
+                    fi
+
+                    sleep 1
+                    poll_count=$((poll_count + 1))
+                done
+            fi
+        fi
 
         # Incrémenter le compteur de reconnexions
         echo "reconnect" >> "$TEMP_DIR/ws_reconnects.log"
+
+        # Petite pause avant reconnexion
+        sleep 2
     done
 }
 
@@ -440,12 +463,7 @@ main() {
     print_header
     check_dependencies
 
-    # Initialiser les fichiers de log
-    touch "$TEMP_DIR/http_success.log"
-    touch "$TEMP_DIR/http_errors.log"
-    touch "$TEMP_DIR/http_latencies.log"
-    touch "$TEMP_DIR/ws_reconnects.log"
-    touch "$TEMP_DIR/samples.csv"
+    # Header du fichier CSV
     echo "elapsed,requests,errors,latency_avg,ws_connections,heap_mb,rss_mb" > "$TEMP_DIR/samples.csv"
 
     # Vérifier la connectivité
