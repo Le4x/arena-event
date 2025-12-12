@@ -282,6 +282,7 @@ export default function PlayerHome() {
   const [buzzerOpen, setBuzzerOpen] = useState(false);
   const [buzzerWinner, setBuzzerWinner] = useState<string | null>(null);
   const [buzzerWrongFeedback, setBuzzerWrongFeedback] = useState(false);
+  const [buzzerLockedForMe, setBuzzerLockedForMe] = useState(false); // Locked from buzzing for current question
 
   // Blindtest state
   const [isBlindtestPlaying, setIsBlindtestPlaying] = useState(false);
@@ -547,6 +548,7 @@ export default function PlayerHome() {
       setBuzzerPressed(false);
       setBuzzerOpen(data.question.type === 'BUZZER');
       setBuzzerWinner(null);
+      setBuzzerLockedForMe(false); // Reset lock for new question
       questionStartTime.current = Date.now();
       setGameState('QUESTION');
       startTimer(data.timeLimit || data.question.timeLimit || 30);
@@ -593,10 +595,24 @@ export default function PlayerHome() {
       setBuzzerOpen(false);
     });
 
-    socket.on('buzzer-reset', () => {
+    socket.on('buzzer-reset', (data) => {
       setBuzzerPressed(false);
       setBuzzerWinner(null);
-      setBuzzerOpen(true);
+      // Check if this team is locked
+      const lockedIds = data?.lockedTeamIds || [];
+      if (lockedIds.includes(teamIdRef.current)) {
+        setBuzzerLockedForMe(true);
+        setBuzzerOpen(false);
+      } else {
+        setBuzzerOpen(true);
+      }
+    });
+
+    socket.on('buzzer-team-locked', (data) => {
+      if (data.teamId === teamIdRef.current) {
+        setBuzzerLockedForMe(true);
+        setBuzzerOpen(false);
+      }
     });
 
     socket.on('buzzer-winner', (data) => {
@@ -623,10 +639,15 @@ export default function PlayerHome() {
         setBuzzerWrongFeedback(true);
         setTimeout(() => setBuzzerWrongFeedback(false), 2000);
         setBuzzerPressed(false);
-        setBuzzerOpen(true);
-      } else {
-        setBuzzerOpen(true);
+        // Check if we're locked
+        if (data.locked) {
+          setBuzzerLockedForMe(true);
+          setBuzzerOpen(false);
+        } else {
+          setBuzzerOpen(true);
+        }
       }
+      // Don't open buzzer here for other teams - let buzzer-reset handle it
       setBuzzerWinner(null);
     });
 
@@ -1341,17 +1362,19 @@ export default function PlayerHome() {
               ) : (
                 <button
                   onClick={handleBuzzer}
-                  disabled={buzzerPressed || !buzzerOpen}
+                  disabled={buzzerPressed || !buzzerOpen || buzzerLockedForMe}
                   className={`w-56 h-56 rounded-full shadow-2xl transition transform active:scale-90 ${
-                    buzzerPressed
-                      ? 'bg-gray-600'
-                      : buzzerOpen
-                        ? 'bg-gradient-to-br from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 animate-pulse shadow-red-500/50'
-                        : 'bg-gray-600 opacity-50'
+                    buzzerLockedForMe
+                      ? 'bg-gradient-to-br from-gray-700 to-gray-800 border-4 border-red-500'
+                      : buzzerPressed
+                        ? 'bg-gray-600'
+                        : buzzerOpen
+                          ? 'bg-gradient-to-br from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 animate-pulse shadow-red-500/50'
+                          : 'bg-gray-600 opacity-50'
                   }`}
                 >
                   <span className="text-white text-3xl font-black">
-                    {buzzerPressed ? 'BUZZÉ!' : buzzerOpen ? 'BUZZ!' : 'ATTENDS...'}
+                    {buzzerLockedForMe ? '🔒 BLOQUÉ' : buzzerPressed ? 'BUZZÉ!' : buzzerOpen ? 'BUZZ!' : 'ATTENDS...'}
                   </span>
                 </button>
               )}
@@ -1423,19 +1446,21 @@ export default function PlayerHome() {
               ) : !blindtestRevealed && (
                 <button
                   onClick={handleBuzzer}
-                  disabled={buzzerPressed || !buzzerOpen || !isBlindtestPlaying}
+                  disabled={buzzerPressed || !buzzerOpen || !isBlindtestPlaying || buzzerLockedForMe}
                   className={`w-56 h-56 rounded-full shadow-2xl transition transform active:scale-90 ${
-                    buzzerPressed
-                      ? 'bg-gray-600'
-                      : buzzerOpen && isBlindtestPlaying
-                        ? 'bg-gradient-to-br from-purple-500 to-pink-700 hover:from-purple-600 hover:to-pink-800 animate-pulse shadow-purple-500/50'
-                        : 'bg-gray-600 opacity-50'
+                    buzzerLockedForMe
+                      ? 'bg-gradient-to-br from-gray-700 to-gray-800 border-4 border-red-500'
+                      : buzzerPressed
+                        ? 'bg-gray-600'
+                        : buzzerOpen && isBlindtestPlaying
+                          ? 'bg-gradient-to-br from-purple-500 to-pink-700 hover:from-purple-600 hover:to-pink-800 animate-pulse shadow-purple-500/50'
+                          : 'bg-gray-600 opacity-50'
                   }`}
                 >
                   <div className="flex flex-col items-center">
-                    <span className="text-4xl mb-2">🎵</span>
+                    <span className="text-4xl mb-2">{buzzerLockedForMe ? '🔒' : '🎵'}</span>
                     <span className="text-white text-2xl font-black">
-                      {buzzerPressed ? 'BUZZÉ!' : buzzerOpen && isBlindtestPlaying ? 'JE SAIS!' : 'ATTENDS...'}
+                      {buzzerLockedForMe ? 'BLOQUÉ' : buzzerPressed ? 'BUZZÉ!' : buzzerOpen && isBlindtestPlaying ? 'JE SAIS!' : 'ATTENDS...'}
                     </span>
                   </div>
                 </button>

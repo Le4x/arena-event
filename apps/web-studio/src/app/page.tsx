@@ -109,6 +109,9 @@ export default function StudioHome() {
   const [buzzerLocked, setBuzzerLocked] = useState(true);
   const [buzzerPressTime, setBuzzerPressTime] = useState<number>(0);
   const questionStartTimeRef = useRef<number>(0);
+  const [lockedTeamIds, setLockedTeamIds] = useState<Set<string>>(new Set()); // Teams locked from buzzing for current question
+  const [showWrongAnswerModal, setShowWrongAnswerModal] = useState(false);
+  const [wrongAnswerTeam, setWrongAnswerTeam] = useState<Team | null>(null);
 
   // Blindtest audio
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -446,6 +449,7 @@ export default function StudioHome() {
     setBuzzerLocked(currentQuestion.type !== 'BUZZER' && currentQuestion.type !== 'BLIND_TEST');
     setAnswers(prev => prev.filter(a => a.questionId !== currentQuestion.id));
     setTeams(prev => prev.map(t => ({ ...t, lastAnswer: undefined })));
+    setLockedTeamIds(new Set()); // Reset locked teams for new question
     questionStartTimeRef.current = Date.now();
 
     // Reset blindtest state
@@ -725,20 +729,67 @@ export default function StudioHome() {
 
     // Reset buzzer state
     resetBuzzer();
+
+    // For BLIND_TEST, auto-reveal after correct answer
+    if (currentQuestion?.type === 'BLIND_TEST') {
+      setTimeout(() => {
+        revealBlindtest();
+        endQuestion();
+      }, 500);
+    }
   };
 
-  // Mark buzzer answer as wrong
+  // Mark buzzer answer as wrong - shows modal for BLIND_TEST to choose lock option
   const markBuzzerWrong = (team: Team) => {
+    if (currentQuestion?.type === 'BLIND_TEST') {
+      // Show modal to choose whether to lock the team or allow re-buzz
+      setWrongAnswerTeam(team);
+      setShowWrongAnswerModal(true);
+    } else {
+      // Normal behavior for non-blindtest
+      socketRef.current?.emit('buzzer-wrong', {
+        sessionId: selectedSession?.id,
+        team,
+        teamId: team.id,
+        teamName: team.name
+      });
+      resetBuzzer();
+    }
+  };
+
+  // Handle wrong answer with lock option
+  const handleWrongAnswerWithLock = (lockTeam: boolean) => {
+    if (!wrongAnswerTeam) return;
+
     // Emit buzzer-wrong event to notify players
     socketRef.current?.emit('buzzer-wrong', {
       sessionId: selectedSession?.id,
-      team,
-      teamId: team.id,
-      teamName: team.name
+      team: wrongAnswerTeam,
+      teamId: wrongAnswerTeam.id,
+      teamName: wrongAnswerTeam.name,
+      locked: lockTeam
     });
 
-    // Reset buzzer to allow others to try
-    resetBuzzer();
+    if (lockTeam) {
+      // Lock this team from buzzing again for this question
+      setLockedTeamIds(prev => new Set([...prev, wrongAnswerTeam.id]));
+      socketRef.current?.emit('buzzer-team-locked', {
+        sessionId: selectedSession?.id,
+        teamId: wrongAnswerTeam.id
+      });
+    }
+
+    // Reset buzzer to allow others (or same team if not locked) to try
+    setBuzzerWinner(null);
+    setBuzzerQueue([]);
+    setBuzzerLocked(false);
+    socketRef.current?.emit('buzzer-reset', {
+      sessionId: selectedSession?.id,
+      lockedTeamIds: lockTeam ? [...lockedTeamIds, wrongAnswerTeam.id] : [...lockedTeamIds]
+    });
+
+    setShowWrongAnswerModal(false);
+    setWrongAnswerTeam(null);
   };
 
   // ========== BLINDTEST CONTROLS ==========
@@ -1597,6 +1648,20 @@ export default function StudioHome() {
                         </div>
                       </div>
                     )}
+
+                    {/* Locked teams indicator */}
+                    {lockedTeamIds.size > 0 && (
+                      <div className="mt-4 bg-gray-700/50 rounded-xl p-3">
+                        <p className="text-sm text-gray-400 mb-2">🔒 Équipes bloquées:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {teams.filter(t => lockedTeamIds.has(t.id)).map(t => (
+                            <span key={t.id} className="bg-red-500/30 text-red-300 px-2 py-1 rounded text-sm">
+                              {t.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1738,6 +1803,51 @@ export default function StudioHome() {
                 className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl"
               >
                 Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wrong Answer Modal for Blindtest */}
+      {showWrongAnswerModal && wrongAnswerTeam && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="text-center mb-4">
+              <span className="text-6xl">❌</span>
+            </div>
+            <h3 className="text-xl font-bold mb-2 text-center">Mauvaise réponse !</h3>
+            <p className="text-gray-400 mb-6 text-center">
+              <span className="font-semibold text-white">{wrongAnswerTeam.name}</span> a donné une mauvaise réponse.
+            </p>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => handleWrongAnswerWithLock(true)}
+                className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 rounded-xl transition"
+              >
+                <span className="text-xl mr-2">🔒</span>
+                Bloquer cette équipe
+                <span className="block text-sm font-normal opacity-80">L'équipe ne pourra plus buzzer pour cette question</span>
+              </button>
+
+              <button
+                onClick={() => handleWrongAnswerWithLock(false)}
+                className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 rounded-xl transition"
+              >
+                <span className="text-xl mr-2">🔓</span>
+                Autoriser à rebuzzer
+                <span className="block text-sm font-normal opacity-80">L'équipe peut retenter sa chance</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowWrongAnswerModal(false);
+                  setWrongAnswerTeam(null);
+                }}
+                className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-xl transition"
+              >
+                Annuler
               </button>
             </div>
           </div>
