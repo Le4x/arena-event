@@ -117,6 +117,7 @@ export default function PlayerHome() {
   const [buzzerWinner, setBuzzerWinner] = useState<string | null>(null);
   const [buzzerWrongFeedback, setBuzzerWrongFeedback] = useState(false);
   const [isTeamLocked, setIsTeamLocked] = useState(false); // Team locked from buzzing this question
+  const isTeamLockedRef = useRef(false); // Ref to avoid stale closure in socket handlers
 
   // Blindtest state
   const [isBlindtestPlaying, setIsBlindtestPlaying] = useState(false);
@@ -333,6 +334,7 @@ export default function PlayerHome() {
       setBuzzerOpen(data.question.type === 'BUZZER');
       setBuzzerWinner(null);
       setIsTeamLocked(false); // Reset locked status for new question
+      isTeamLockedRef.current = false; // Reset ref too
       questionStartTime.current = Date.now();
       setGameState('QUESTION');
       startTimer(data.timeLimit || data.question.timeLimit || 30);
@@ -378,8 +380,10 @@ export default function PlayerHome() {
       // Check if this team is in the locked list
       if (data?.lockedTeamIds && data.lockedTeamIds.includes(teamId)) {
         setIsTeamLocked(true);
+        isTeamLockedRef.current = true;
         setBuzzerOpen(false);
-      } else {
+      } else if (!isTeamLockedRef.current) {
+        // Only open buzzer if not already locked
         setBuzzerOpen(true);
       }
     });
@@ -387,6 +391,7 @@ export default function PlayerHome() {
     socket.on('buzzer-team-locked', (data) => {
       if (data.teamId === teamId) {
         setIsTeamLocked(true);
+        isTeamLockedRef.current = true;
         setBuzzerOpen(false);
       }
     });
@@ -427,13 +432,14 @@ export default function PlayerHome() {
         // Check if team is locked from this question
         if (data.teamLocked) {
           setIsTeamLocked(true);
+          isTeamLockedRef.current = true;
           setBuzzerOpen(false);
         } else {
           setBuzzerOpen(true);
         }
       } else {
         // Other teams can try again (if not locked)
-        if (!isTeamLocked) {
+        if (!isTeamLockedRef.current) {
           setBuzzerOpen(true);
         }
       }
@@ -587,7 +593,8 @@ export default function PlayerHome() {
 
   // Press buzzer (with server acknowledgment for reliability)
   const handleBuzzer = () => {
-    if (buzzerPressed || !buzzerOpen || !session || !team) return;
+    // Use ref for most reliable locked check (avoids stale closure)
+    if (buzzerPressed || !buzzerOpen || !session || !team || isTeamLocked || isTeamLockedRef.current) return;
 
     setBuzzerPressed(true);
 
