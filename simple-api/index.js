@@ -761,7 +761,8 @@ app.get('/api/events/:id', authenticateToken, async (req, res) => {
           questionCueStart: q.questionCueStart,
           questionCueEnd: q.questionCueEnd,
           revealCueStart: q.revealCueStart,
-          revealCueEnd: q.revealCueEnd
+          revealCueEnd: q.revealCueEnd,
+          audioPlayMode: q.audioPlayMode || 'blindtest'
         }))
       }))
     };
@@ -899,6 +900,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
       questionCueEnd: q.questionCueEnd,
       revealCueStart: q.revealCueStart,
       revealCueEnd: q.revealCueEnd,
+      audioPlayMode: q.audioPlayMode || 'blindtest',
       roundId: q.roundId,
       round: q.round
     }));
@@ -912,7 +914,7 @@ app.get('/api/events/:eventId/questions', authenticateToken, async (req, res) =>
 
 app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
+    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd, audioPlayMode } = req.body;
 
     // Get max order for this round
     const maxOrder = await prisma.question.aggregate({
@@ -933,6 +935,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         questionCueEnd: questionCueEnd || null,
         revealCueStart: revealCueStart || null,
         revealCueEnd: revealCueEnd || null,
+        audioPlayMode: audioPlayMode || 'blindtest',
         order: (maxOrder._max.order ?? -1) + 1,
         roundId: req.params.roundId
       }
@@ -954,7 +957,8 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
         questionCueStart: question.questionCueStart,
         questionCueEnd: question.questionCueEnd,
         revealCueStart: question.revealCueStart,
-        revealCueEnd: question.revealCueEnd
+        revealCueEnd: question.revealCueEnd,
+        audioPlayMode: question.audioPlayMode
       }
     });
   } catch (error) {
@@ -965,7 +969,7 @@ app.post('/api/rounds/:roundId/questions', authenticateToken, async (req, res) =
 
 app.put('/api/questions/:id', authenticateToken, async (req, res) => {
   try {
-    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd } = req.body;
+    const { text, type, options, correctAnswer, points, timeLimit, mediaUrl, order, questionCueStart, questionCueEnd, revealCueStart, revealCueEnd, audioPlayMode } = req.body;
 
     const question = await prisma.question.update({
       where: { id: req.params.id },
@@ -981,7 +985,8 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         questionCueStart,
         questionCueEnd,
         revealCueStart,
-        revealCueEnd
+        revealCueEnd,
+        audioPlayMode
       }
     });
 
@@ -1000,7 +1005,8 @@ app.put('/api/questions/:id', authenticateToken, async (req, res) => {
         questionCueStart: question.questionCueStart,
         questionCueEnd: question.questionCueEnd,
         revealCueStart: question.revealCueStart,
-        revealCueEnd: question.revealCueEnd
+        revealCueEnd: question.revealCueEnd,
+        audioPlayMode: question.audioPlayMode
       }
     });
   } catch (error) {
@@ -1127,7 +1133,8 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
             questionCueStart: q.questionCueStart,
             questionCueEnd: q.questionCueEnd,
             revealCueStart: q.revealCueStart,
-            revealCueEnd: q.revealCueEnd
+            revealCueEnd: q.revealCueEnd,
+            audioPlayMode: q.audioPlayMode || 'blindtest'
           }))
         }))
       }
@@ -2392,7 +2399,8 @@ app.get('/sessions/:sessionId', async (req, res) => {
             questionCueStart: q.questionCueStart,
             questionCueEnd: q.questionCueEnd,
             revealCueStart: q.revealCueStart,
-            revealCueEnd: q.revealCueEnd
+            revealCueEnd: q.revealCueEnd,
+            audioPlayMode: q.audioPlayMode || 'blindtest'
           }))
         }))
       }
@@ -2589,7 +2597,8 @@ app.get('/events/:eventId/rounds', async (req, res) => {
         questionCueStart: q.questionCueStart,
         questionCueEnd: q.questionCueEnd,
         revealCueStart: q.revealCueStart,
-        revealCueEnd: q.revealCueEnd
+        revealCueEnd: q.revealCueEnd,
+        audioPlayMode: q.audioPlayMode || 'blindtest'
       }))
     }));
 
@@ -2622,7 +2631,8 @@ app.get('/rounds/:roundId/questions', async (req, res) => {
       questionCueStart: q.questionCueStart,
       questionCueEnd: q.questionCueEnd,
       revealCueStart: q.revealCueStart,
-      revealCueEnd: q.revealCueEnd
+      revealCueEnd: q.revealCueEnd,
+      audioPlayMode: q.audioPlayMode || 'blindtest'
     }));
 
     res.json(transformed);

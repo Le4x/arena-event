@@ -37,6 +37,8 @@ interface Question {
   questionCueEnd?: number;
   revealCueStart?: number;
   revealCueEnd?: number;
+  // Audio play mode: 'blindtest' (plays during question) or 'reveal_only' (only at reveal)
+  audioPlayMode?: 'blindtest' | 'reveal_only';
 }
 
 interface Session {
@@ -321,6 +323,13 @@ export default function ScreenHome() {
 
     // Blindtest events
     socket.on('blindtest-play', (data) => {
+      // Safety check: Don't play during question if mode is reveal_only
+      // (The studio should already filter this, but this is an extra safety measure)
+      if (data.audioPlayMode === 'reveal_only') {
+        console.log('Blindtest: reveal_only mode - skipping audio during question');
+        return;
+      }
+
       // Clear any existing cue end timer
       if (cueEndTimerRef.current) {
         clearTimeout(cueEndTimerRef.current);

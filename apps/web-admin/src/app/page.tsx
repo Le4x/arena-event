@@ -78,6 +78,7 @@ interface Question {
   revealCueEnd?: number;
   explanation?: string;
   tolerance?: number;
+  audioPlayMode?: 'blindtest' | 'reveal_only';
 }
 
 interface Session {
@@ -125,7 +126,8 @@ export default function Home() {
     text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '',
     questionCueStart: null as number | null, questionCueEnd: null as number | null,
     revealCueStart: null as number | null, revealCueEnd: null as number | null,
-    explanation: '', tolerance: 0.8
+    explanation: '', tolerance: 0.8,
+    audioPlayMode: 'blindtest' as 'blindtest' | 'reveal_only'
   });
   const [userForm, setUserForm] = useState({
     email: '', password: '', firstName: '', lastName: '', role: 'ORGANIZER' as string
@@ -496,11 +498,12 @@ export default function Home() {
           negativePoints: questionForm.negativePoints,
           explanation: questionForm.explanation || null,
           tolerance: questionForm.tolerance,
+          audioPlayMode: questionForm.audioPlayMode,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8 });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8, audioPlayMode: 'blindtest' });
         setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
@@ -524,12 +527,13 @@ export default function Home() {
           negativePoints: questionForm.negativePoints,
           explanation: questionForm.explanation || null,
           tolerance: questionForm.tolerance,
+          audioPlayMode: questionForm.audioPlayMode,
         }),
       });
       if (res.ok) {
         setShowQuestionModal(false);
         setEditingQuestion(null);
-        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8 });
+        setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0.8, audioPlayMode: 'blindtest' });
         setAudioDuration(0);
         if (selectedEvent) loadEventDetails(selectedEvent.id);
       }
@@ -652,7 +656,7 @@ export default function Home() {
   const openAddQuestion = (roundId: string) => {
     setSelectedRoundId(roundId);
     setEditingQuestion(null);
-    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0 });
+    setQuestionForm({ text: '', type: 'MCQ', options: ['', '', '', ''], correctAnswer: 'A', points: 100, negativePoints: 0, timeLimit: 30, mediaUrl: '', questionCueStart: null, questionCueEnd: null, revealCueStart: null, revealCueEnd: null, explanation: '', tolerance: 0, audioPlayMode: 'blindtest' });
     setAudioDuration(0);
     setShowQuestionModal(true);
   };
@@ -674,6 +678,7 @@ export default function Home() {
       revealCueEnd: question.revealCueEnd ?? null,
       explanation: question.explanation || '',
       tolerance: question.tolerance ?? 0.8,
+      audioPlayMode: question.audioPlayMode || 'blindtest',
     });
     setAudioDuration(0);
     setShowQuestionModal(true);
@@ -1407,6 +1412,39 @@ export default function Home() {
               )}
               {questionForm.type === 'BLIND_TEST' && (
                 <div className="space-y-4">
+                  {/* Audio Play Mode Selector */}
+                  <div className="p-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-500/30">
+                    <label className="block text-sm text-purple-300 font-semibold mb-3">Mode de lecture audio</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setQuestionForm({ ...questionForm, audioPlayMode: 'blindtest' })}
+                        className={`p-4 rounded-xl border-2 transition-all ${
+                          questionForm.audioPlayMode === 'blindtest'
+                            ? 'border-purple-500 bg-purple-500/20 ring-2 ring-purple-400'
+                            : 'border-gray-600 bg-gray-700/50 hover:border-purple-400'
+                        }`}
+                      >
+                        <div className="text-3xl mb-2">🎵</div>
+                        <div className="text-white font-bold">Blindtest</div>
+                        <div className="text-xs text-gray-400 mt-1">L'audio joue pendant la question</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionForm({ ...questionForm, audioPlayMode: 'reveal_only' })}
+                        className={`p-4 rounded-xl border-2 transition-all ${
+                          questionForm.audioPlayMode === 'reveal_only'
+                            ? 'border-pink-500 bg-pink-500/20 ring-2 ring-pink-400'
+                            : 'border-gray-600 bg-gray-700/50 hover:border-pink-400'
+                        }`}
+                      >
+                        <div className="text-3xl mb-2">🎯</div>
+                        <div className="text-white font-bold">Quiz Musical</div>
+                        <div className="text-xs text-gray-400 mt-1">L'audio joue uniquement au reveal</div>
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm text-gray-300 mb-2">Audio File</label>
                     <div className="flex items-center space-x-4">

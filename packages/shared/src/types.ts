@@ -4,6 +4,7 @@ import {
   GamePhase,
   QuestionType,
   GameEventType,
+  AudioPlayMode,
 } from './enums';
 
 /**
@@ -71,6 +72,7 @@ export interface Question {
   order: number;
   choices?: string[];
   correctAnswer?: string;
+  audioPlayMode?: AudioPlayMode; // 'blindtest' (default) or 'reveal_only'
 }
 
 /**

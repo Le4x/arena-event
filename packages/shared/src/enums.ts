@@ -43,6 +43,14 @@ export enum QuestionType {
 }
 
 /**
+ * Audio play mode for questions with media
+ */
+export enum AudioPlayMode {
+  BLINDTEST = 'blindtest',     // Audio plays during the question phase (default)
+  REVEAL_ONLY = 'reveal_only', // Audio only plays during reveal (for music quiz)
+}
+
+/**
  * WebSocket event types for real-time communication
  */
 export enum GameEventType {

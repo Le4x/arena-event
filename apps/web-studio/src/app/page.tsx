@@ -40,6 +40,8 @@ interface Question {
   questionCueEnd?: number;
   revealCueStart?: number;
   revealCueEnd?: number;
+  // Audio play mode: 'blindtest' (plays during question) or 'reveal_only' (only at reveal)
+  audioPlayMode?: 'blindtest' | 'reveal_only';
   // Blindtest specific
   artist?: string;
   songTitle?: string;
@@ -670,6 +672,9 @@ export default function StudioHome() {
   const playBlindtest = () => {
     if (!currentQuestion?.mediaUrl) return;
 
+    // Check if we're in reveal_only mode - audio should only play at reveal
+    const isRevealOnlyMode = currentQuestion.audioPlayMode === 'reveal_only';
+
     // Clear any existing cue end timer
     if (cueEndTimerRef.current) {
       clearTimeout(cueEndTimerRef.current);
@@ -678,8 +683,8 @@ export default function StudioHome() {
 
     setIsAudioPlaying(true);
 
-    // Auto-open buzzer when music starts
-    if (buzzerLocked) {
+    // Auto-open buzzer when music starts (only in blindtest mode)
+    if (!isRevealOnlyMode && buzzerLocked) {
       setBuzzerLocked(false);
       socketRef.current?.emit('buzzer-open', { sessionId: selectedSession?.id });
     }
@@ -702,13 +707,16 @@ export default function StudioHome() {
       }
     }
 
-    // Emit to Screen/Player with cue points
-    socketRef.current?.emit('blindtest-play', {
-      sessionId: selectedSession?.id,
-      audioUrl: currentQuestion.mediaUrl,
-      questionCueStart: currentQuestion.questionCueStart || 0,
-      questionCueEnd: currentQuestion.questionCueEnd || null
-    });
+    // Only emit to Screen/Player if in blindtest mode (not reveal_only)
+    if (!isRevealOnlyMode) {
+      socketRef.current?.emit('blindtest-play', {
+        sessionId: selectedSession?.id,
+        audioUrl: currentQuestion.mediaUrl,
+        questionCueStart: currentQuestion.questionCueStart || 0,
+        questionCueEnd: currentQuestion.questionCueEnd || null,
+        audioPlayMode: currentQuestion.audioPlayMode || 'blindtest'
+      });
+    }
   };
 
   const pauseBlindtest = () => {
@@ -1405,7 +1413,26 @@ export default function StudioHome() {
               {/* Blindtest Controls */}
               {currentQuestion?.type === 'BLIND_TEST' && (
                 <div className="bg-gray-800 rounded-xl p-6 mb-6">
-                  <h3 className="text-xl font-semibold mb-4">🎵 Blindtest Control</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-semibold">🎵 Blindtest Control</h3>
+                    {/* Audio Play Mode Badge */}
+                    <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                      currentQuestion.audioPlayMode === 'reveal_only'
+                        ? 'bg-pink-500/20 text-pink-400 border border-pink-500/50'
+                        : 'bg-purple-500/20 text-purple-400 border border-purple-500/50'
+                    }`}>
+                      {currentQuestion.audioPlayMode === 'reveal_only' ? '🎯 Quiz Musical' : '🎵 Blindtest'}
+                    </span>
+                  </div>
+
+                  {/* Mode explanation */}
+                  {currentQuestion.audioPlayMode === 'reveal_only' && (
+                    <div className="mb-4 p-3 bg-pink-500/10 border border-pink-500/30 rounded-lg">
+                      <p className="text-pink-300 text-sm">
+                        💡 Mode Quiz Musical: L'audio ne joue pas sur l'écran pendant la question - uniquement au moment du reveal.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Hidden audio element for preview */}
                   {currentQuestion.mediaUrl && (
@@ -1422,9 +1449,13 @@ export default function StudioHome() {
                       <button
                         onClick={playBlindtest}
                         disabled={!currentQuestion.mediaUrl}
-                        className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition"
+                        className={`flex-1 ${
+                          currentQuestion.audioPlayMode === 'reveal_only'
+                            ? 'bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700'
+                            : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
+                        } disabled:opacity-50 text-white font-bold py-4 rounded-xl transition`}
                       >
-                        ▶️ Play Music
+                        {currentQuestion.audioPlayMode === 'reveal_only' ? '🎧 Preview (local)' : '▶️ Play Music'}
                       </button>
                     ) : (
                       <button
