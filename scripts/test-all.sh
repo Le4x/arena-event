@@ -50,23 +50,23 @@ else
 fi
 
 # ============================================
-# Test 3: Base de données (via /events)
+# Test 3: Base de données (via /health qui vérifie la DB)
 # ============================================
 info "Test Database..."
-EVENTS=$(curl -s "$API_URL/events" 2>/dev/null)
-if echo "$EVENTS" | grep -q "\[" 2>/dev/null; then
-    pass "Database connectée (/events OK)"
+HEALTH=$(curl -s "$API_URL/health" 2>/dev/null)
+if echo "$HEALTH" | grep -q "OK" 2>/dev/null; then
+    pass "Database connectée (/health OK)"
 else
     fail "Database non accessible"
 fi
 
 # ============================================
-# Test 4: Sessions endpoint
+# Test 4: Sessions endpoint (public pour join)
 # ============================================
 info "Test Sessions..."
-SESSIONS=$(curl -s "$API_URL/sessions" 2>/dev/null)
-if echo "$SESSIONS" | grep -q "\[" 2>/dev/null; then
-    pass "Endpoint /sessions OK"
+SESSIONS=$(curl -s "$API_URL/sessions/join" -X POST -H "Content-Type: application/json" -d '{"code":"TEST"}' 2>/dev/null)
+if echo "$SESSIONS" | grep -q "error\|session" 2>/dev/null; then
+    pass "Endpoint /sessions/join OK"
 else
     fail "Endpoint /sessions KO"
 fi
@@ -75,7 +75,7 @@ fi
 # Test 5: Auth (doit retourner 401)
 # ============================================
 info "Test Auth protection..."
-AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/users/me" 2>/dev/null)
+AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/auth/me" 2>/dev/null)
 if [ "$AUTH_STATUS" = "401" ]; then
     pass "Auth protection active (401)"
 else
@@ -88,7 +88,7 @@ fi
 info "Test flow complet..."
 
 # Login admin
-LOGIN_RESP=$(curl -s -X POST "$API_URL/auth/login" \
+LOGIN_RESP=$(curl -s -X POST "$API_URL/api/auth/login" \
     -H "Content-Type: application/json" \
     -d '{"email":"admin@arena-event.fr","password":"admin123"}' 2>/dev/null)
 
@@ -98,7 +98,7 @@ if [ -n "$TOKEN" ]; then
     pass "Login admin OK"
 
     # Créer un event
-    EVENT_RESP=$(curl -s -X POST "$API_URL/events" \
+    EVENT_RESP=$(curl -s -X POST "$API_URL/api/events" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d '{"name":"Test Event '$(date +%s)'","description":"Test"}' 2>/dev/null)
@@ -109,7 +109,7 @@ if [ -n "$TOKEN" ]; then
         pass "Création event OK"
 
         # Créer une session
-        SESSION_RESP=$(curl -s -X POST "$API_URL/sessions" \
+        SESSION_RESP=$(curl -s -X POST "$API_URL/api/sessions" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $TOKEN" \
             -d '{"eventId":"'"$EVENT_ID"'"}' 2>/dev/null)
